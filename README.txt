@@ -1,5 +1,11 @@
 大肥鱼 macOS 3D 桌宠 — 本地个人使用版
 
+当前重建版
+Build.command 默认生成 Builds/RebuiltBigFish.app。
+重建模型与可编辑文件分别位于 Assets/DesktopFish/Rebuilt/ 和 Modeling/RebuiltBigFish/。
+目前为 5 个表情通道、51 根骨骼；本机旧版 Builds/BigFatBlueFish.app 另行保留。
+本文件后续记录为旧版开发历史，最新建模流程及验证范围见 README.md 和 Modeling/RebuiltBigFish/README.md。
+
 开发目录
 /Users/chendx/mydev/codex-bigfish
 现有模型、源码、依赖和可运行应用已迁到本目录，后续在这里开发。
@@ -83,11 +89,12 @@ python3 set-state.py complete
 python3 set-state.py idle --action wave
 动作参数支持 wave / bow / doze / step / cheer，可重复发送。
 支持 idle / working / complete / waiting / error。
-这只是本地状态文件接口，尚未自动订阅 Codex 桌面 App 当前聊天的任务状态。
+手动接口继续可用。当前桌面自动联动采用 Integrations/codex/ 中的本机会话生命周期日志监听器；已验证本桌面聊天的真实开始事件。
+官方 hooks 适配器另保留用于 CLI。Mini 保留官方聊天控件，Unity 仍是独立 3D 窗口；详细范围与限制见 Integrations/codex/README.md。
 
 后续改进
 原始 VRChat PhysBone 尚未迁移，因此尚无原版完整的头发/裙摆物理效果。
-Codex 任务状态自动联动尚未接入。
+本机桌面事件监听依赖当前客户端日志格式，需要随客户端升级验证；远程与云端聊天不在监听范围内。
 多显示器、不同缩放比例以及跨屏拖动仍需进一步验证。
 
 修改源代码

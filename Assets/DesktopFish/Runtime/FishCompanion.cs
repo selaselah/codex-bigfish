@@ -25,16 +25,38 @@ namespace DesktopFish
         string state = "idle", statePath;
         string previousMotionState = "idle";
         string stateContent = "";
+        double stateExpiresAt;
+        double noticeUntil;
+        long lastCommandId;
+        int activeCount;
+        string stateSource = "", notice = "";
+        bool showStatus = true;
+        Texture2D statusPill;
+        GUIStyle statusStyle;
         Font menuFont;
         UniWindowController.MouseButton previousButtons;
 
-        [Serializable] class StateMessage { public string state; public string action; }
+        [Serializable] class StateMessage
+        {
+            public string state, action, source, notice;
+            public double expires_at, notice_until;
+            public long command_id;
+            public int active_count;
+        }
+        [Serializable] class RuntimeStatus
+        {
+            public string state, source;
+            public int active_count;
+            public long command_id;
+            public double observed_at;
+        }
 
         void Start()
         {
             Application.targetFrameRate = 30;
             Application.runInBackground = true;
             menuFont = Font.CreateDynamicFontFromOSFont(new[] { "PingFang SC", "Arial Unicode MS", "Arial" }, 14);
+            showStatus = PlayerPrefs.GetInt("showStatus", 1) != 0;
             motion = new FishMotion(model);
             if (face && face.sharedMesh)
                 for (int i = 0; i < face.sharedMesh.blendShapeCount; i++)
@@ -160,6 +182,14 @@ namespace DesktopFish
 
         void PollState()
         {
+            double now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
+            if (stateExpiresAt > 0 && now >= stateExpiresAt)
+            {
+                state = "idle";
+                stateExpiresAt = 0;
+                activeCount = 0;
+                RecordStatus();
+            }
             try
             {
                 if (!File.Exists(statePath)) return;
@@ -168,14 +198,30 @@ namespace DesktopFish
                 var message = JsonUtility.FromJson<StateMessage>(text);
                 if (message == null || !ValidState(message.state)) return;
                 stateContent = text;
+                stateSource = message.source ?? "manual";
+                activeCount = message.active_count;
+                notice = message.notice ?? "";
+                noticeUntil = message.notice_until;
+                stateExpiresAt = message.expires_at;
+                if (stateExpiresAt > 0 && now >= stateExpiresAt)
+                {
+                    state = "idle";
+                    stateExpiresAt = 0;
+                    activeCount = 0;
+                    RecordStatus();
+                    return;
+                }
                 state = message.state;
                 if (Enum.TryParse(message.action, true, out FishMotion.Gesture action) &&
-                    action != FishMotion.Gesture.None && Enum.IsDefined(typeof(FishMotion.Gesture), action))
+                    action != FishMotion.Gesture.None && Enum.IsDefined(typeof(FishMotion.Gesture), action) &&
+                    (message.command_id == 0 || message.command_id != lastCommandId))
                 {
+                    lastCommandId = message.command_id;
                     motion.Play(action, Time.time);
                     previousMotionState = state;
                     Debug.Log("Desktop Fish gesture: " + action);
                 }
+                RecordStatus();
             }
             catch (IOException) { } // Retry when an external writer finishes.
             catch (ArgumentException) { } // Ignore a partial/invalid JSON document.
@@ -183,6 +229,54 @@ namespace DesktopFish
 
         static bool ValidState(string value) => value == "idle" || value == "working" ||
             value == "complete" || value == "waiting" || value == "error";
+
+        void RecordStatus()
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(Application.persistentDataPath, "runtime-status.json"),
+                    JsonUtility.ToJson(new RuntimeStatus {
+                        state = state, source = stateSource, active_count = activeCount,
+                        command_id = lastCommandId,
+                        observed_at = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0
+                    }));
+            }
+            catch (IOException) { }
+        }
+
+        void DrawStatus(float scale)
+        {
+            if (!showStatus) return;
+            if (!statusPill)
+            {
+                statusPill = new Texture2D(64, 32, TextureFormat.RGBA32, false);
+                for (int y = 0; y < 32; y++) for (int x = 0; x < 64; x++)
+                {
+                    float cx = Mathf.Clamp(x, 16, 47);
+                    float distance = Vector2.Distance(new Vector2(x, y), new Vector2(cx, 15.5f));
+                    statusPill.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(16 - distance)));
+                }
+                statusPill.Apply();
+                statusStyle = new GUIStyle(GUI.skin.label) {
+                    font = menuFont, fontSize = 11, alignment = TextAnchor.MiddleCenter
+                };
+                statusStyle.normal.textColor = Color.white;
+            }
+            double now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
+            string label = state == "working" ? "工作中" : state == "waiting" ? "等你回复" :
+                state == "complete" ? "本回合结束" : state == "error" ? "遇到问题" : "休息中";
+            if (state == "working" || state == "waiting")
+                label += activeCount > 0 ? " · " + activeCount + " 项" : "";
+            if (state == "working") label += new string('.', (int)(Time.unscaledTime * 2) % 3 + 1);
+            if (noticeUntil > now && !string.IsNullOrEmpty(notice)) label = notice;
+            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
+            Rect rect = new Rect((Screen.width / scale - 170) * 0.5f, Screen.height / scale - 27, 170, 22);
+            GUI.color = state == "complete" || noticeUntil > now ?
+                new Color(0.10f, 0.38f, 0.37f, 0.92f) : new Color(0.10f, 0.16f, 0.30f, 0.88f);
+            GUI.DrawTexture(rect, statusPill);
+            GUI.color = Color.white;
+            GUI.Label(rect, label, statusStyle);
+        }
 
         void CloseMenu()
         {
@@ -210,7 +304,7 @@ namespace DesktopFish
             }
             if (menu && mouseEvent.type == EventType.MouseDown && mouseEvent.button == 0 &&
                 !MenuRect().Contains(menuPointer)) CloseMenu();
-            if (!menu) return;
+            if (!menu) { DrawStatus(scale); return; }
             GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
             if (menuFont) GUI.skin.font = menuFont;
             GUILayout.BeginArea(MenuRect(), GUI.skin.box);
@@ -237,10 +331,16 @@ namespace DesktopFish
                 if (GUILayout.Button(labels[i], GUILayout.Height(25)))
                 {
                     state = states[i];
+                    stateExpiresAt = 0;
                     Debug.Log("Desktop Fish menu state: " + state);
                     CloseMenu();
                 }
             if (GUILayout.Button("动作…", GUILayout.Height(25))) menuActions = true;
+            if (GUILayout.Button(showStatus ? "状态提示：开" : "状态提示：关", GUILayout.Height(25)))
+            {
+                showStatus = !showStatus;
+                PlayerPrefs.SetInt("showStatus", showStatus ? 1 : 0);
+            }
             if (GUILayout.Button("退出", GUILayout.Height(25))) Application.Quit();
             GUILayout.EndArea();
         }

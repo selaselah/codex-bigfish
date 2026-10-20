@@ -12,6 +12,8 @@ namespace DesktopFish
         static readonly string[] FingerNames = { "Index", "Middle", "Ring", "Little" };
         readonly Transform model;
         readonly Vector3 restPosition, restScale;
+        readonly Vector3 waveWristOffset;
+        readonly bool rebuiltRig;
         readonly Quaternion restRotation;
         readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
         readonly Dictionary<string, Quaternion> rest = new Dictionary<string, Quaternion>();
@@ -20,6 +22,7 @@ namespace DesktopFish
         Gesture gesture;
         float started, duration, nextAction, bounceStart = -10;
         float lookX, lookY;
+        float workBlend;
         int previousRandom = -1;
         public bool randomActions = true;
         public float ClosedEyes { get; private set; }
@@ -31,6 +34,9 @@ namespace DesktopFish
             restPosition = target.localPosition;
             restScale = target.localScale;
             restRotation = target.localRotation;
+            var profile = target.GetComponent<FishRigProfile>();
+            rebuiltRig = profile;
+            waveWristOffset = profile ? profile.waveWristOffset : new Vector3(.110f, .085f, .075f);
             foreach (Transform bone in target.GetComponentsInChildren<Transform>(true))
             {
                 if (bones.ContainsKey(bone.name)) continue;
@@ -75,6 +81,8 @@ namespace DesktopFish
             float follow = 1 - Mathf.Exp(-5 * dt);
             lookX = Mathf.Lerp(lookX, pointerX, follow);
             lookY = Mathf.Lerp(lookY, pointerY, follow);
+            workBlend = Mathf.Lerp(workBlend,
+                state == "working" && gesture == Gesture.None && !dragging ? 1 : 0, follow);
             Evaluate(now, lookX, lookY, state, dragging);
         }
 
@@ -99,6 +107,12 @@ namespace DesktopFish
             float rootY = 0, lean = 0, squash = 1;
             ClosedEyes = 0;
             Joy = state == "complete" ? 65 : state == "idle" ? 8 : 0;
+            // A readable thinking pose, with a slow nod and gentle sway while busy.
+            head = Vector3.Lerp(head, new Vector3(9 + Mathf.Sin(now * 2.2f) * 3,
+                -pointerX * 5, -7 + Mathf.Sin(now * 1.2f) * 2), workBlend);
+            chest.x += 5 * workBlend;
+            lean += Mathf.Sin(now * 1.9f) * 2 * workBlend;
+            rootY += Mathf.Sin(now * 2.2f) * 0.003f * workBlend;
             switch (gesture)
             {
                 case Gesture.Wave:
@@ -183,8 +197,13 @@ namespace DesktopFish
             }
             else if (gesture == Gesture.Cheer)
             {
-                PresentPalm("L", 35, weight);
-                PresentPalm("R", -35, weight);
+                if (rebuiltRig) {
+                    WaveArm("L", -1, -32, weight);
+                    WaveArm("R", 1, 32, weight);
+                } else {
+                    PresentPalm("L", 35, weight);
+                    PresentPalm("R", -35, weight);
+                }
             }
             float fingerRelax = gesture == Gesture.Wave || gesture == Gesture.Cheer ? 1 - weight : 1;
             if (gesture == Gesture.Wave) fingerRelax = 1 - 0.88f * weight;
@@ -201,7 +220,7 @@ namespace DesktopFish
                 Rotate("J_Sec_Hair" + i + "_01", new Vector3(Mathf.Sin(now * 1.5f + i * 0.5f) * 0.7f,
                     0, Mathf.Sin(now * 1.3f + i) * 0.8f));
                 string name = "J_Sec_Hair" + i + "_01";
-                if (bones.TryGetValue(name, out Transform hair))
+                if (!rebuiltRig && bones.TryGetValue(name, out Transform hair))
                     hair.rotation = Quaternion.Slerp(hair.rotation, model.rotation * worldRest[name], 0.55f);
             }
         }
@@ -232,7 +251,7 @@ namespace DesktopFish
             float b = Vector3.Distance(elbow.position, hand.position);
             // Fixed face-side targets and an outward/downward pole keep the elbows
             // bent. Wrist motion never drives the shoulder or stretches the rig.
-            Vector3 offset = model.TransformVector(new Vector3(sign * 0.110f, 0.085f, 0.075f));
+            Vector3 offset = model.TransformVector(new Vector3(sign * waveWristOffset.x, waveWristOffset.y, waveWristOffset.z));
             float distance = Mathf.Clamp(offset.magnitude, Mathf.Abs(a - b) + 0.001f, (a + b) * 0.94f);
             Vector3 direction = offset.normalized;
             Vector3 target = upper.position + direction * distance;

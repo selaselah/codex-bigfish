@@ -30,6 +30,13 @@ MemoryCaptures/
 /Assets/Scenes.meta
 /Preview.png
 /asset-audit.json
+__pycache__/
+*.pyc
+*.blend1
 
 /ThirdPartyNotices/Lisence.txt
 /ThirdPartyNotices/ReadMe.txt
+
+# Local visual review copies.
+/Modeling/RebuiltBigFish/Chibi-0.asset
+/Modeling/RebuiltBigFish/Chibi-0.asset.meta

@@ -14,22 +14,28 @@ namespace DesktopFish.Editor
     public static class FishBuild
     {
         const string ScenePath = "Assets/Scenes/DesktopFish.unity";
+        public static bool UseRebuilt;
 
         [MenuItem("Desktop Fish/Create Scene")]
         public static void CreateScene()
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            string prefabPath = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets/Mzkagami" })
-                .Select(AssetDatabase.GUIDToAssetPath).Single();
-            var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
-            if (!source) throw new InvalidOperationException("Model prefab could not be imported.");
             var pivot = new GameObject("Fish Companion");
-            var model = (GameObject)PrefabUtility.InstantiatePrefab(source);
+            GameObject model;
+            if (UseRebuilt) model = FishRebuiltModel.Create();
+            else
+            {
+                string prefabPath = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets/Mzkagami" })
+                    .Select(AssetDatabase.GUIDToAssetPath).Single();
+                var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+                if (!source) throw new InvalidOperationException("Model prefab could not be imported.");
+                model = (GameObject)PrefabUtility.InstantiatePrefab(source);
+            }
             model.transform.SetParent(pivot.transform, false);
             var animator = model.GetComponent<Animator>();
             if (animator) animator.enabled = false;
-            FishChibiStyle.Apply(model);
-            foreach (var bone in model.GetComponentsInChildren<Transform>(true))
+            if (!UseRebuilt) FishChibiStyle.Apply(model);
+            foreach (var bone in model.GetComponentsInChildren<Transform>(true).Where(_ => !UseRebuilt))
             {
                 if (bone.name == "Basin01" || bone.name == "Basin02")
                     bone.gameObject.SetActive(false);
@@ -41,6 +47,21 @@ namespace DesktopFish.Editor
             var renderers = model.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0) throw new InvalidOperationException("No visible model renderers.");
             Bounds bounds = PosedBounds(renderers);
+            if (UseRebuilt)
+            {
+                var transforms = model.GetComponentsInChildren<Transform>(true);
+                var positions = transforms.Select(t => t.localPosition).ToArray();
+                var rotations = transforms.Select(t => t.localRotation).ToArray();
+                var scales = transforms.Select(t => t.localScale).ToArray();
+                var pose = new FishMotion(model.transform) { randomActions = false };
+                pose.Tick(0, 1, 0, 0, "idle", false);
+                bounds = PosedBounds(renderers);
+                FishRebuiltModel.ExportIdlePose(model);
+                for (int i = 0; i < transforms.Length; i++) {
+                    transforms[i].localPosition = positions[i]; transforms[i].localRotation = rotations[i];
+                    transforms[i].localScale = scales[i];
+                }
+            }
             var hitArea = model.AddComponent<CapsuleCollider>();
             hitArea.center = model.transform.InverseTransformPoint(bounds.center);
             hitArea.height = bounds.size.y;
@@ -61,7 +82,7 @@ namespace DesktopFish.Editor
             cameraObject.AddComponent<FishPalette>().paletteShader = AssetDatabase.LoadAssetAtPath<Shader>(
                 "Assets/DesktopFish/Shaders/IllustratedPalette.shader");
             Vector3 center = bounds.center;
-            camera.transform.position = center + new Vector3(0, 0, 3);
+            camera.transform.position = center + new Vector3(0, UseRebuilt ? .24f : 0, 3);
             camera.transform.LookAt(center);
             var lightObject = new GameObject("Soft Key Light");
             var light = lightObject.AddComponent<Light>();
@@ -80,7 +101,7 @@ namespace DesktopFish.Editor
             var desktopWindow = new GameObject("Desktop Window").AddComponent<UniWindowController>();
             desktopWindow.forceWindowed = true;
             if (!companion.face || !companion.face.sharedMesh)
-                throw new InvalidOperationException("The original skinned mesh is missing.");
+                throw new InvalidOperationException("The skinned expression mesh is missing.");
             Debug.Log("Desktop model: " + companion.face.sharedMesh.vertexCount + " vertices, " +
                 companion.face.sharedMesh.blendShapeCount + " blendshapes.");
             Directory.CreateDirectory("Assets/Scenes");
@@ -149,7 +170,7 @@ namespace DesktopFish.Editor
             PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1); // Apple Silicon.
             QualitySettings.antiAliasing = 4;
             QualitySettings.vSyncCount = 0;
-            string target = Path.GetFullPath("Builds/BigFatBlueFish.app");
+            string target = Path.GetFullPath(UseRebuilt ? "Builds/RebuiltBigFish.app" : "Builds/BigFatBlueFish.app");
             Directory.CreateDirectory(Path.GetDirectoryName(target));
             var result = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
                 scenes = new[] { ScenePath }, locationPathName = target,
@@ -192,10 +213,11 @@ namespace DesktopFish.Editor
             var companion = UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion = new FishMotion(companion.model);
             var camera = companion.view;
-            var target = new RenderTexture(360, 480, 24, RenderTextureFormat.ARGB32);
+            int width = UseRebuilt ? 480 : 360, height = UseRebuilt ? 640 : 480;
+            var target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
             target.antiAliasing = 4;
-            var frame = new Texture2D(360, 480, TextureFormat.RGBA32, false);
-            var sheet = new Texture2D(360 * 6, 480, TextureFormat.RGBA32, false);
+            var frame = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            var sheet = new Texture2D(width * 6, height, TextureFormat.RGBA32, false);
             var skins = companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
             var snapshots = new MeshFilter[skins.Length];
             for (int s = 0; s < skins.Length; s++)
@@ -229,11 +251,11 @@ namespace DesktopFish.Editor
                     }
                     camera.Render();
                     RenderTexture.active = target;
-                    frame.ReadPixels(new Rect(0, 0, 360, 480), 0, 0);
+                    frame.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                     frame.Apply();
-                    if (frame.GetPixel(0, 0).a > 0.001f || frame.GetPixel(359, 479).a > 0.001f)
+                    if (frame.GetPixel(0, 0).a > 0.001f || frame.GetPixel(width - 1, height - 1).a > 0.001f)
                         throw new InvalidOperationException("Palette must preserve transparent corners.");
-                    sheet.SetPixels(i * 360, 0, 360, 480, frame.GetPixels());
+                    sheet.SetPixels(i * width, 0, width, height, frame.GetPixels());
                     if (i == 0) File.WriteAllBytes(Path.GetFullPath("Preview.png"), frame.EncodeToPNG());
                 }
                 sheet.Apply();
@@ -288,10 +310,11 @@ namespace DesktopFish.Editor
                     }
                 if (min.x < 0.02f || min.y < 0.02f || max.x > 0.98f || max.y > 0.98f)
                     throw new InvalidOperationException("Gesture exceeds safe camera bounds: " + min + " / " + max);
-                if (companion.face.sharedMesh.blendShapeCount != 137)
-                    throw new InvalidOperationException("Expected all 137 original blendshapes.");
+                int expectedShapes = companion.model.GetComponent<FishRigProfile>() ? 5 : 137;
+                if (companion.face.sharedMesh.blendShapeCount != expectedShapes)
+                    throw new InvalidOperationException("Unexpected expression channel count.");
                 File.WriteAllText("work/motion-validation.json", "{\n  \"sampled_poses\": " + poses +
-                    ",\n  \"blendshapes\": 137,\n  \"viewport_min\": [" + min.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) +
+                    ",\n  \"blendshapes\": " + expectedShapes + ",\n  \"viewport_min\": [" + min.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) +
                     ", " + min.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "],\n  \"viewport_max\": [" +
                     max.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + ", " +
                     max.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "],\n  \"passed\": true\n}\n");

@@ -18,10 +18,10 @@ if [[ -z "$unity_bin" || ! -x "$unity_bin" ]]; then
 fi
 mkdir -p "$project_dir/Logs"
 "$unity_bin" -batchmode -quit -projectPath "$project_dir" \
-  -executeMethod DesktopFish.Editor.FishBuild.BuildMac \
+  -executeMethod DesktopFish.Editor.FishRebuiltModel.Build \
   -logFile "$project_dir/Logs/build.log"
-if [[ ! -d "$project_dir/Builds/BigFatBlueFish.app" ]]; then
+if [[ ! -d "$project_dir/Builds/RebuiltBigFish.app" ]]; then
   print "Build did not produce an app. See $project_dir/Logs/build.log"
   exit 1
 fi
-print "Built: $project_dir/Builds/BigFatBlueFish.app"
+print "Built: $project_dir/Builds/RebuiltBigFish.app"
