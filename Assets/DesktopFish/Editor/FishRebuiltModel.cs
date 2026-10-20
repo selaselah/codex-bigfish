@@ -1202,8 +1202,12 @@ namespace DesktopFish.Editor
                 const int palmRings=16,palmSides=16;
                 for(int row=0;row<=palmRings;row++)for(int j=0;j<=palmSides;j++) {
                     float t=row/(float)palmRings,theta=j/(float)palmSides*Mathf.PI*2;
-                    float x=.319f+.062f*t;
-                    float cap=Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.70f)/.30f),2)));
+                    // Keep the wrist and its skinning transition fixed while
+                    // shortening only the distal palm under the finger roots.
+                    float x=.319f+.062f*t-.003f*
+                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,t));
+                    float cap=row==palmRings?0:
+                        Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.72f)/.28f),2)));
                     float ry=.018f*(1+.08f*Mathf.Sin(t*Mathf.PI))*cap;
                     float rz=(.019f+.007f*Mathf.Sin(t*Mathf.PI))*cap;
                     float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.326f,.350f,x));

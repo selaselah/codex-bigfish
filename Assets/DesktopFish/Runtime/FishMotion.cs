@@ -292,9 +292,13 @@ namespace DesktopFish
 
         void RelaxFingers(string side, float sign, float weight)
         {
-            foreach (string finger in FingerNames)
+            for (int i = 0; i < FingerNames.Length; i++)
             {
-                Rotate("J_Bip_" + side + "_" + finger + "1", new Vector3(0, 0, sign * 24 * weight));
+                string finger = FingerNames[i];
+                // Short, rounded fingers fan out when presenting the rebuilt
+                // palm, then close together again as the hand relaxes.
+                float spread = rebuiltRig ? sign * (1.5f - i) * 12 * (1 - weight) : 0;
+                Rotate("J_Bip_" + side + "_" + finger + "1", new Vector3(0, spread, sign * 24 * weight));
                 Rotate("J_Bip_" + side + "_" + finger + "2", new Vector3(0, 0, sign * 34 * weight));
                 Rotate("J_Bip_" + side + "_" + finger + "3", new Vector3(0, 0, sign * 18 * weight));
             }
