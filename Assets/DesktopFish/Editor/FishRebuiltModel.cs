@@ -664,19 +664,30 @@ namespace DesktopFish.Editor
                 Grid(a.body,first,rows,cols);
                 Fan(a,new[]{V(sign*.004f,.578f,.074f),V(sign*.085f,.565f,.057f),
                     V(sign*.066f,.532f,.091f),V(sign*.035f,.549f,.098f)},White,chest);
-                GoldBow(a,V(sign*.142f,.211f,.102f),hips,.022f);
-                foreach(float x in new[]{sign*.089f,sign*.191f})
-                    Star(a,V(x,.207f,.13f*Mathf.Sqrt(1-x*x/(.223f*.223f))+.003f),.0055f,hips);
+                GoldBow(a,V(sign*.142f,.220f,0),hips,.022f);
+                Star(a,V(sign*.094f,.217f,0),.0065f,hips);
+                Star(a,V(sign*.184f,.223f,0),.0065f,hips);
+                // A pair of broad tapered leaves keeps the ornament readable at
+                // desktop size; the stem remains separated from the hem bands.
+                var stem=Curve(new[]{V(sign*.140f,.242f,0),V(sign*.144f,.249f,0),
+                    V(sign*.144f,.258f,0),V(sign*.141f,.265f,0)},12);
+                SkirtStroke(a,stem,.0016f,hips);
+                SkirtLeaf(a,V(sign*.144f,.251f,0),V(sign*.154f,.258f,0),.0034f,hips);
+                SkirtLeaf(a,V(sign*.144f,.256f,0),V(sign*.133f,.263f,0),.0038f,hips);
             }
             for(int i=0;i<3;i++)a.Sphere(a.body,V(0,.425f+i*.022f,.092f),V(.004f,.004f,.002f),Ink,chest,12,6);
             a.Sphere(a.body,V(0,.376f,.083f),V(.006f,.003f,.002f),Gold,hips,12,6);
-            foreach(float y in new[]{.185f,.194f}) {
-                float t=(y-.173f)/(.375f-.173f),rx=Mathf.Lerp(.223f,.113f,t),rz=Mathf.Lerp(.137f,.077f,t);
-                var ring=Enumerable.Range(0,145).Select(i=>{
-                    float theta=i/144f*Mathf.PI*2,pleat=1+.045f*Mathf.Cos(theta*12)*(1-t);
-                    return V(Mathf.Sin(theta)*(rx*pleat+.002f),y,Mathf.Cos(theta)*(rz*pleat+.002f));
-                }).ToArray();
-                a.Tube(a.body,ring,.0018f,Gold,hips,4);
+            foreach(float y in new[]{.184f,.195f}) {
+                int start=a.body.p.Count;const int sides=144,rows=2;
+                float width=y<.19f?.0027f:.0021f;
+                for(int row=0;row<=rows;row++)for(int i=0;i<=sides;i++) {
+                    float u=row/(float)rows,theta=i/(float)sides*Mathf.PI*2;
+                    Vector3 p=SkirtSurface(theta,y+(u*2-1)*width);
+                    p+=V(Mathf.Sin(theta),0,Mathf.Cos(theta))*(.0025f+.0005f*Mathf.Sin(u*Mathf.PI));
+                    Color color=Gold*(row==1?1.06f:.93f);color.a=1;
+                    a.body.Add(p,color,hips);
+                }
+                Grid(a.body,start,rows,sides);
             }
             // A flat waist edge opens into a rounded rectangular cloth panel.
             // Its surface drapes along the skirt; the lace follows only the U edge.
@@ -994,24 +1005,84 @@ namespace DesktopFish.Editor
             a.Sphere(a.body,center+V(0,0,.002f),V(size*.17f,size*.20f,size*.13f),color,bone,12,8);
         }
         static void GoldBow(Author a,Vector3 c,int bone,float size) {
-            int start=a.body.p.Count;
             foreach(int s in new[]{-1,1}) {
-                a.Tube(a.body,Curve(new[]{c,c+V(s*size*1.3f,size*1.7f,0),c+V(s*size*1.7f,-size*.1f,0),c},12),.0018f,Gold,bone,4);
-                a.Tube(a.body,new[]{c,c+V(s*size*.5f,-size*.7f,.001f),c+V(s*size*.8f,-size*.8f,.001f)},.0017f,Gold,bone,6);
+                SkirtStroke(a,Curve(new[]{c,c+V(s*size*.8f,size*.02f,0),
+                    c+V(s*size*1.5f,size*.65f,0),c+V(s*size*1.2f,size*.88f,0),
+                    c+V(s*size*.85f,size*1.12f,0),c+V(s*size*.28f,size*.38f,0),c},24),.0026f,bone);
+                SkirtStroke(a,Curve(new[]{c,c+V(s*size*.12f,-size*.25f,0),
+                    c+V(s*size*.22f,-size*.50f,0),c+V(s*size*.60f,-size*.72f,0)},10),.0024f,bone);
             }
-            for(int i=start;i<a.body.p.Count;i++)a.body.p[i]=OnSkirt(a.body.p[i]);
+            var knot=Enumerable.Range(0,12).Select(i=>{
+                float angle=-i/12f*Mathf.PI*2;
+                return c+V(Mathf.Cos(angle)*.0038f,Mathf.Sin(angle)*.0043f,0);
+            }).ToArray();
+            SkirtPatch(a,c,knot,bone);
+        }
+        static Vector3 SkirtSurface(float theta,float y) {
+            float t=Mathf.InverseLerp(.173f,.375f,y),rx=Mathf.Lerp(.223f,.113f,t),rz=Mathf.Lerp(.137f,.077f,t);
+            float pleat=1+.045f*Mathf.Cos(theta*12)*(1-t);
+            return V(Mathf.Sin(theta)*rx*pleat,y,Mathf.Cos(theta)*rz*pleat);
         }
         static Vector3 OnSkirt(Vector3 p) {
-            float t=Mathf.InverseLerp(.173f,.375f,p.y),rx=Mathf.Lerp(.223f,.113f,t),rz=Mathf.Lerp(.137f,.077f,t);
-            float theta=Mathf.Asin(Mathf.Clamp(p.x/rx,-.99f,.99f));
-            float pleat=1+.045f*Mathf.Cos(theta*12)*(1-t);
-            p.z=rz*pleat*Mathf.Cos(theta)+.004f;
+            // Project onto the same angular segments as the cloth. Folds near
+            // the sides can overlap in x, so use the frontmost intersection.
+            float z=-1,nearest=float.MaxValue;Vector3 fallback=Vector3.zero;
+            Vector3 previous=SkirtSurface(-Mathf.PI*.5f,p.y);
+            for(int i=1;i<=36;i++) {
+                Vector3 next=SkirtSurface(-Mathf.PI*.5f+i*Mathf.PI/36,p.y);
+                float delta=next.x-previous.x;
+                if(Mathf.Abs(delta)>.000001f) {
+                    float u=(p.x-previous.x)/delta;
+                    if(u>=0&&u<=1)z=Mathf.Max(z,Mathf.Lerp(previous.z,next.z,u));
+                }
+                foreach(var point in new[]{previous,next})
+                    if(Mathf.Abs(point.x-p.x)<nearest) { nearest=Mathf.Abs(point.x-p.x);fallback=point; }
+                previous=next;
+            }
+            if(z<0) {p.x=fallback.x;z=fallback.z;}
+            p.z=z+.003f;
             return p;
         }
-        static void Star(Author a,Vector3 c,float size,int bone) {
+        static void SkirtStroke(Author a,Vector3[] path,float radius,int bone) {
+            int start=a.body.p.Count;const int cols=2;
+            for(int i=0;i<path.Length;i++)for(int j=0;j<=cols;j++) {
+                Vector3 tangent=(path[Mathf.Min(i+1,path.Length-1)]-path[Mathf.Max(i-1,0)]).normalized;
+                float u=j/(float)cols;
+                Vector3 p=OnSkirt(path[i]+V(tangent.y,-tangent.x,0)*radius*(u*2-1));
+                p.z+=Mathf.Sin(u*Mathf.PI)*.0005f;
+                Color color=Gold*(j==1?1.06f:.94f);color.a=1;
+                a.body.Add(p,color,bone);
+            }
+            Grid(a.body,start,path.Length-1,cols);
+        }
+        static void SkirtPatch(Author a,Vector3 center,Vector3[] edge,int bone) {
             int start=a.body.p.Count;
-            Fan(a,new[]{c+V(0,size,0),c+V(size*.35f,size*.25f,0),c+V(size,0,0),c+V(size*.25f,-size*.3f,0),c+V(0,-size,0),c+V(-size*.25f,-size*.3f,0),c+V(-size,0,0),c+V(-size*.35f,size*.25f,0)},Gold,bone);
-            for(int i=start;i<a.body.p.Count;i++)a.body.p[i]=OnSkirt(a.body.p[i]);
+            a.body.Add(OnSkirt(center)+Vector3.forward*.0005f,Gold,bone);
+            foreach(var p in edge)a.body.Add(OnSkirt(p),Gold,bone);
+            for(int i=0;i<edge.Length;i++) {
+                int next=(i+1)%edge.Length;
+                if(Vector3.Cross(edge[i]-center,edge[next]-center).z>0)
+                    a.body.Face(start,start+1+i,start+1+next);
+                else a.body.Face(start,start+1+next,start+1+i);
+            }
+        }
+        static void SkirtLeaf(Author a,Vector3 root,Vector3 tip,float width,int bone) {
+            Vector3 center=(root+tip)*.5f,axis=(tip-root).normalized,side=V(axis.y,-axis.x,0);
+            var edge=new List<Vector3>();
+            for(int i=0;i<=6;i++) {
+                float t=i/6f;
+                edge.Add(Vector3.Lerp(root,tip,t)+side*(Mathf.Sin(t*Mathf.PI)*width));
+            }
+            for(int i=5;i>0;i--) {
+                float t=i/6f;
+                edge.Add(Vector3.Lerp(root,tip,t)-side*(Mathf.Sin(t*Mathf.PI)*width*.75f));
+            }
+            SkirtPatch(a,center,edge.ToArray(),bone);
+        }
+        static void Star(Author a,Vector3 c,float size,int bone) {
+            SkirtPatch(a,c,new[]{c+V(0,size,0),c+V(size*.32f,size*.30f,0),
+                c+V(size*.83f,0,0),c+V(size*.30f,-size*.28f,0),c+V(0,-size,0),
+                c+V(-size*.30f,-size*.28f,0),c+V(-size*.83f,0,0),c+V(-size*.32f,size*.30f,0)},bone);
         }
     }
 }

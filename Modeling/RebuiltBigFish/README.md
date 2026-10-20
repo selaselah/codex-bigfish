@@ -36,6 +36,8 @@ The side fins and the two tail lobes use curved leading/trailing contours with a
 
 The apron has a straight waist edge, softly rounded lower corners and shallow gathered folds. Its cloth, flat seam and U-shaped lace follow the skirt curvature. The large whale is rebuilt as surface artwork, with its belly, eye and water strokes on separate depth layers; mirrored artwork is reprojected onto the asymmetric cloth folds. This removes 896 triangles compared with the previous rounded apron and sphere-based artwork, without shrinking the emblem or removing the lace.
 
+The gold hem and bow embroidery now use broad surface bands instead of flattened tubes. The main hem band is wider than the secondary line; bow loops have distinct knots and curved tails, with larger stars and paired leaf accents. Artwork projects onto the frontmost segment of the same pleated skirt surface, including folds near its sides. The motifs sit above the hem with visible spacing. This pass removes 912 triangles while retaining and enlarging the gold detail; front previews are also compared at 240×320 pixels to check desktop-size readability.
+
 ## Reproduce
 
 1. Run Unity batch method `DesktopFish.Editor.FishRebuiltModel.ReviewAndBuild`. This creates the Unity assets, previews, geometry/idle-pose JSON under `work/`, and `Builds/RebuiltBigFish.app`.
