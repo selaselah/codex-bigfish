@@ -820,9 +820,34 @@ namespace DesktopFish.Editor
                     radial(.230f+layer,.215f+lift,.215f+layer),radial(.240f+layer,.145f+lift,.225f+layer),
                     radial(tipRadius-.020f,.145f+lift,.275f+layer),
                     radial(tipRadius,.172f+lift+(i%3)*.006f,tipRadius-.010f)};
+                // Shorter rear layers turn before the long outer locks. Their
+                // two lower Bezier spans use distinct bends and open flicks.
+                if(group==1) {
+                    taperAt=.66f;
+                    controls[7]=radial(.295f,.405f,.280f);
+                    controls[8]=radial(.240f,.320f,.235f);
+                    controls[9]=radial(.245f,.270f,.230f);
+                    controls[10]=radial(.250f,.220f,.225f);
+                    controls[11]=radial(.305f,.225f,.290f);
+                    controls[12]=radial(.335f,.265f,.325f);
+                } else if(group==3) {
+                    taperAt=.65f;
+                    controls[7]=radial(.295f,.405f,.275f);
+                    controls[8]=radial(.215f,.350f,.225f);
+                    controls[9]=radial(.220f,.300f,.230f);
+                    controls[10]=radial(.225f,.250f,.235f);
+                    controls[11]=radial(.265f,.255f,.290f);
+                    controls[12]=radial(.290f,.295f,.310f);
+                }
                 // A sideways finish puts each tapered tip on the silhouette
                 // instead of pointing every curl straight into the rear view.
                 Vector3 lateral=V(Mathf.Cos(theta),0,-Mathf.Sin(theta));
+                if(i==4) {
+                    // The center lock changes direction once through its lower
+                    // body, then follows that curve into an off-center tip.
+                    float[] drift={0,0,0,-.010f,-.020f,-.045f,-.060f};
+                    for(int k=6;k<=12;k++)controls[k]+=lateral*drift[k-6];
+                }
                 float curl=i==4?-.020f:Mathf.Sign(Mathf.Sin(theta)*Mathf.Cos(theta))*
                     new[]{0f,.012f,.025f,.020f,.020f}[group];
                 controls[9]+=lateral*curl*.10f;
