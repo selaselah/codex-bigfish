@@ -1032,7 +1032,9 @@ namespace DesktopFish.Editor
 
         static void BuildDress(Author a, int hips, int chest)
         {
-            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,14,72);
+            // Six height intervals retain the gently quadratic skirt drape;
+            // the 72 angular samples still describe all twelve broad pleats.
+            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,6,72);
             Lathe(a,hips,.133f,.170f,t=>Mathf.Lerp(.214f,.222f,t),
                 t=>Mathf.Lerp(.134f,.138f,t),White*.96f,2,72);
             Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
