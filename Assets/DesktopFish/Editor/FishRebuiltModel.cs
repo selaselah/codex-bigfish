@@ -979,9 +979,14 @@ namespace DesktopFish.Editor
             a.HairPanel(new[]{V(.019f,.966f,.06f),V(.064f,.90f,.19f),
                 V(.043f,.79f,.208f),V(.054f,.725f,.194f)},.029f,head,false,2,
                 tipStart:.74f,tipBias:.04f,tipPower:.94f,tipPaintEase:.56f);
-            a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,0),
-                V(.10f,1.10f,.005f),V(.12f,1.03f,.015f)},24),
-                t=>.010f*Mathf.Sin(Mathf.PI*Mathf.Lerp(.25f,1,t)),t=>.0035f,t=>Hair,head,8);
+            // A gently rearward arch keeps the crown tuft curved in side view.
+            // Its rounded section narrows in both axes into one closed tip.
+            int tuftStart=a.body.p.Count;
+            Func<float,float> tuftProfile=t=>t>=1?0:Mathf.Pow(Mathf.Sin(Mathf.PI*Mathf.Lerp(.21f,1,t)),.75f);
+            a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,-.025f),
+                V(.10f,1.10f,-.090f),V(.12f,1.03f,-.095f)},24),
+                t=>.013f*tuftProfile(t),t=>.0075f*tuftProfile(t),t=>Hair,head,8);
+            for(int row=0;row<24;row++)a.body.smoothNormalPairs.Add(new Vector2Int(tuftStart+row*9,tuftStart+row*9+8));
         }
 
         static float HairSweepAtAngle(float angle) {
