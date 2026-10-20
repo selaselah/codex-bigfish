@@ -1192,9 +1192,26 @@ namespace DesktopFish.Editor
                 }
                 Grid(a.body,sleeveStart,sleeveX.Length-1,sleeveSides);
                 if(s<0)ReverseFaces(a.body,sleeveTriangles);
-                foreach(float x in new[]{.309f,.317f}) {
-                    var ring=Enumerable.Range(0,25).Select(i=>V(s*x,.49f+Mathf.Sin(i/24f*Mathf.PI*2)*.0275f,Mathf.Cos(i/24f*Mathf.PI*2)*.0275f)).ToArray();
-                    a.Tube(a.body,ring,.0018f,Gold,elbow,4);
+                foreach(float centerX in new[]{.309f,.317f}) {
+                    // Shallow embroidered bands follow the same elliptical
+                    // sleeve profile instead of intersecting it as round tubes.
+                    int bandStart=a.body.p.Count,bandTriangles=a.body.tri.Count;
+                    const int bandSegments=32;
+                    for(int row=0;row<3;row++) {
+                        float x=centerX+(row-1)*.0018f;
+                        int section=1;
+                        while(section<sleeveX.Length-1&&sleeveX[section]<x)section++;
+                        float radius=Mathf.Lerp(sleeveRadius[section-1],sleeveRadius[section],
+                            Mathf.InverseLerp(sleeveX[section-1],sleeveX[section],x));
+                        float relief=row==1?.0007f:.00035f;
+                        for(int j=0;j<=bandSegments;j++) {
+                            float theta=j/(float)bandSegments*Mathf.PI*2;
+                            a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*(radius+relief),
+                                Mathf.Sin(theta)*(radius*.95f+relief)),Gold,elbow);
+                        }
+                    }
+                    Grid(a.body,bandStart,2,bandSegments);
+                    if(s<0)ReverseFaces(a.body,bandTriangles);
                 }
                 // One soft volume joins wrist and palm. Gradual skin weights
                 // avoid the seam between two independently turning spheres.
