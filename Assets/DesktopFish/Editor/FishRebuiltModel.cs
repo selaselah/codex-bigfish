@@ -633,34 +633,89 @@ namespace DesktopFish.Editor
                 }).ToArray();
                 a.Tube(a.body,ring,.0018f,Gold,hips,4);
             }
-            // The apron is a shallow fabric panel, surrounded by folded lace.
-            int apronStart=a.body.p.Count;
-            a.Sphere(a.body,V(0,.286f,.124f),V(.092f,.088f,.012f),White,hips,32,16);
-            int laceStart=a.body.p.Count; const int laceSides=144,laceRows=4;
-            for(int row=0;row<=laceRows;row++)for(int i=0;i<=laceSides;i++) {
-                float t=i/(float)laceSides*Mathf.PI*2,r=row/(float)laceRows;
-                float fold=Mathf.Cos(t*24),scale=1+r*(.17f+.035f*fold);
-                a.body.Add(V(Mathf.Sin(t)*.091f*scale,.286f+Mathf.Cos(t)*.087f*scale,
-                    .126f+Mathf.Sin(r*Mathf.PI)*.009f+fold*r*.005f),
-                    Color.Lerp(White*.87f,White,(fold+1)*.5f),hips);
+            // A flat waist edge opens into a rounded rectangular cloth panel.
+            // Its surface drapes along the skirt; the lace follows only the U edge.
+            var apronControls=new[]{V(-.078f,.374f,0),V(-.030f,.374f,0),V(.030f,.374f,0),V(.078f,.374f,0),
+                V(.090f,.350f,0),V(.104f,.296f,0),V(.098f,.262f,0),
+                V(.092f,.220f,0),V(.070f,.207f,0),V(0,.207f,0),
+                V(-.070f,.207f,0),V(-.092f,.220f,0),V(-.098f,.262f,0),
+                V(-.104f,.296f,0),V(-.090f,.350f,0),V(-.078f,.374f,0)};
+            var outline=Curve(apronControls,80);
+            int apronStart=a.body.p.Count;const int apronRings=8;
+            for(int row=0;row<=apronRings;row++)for(int i=0;i<outline.Length;i++) {
+                float r=row/(float)apronRings;
+                Vector3 p=Vector3.Lerp(V(0,.293f,0),outline[i],r);
+                float gather=ApronGather(p.x,p.y);
+                Color cloth=White*Mathf.Lerp(.91f,1,(gather+1)*.5f);cloth.a=1;
+                a.body.Add(ApronSurface(p.x,p.y),cloth,hips);
             }
-            Grid(a.body,laceStart,laceRows,laceSides);
-            // Large, simple whale silhouette and belly crescent.
+            Grid(a.body,apronStart,apronRings,outline.Length-1);
+            var lacePath=Curve(apronControls.Skip(3).ToArray(),128);
+            int laceStart=a.body.p.Count;const int laceRows=4;
+            for(int row=0;row<=laceRows;row++)for(int i=0;i<lacePath.Length;i++) {
+                float t=i/(float)(lacePath.Length-1),r=row/(float)laceRows;
+                Vector3 tangent=(lacePath[Mathf.Min(i+1,lacePath.Length-1)]-
+                    lacePath[Mathf.Max(0,i-1)]).normalized;
+                Vector3 outward=V(-tangent.y,tangent.x,0);
+                float fold=Mathf.Cos(t*Mathf.PI*40);
+                float end=Mathf.SmoothStep(0,1,Mathf.Min(t,1-t)/.045f);
+                Vector3 p=lacePath[i]+outward*(.014f+.003f*fold)*r*end;
+                p=ApronSurface(p.x,p.y)+Vector3.forward*(Mathf.Sin(r*Mathf.PI)*.004f+fold*r*.002f)*end;
+                a.body.Add(p,Color.Lerp(White*.88f,White,(fold+1)*.5f),hips);
+            }
+            Grid(a.body,laceStart,laceRows,lacePath.Length-1);
+            ApronStroke(a,outline,.0011f,White*.85f,hips);
+            // Surface artwork keeps the large whale, without hidden sphere backs.
             int whaleStart=a.body.p.Count,whaleTriangles=a.body.tri.Count;
             Color blue=Hex("577FAE");
-            a.Sphere(a.body,V(-.014f,.281f,.139f),V(.046f,.030f,.0025f),blue,hips,24,12);
-            a.Sphere(a.body,V(-.027f,.268f,.142f),V(.030f,.012f,.001f),White,hips,20,8);
-            a.Tube(a.body,Curve(new[]{V(.015f,.276f,.140f),V(.040f,.278f,.141f),
-                V(.038f,.309f,.143f),V(.050f,.317f,.142f)},20),.0085f,blue,hips);
-            foreach(int sign in new[]{-1,1})a.Sphere(a.body,V(.050f+sign*.010f,.319f,.142f),V(.013f,.008f,.002f),blue,hips,16,8);
-            a.Sphere(a.body,V(-.040f,.286f,.143f),V(.0022f,.0022f,.001f),White,hips,10,6);
-            foreach(int sign in new[]{-1,1})a.Tube(a.body,Curve(new[]{V(-.018f,.315f,.140f),
-                V(-.020f,.327f,.140f),V(-.018f+sign*.009f,.334f,.140f),V(-.018f+sign*.012f,.326f,.140f)},12),.002f,blue,hips);
+            ApronOval(a,V(-.014f,.281f,0),new Vector2(.046f,.030f),blue,hips,.0015f,24,5);
+            ApronOval(a,V(-.027f,.268f,0),new Vector2(.030f,.012f),White,hips,.0024f,24,3);
+            ApronStroke(a,Curve(new[]{V(.015f,.276f,0),V(.040f,.278f,0),
+                V(.038f,.309f,0),V(.050f,.317f,0)},20),.0085f,blue,hips);
+            foreach(int sign in new[]{-1,1})ApronOval(a,V(.050f+sign*.010f,.319f,0),
+                new Vector2(.013f,.008f),blue,hips,.0015f,16,2);
+            ApronOval(a,V(-.040f,.286f,0),new Vector2(.0022f,.0022f),White,hips,.0024f,12,1);
+            foreach(int sign in new[]{-1,1})ApronStroke(a,Curve(new[]{V(-.018f,.315f,0),
+                V(-.020f,.327f,0),V(-.018f+sign*.009f,.334f,0),V(-.018f+sign*.012f,.326f,0)},12),.002f,blue,hips);
             for(int i=whaleStart;i<a.body.p.Count;i++) {
-                Vector3 p=a.body.p[i];p.x=-p.x;a.body.p[i]=p;
+                Vector3 p=a.body.p[i];
+                float lift=p.z-ApronSurface(p.x,p.y).z;
+                p=ApronSurface(-p.x,p.y)+Vector3.forward*lift;
+                a.body.p[i]=p;
             }
             ReverseFaces(a.body,whaleTriangles);
-            for(int i=apronStart;i<a.body.p.Count;i++)a.body.p[i]+=Vector3.forward*.012f;
+        }
+
+        static float ApronGather(float x,float y) {
+            float t=Mathf.InverseLerp(.374f,.207f,y);
+            return Mathf.Cos(x/(.078f+.025f*t)*Mathf.PI*5+.4f*Mathf.Sin(t*5))*
+                Mathf.Pow(1-t,1.5f);
+        }
+        static Vector3 ApronSurface(float x,float y) {
+            float t=Mathf.InverseLerp(.173f,.375f,y);
+            float rx=Mathf.Lerp(.223f,.113f,t),rz=Mathf.Lerp(.137f,.077f,t);
+            float curve=Mathf.Sqrt(Mathf.Max(.08f,1-x*x/(rx*rx)));
+            float drape=Mathf.Sin(Mathf.InverseLerp(.207f,.374f,y)*Mathf.PI);
+            float z=rz*curve+.009f+.005f*drape+.002f*ApronGather(x,y);
+            return V(x,y,z);
+        }
+        static void ApronOval(Author a,Vector3 c,Vector2 size,Color color,int bone,float lift,int sides,int rings) {
+            int start=a.body.p.Count;
+            for(int row=0;row<=rings;row++)for(int i=0;i<=sides;i++) {
+                float r=row/(float)rings,theta=-i/(float)sides*Mathf.PI*2;
+                Vector3 p=ApronSurface(c.x+Mathf.Cos(theta)*size.x*r,c.y+Mathf.Sin(theta)*size.y*r);
+                a.body.Add(p+Vector3.forward*lift,color,bone);
+            }
+            Grid(a.body,start,rings,sides);
+        }
+        static void ApronStroke(Author a,Vector3[] path,float radius,Color color,int bone) {
+            int start=a.body.p.Count;const int cols=2;
+            for(int i=0;i<path.Length;i++)for(int j=0;j<=cols;j++) {
+                Vector3 tangent=(path[Mathf.Min(i+1,path.Length-1)]-path[Mathf.Max(0,i-1)]).normalized;
+                Vector3 p=path[i]+V(tangent.y,-tangent.x,0)*radius*(j/(float)cols*2-1);
+                a.body.Add(ApronSurface(p.x,p.y)+Vector3.forward*.0015f,color,bone);
+            }
+            Grid(a.body,start,path.Length-1,cols);
         }
 
         static void ClothPanel(Author a,Vector3 center,float rx,float ry,float bulge,int bone) {

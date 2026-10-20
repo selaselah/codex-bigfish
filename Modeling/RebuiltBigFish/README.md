@@ -28,6 +28,8 @@ Facial layers now follow the curved head with concentric mesh rings and smaller 
 
 The side fins and the two tail lobes use curved leading/trailing contours with a thin closed volume. The ear fins retain a blue border and a pale inner area; the tail ends in two dark-blue lobes with a visible notch. Small gold buckles follow the shoe surfaces. These accessories remain bound to the existing head, tail and foot bones.
 
+The apron has a straight waist edge, softly rounded lower corners and shallow gathered folds. Its cloth, flat seam and U-shaped lace follow the skirt curvature. The large whale is rebuilt as surface artwork, with its belly, eye and water strokes on separate depth layers; mirrored artwork is reprojected onto the asymmetric cloth folds. Removing the old hidden sphere backs brings the complete model to 54,172 triangles without shrinking the emblem or removing the lace.
+
 ## Reproduce
 
 1. Run Unity batch method `DesktopFish.Editor.FishRebuiltModel.ReviewAndBuild`. This creates the Unity assets, previews, geometry/idle-pose JSON under `work/`, and `Builds/RebuiltBigFish.app`.
