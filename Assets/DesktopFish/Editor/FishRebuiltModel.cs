@@ -20,7 +20,7 @@ namespace DesktopFish.Editor
         [Serializable] sealed class BoneDump { public string name; public int parent; public Vector3 position; }
         [Serializable] sealed class ShapeDump { public string name; public Vector3[] deltas; }
         [Serializable] sealed class MeshDump {
-            public string name; public Vector3[] vertices; public Color[] colors; public Vector2[] uv;
+            public string name; public Vector3[] vertices, normals; public Color[] colors; public Vector2[] uv;
             public int[] triangles, bone_indices, secondary_bone_indices;
             public float[] primary_bone_weights; public ShapeDump[] shapes;
         }
@@ -42,6 +42,7 @@ namespace DesktopFish.Editor
             public readonly List<Vector2> uv = new List<Vector2>();
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
             public readonly List<int> tri = new List<int>();
+            public readonly Dictionary<int,Vector4> normalBlends = new Dictionary<int,Vector4>();
             public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
                 p.Add(v); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
                 weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
@@ -57,7 +58,14 @@ namespace DesktopFish.Editor
                 mesh.SetVertices(p); mesh.SetColors(colors); mesh.SetUVs(0,uv); mesh.SetTriangles(tri, 0);
                 mesh.boneWeights = weights.ToArray();
                 mesh.bindposes = bones.Select(b => b.worldToLocalMatrix * root.localToWorldMatrix).ToArray();
-                mesh.RecalculateNormals(); mesh.RecalculateBounds();
+                mesh.RecalculateNormals();
+                var normals=mesh.normals;
+                foreach(var entry in normalBlends) {
+                    Vector4 target=entry.Value;
+                    normals[entry.Key]=Vector3.Lerp(normals[entry.Key],V(target.x,target.y,target.z),target.w).normalized;
+                }
+                mesh.normals=normals;
+                mesh.RecalculateBounds();
                 return mesh;
             }
         }
@@ -172,7 +180,8 @@ namespace DesktopFish.Editor
                             float height=Mathf.Clamp((path[row].y-.765f)/.215f,-1,1);
                             float scalp=Mathf.Sqrt(Mathf.Max(.0001f,1-height*height));
                             float centerAngle=Mathf.Atan2(facing.x,facing.z);
-                            float scalpAngle=centerAngle-u*(Mathf.PI*2-2*1.12f)/16;
+                            float rootJoin=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,path[row].y));
+                            float scalpAngle=centerAngle-u*(Mathf.PI*2-2*1.12f)/16*(1+.025f*rootJoin);
                             float lift=.0045f+front*.002f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.18f,t));
                             Vector3 onScalp=V(Mathf.Sin(scalpAngle)*(.232f+lift)*scalp,
                                 .765f+(.215f+lift)*height,Mathf.Cos(scalpAngle)*(.182f+lift)*scalp);
@@ -198,17 +207,28 @@ namespace DesktopFish.Editor
                         // and curled tips while leaving the shared roots in place.
                         p=SweepHairSection(p,backSweep);
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
+                        float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,p.y)):0;
+                        ridge=Mathf.Lerp(ridge,.97f,crown*.85f);
                         Color shade=Color.white*ridge; shade.a=1;
                         float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                         int paintStrip=cyan?3:((phase%3)+3)%3;
                         int longPaint=((phase%3)+3)%3;
                         float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
                             paintStrip*.25f+.012f+(u+1)*.113f;
-                        body.Add(p,shade,bone,new Vector2(paintU,
+                        int vertex=body.Add(p,shade,bone,new Vector2(paintU,
                             .02f+.94f*Mathf.Clamp01(t+.021f*Mathf.Sin(phase))),head,anchored);
+                        if(crown>0&&front>=-.001f) {
+                            // A shared scalp normal joins the exposed root faces;
+                            // the closed inner surface and lower locks retain their own normals.
+                            Vector3 normal=V(p.x/(.2365f*.2365f),(p.y-.765f)/(.2195f*.2195f),
+                                p.z/(.1865f*.1865f)).normalized;
+                            body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,crown);
+                        }
                     }
                 }
+                int firstTriangle=body.tri.Count;
                 Grid(body,start,rows,sides);
+                ReverseFaces(body,firstTriangle);
             }
             public void HairMantle(int head) {
                 const int rows=16,cols=40;
@@ -375,7 +395,7 @@ namespace DesktopFish.Editor
                         mesh.GetBlendShapeFrameVertices(i,0,deltas,null,null);
                         shapes.Add(new ShapeDump { name=mesh.GetBlendShapeName(i), deltas=deltas });
                     }
-                    exports.Add(new MeshDump {name=mesh.name, vertices=mesh.vertices, colors=mesh.colors, uv=mesh.uv,
+                    exports.Add(new MeshDump {name=mesh.name, vertices=mesh.vertices, normals=mesh.normals, colors=mesh.colors, uv=mesh.uv,
                         triangles=mesh.triangles,bone_indices=mesh.boneWeights.Select(w=>w.boneIndex0).ToArray(),
                         secondary_bone_indices=mesh.boneWeights.Select(w=>w.boneIndex1).ToArray(),
                         primary_bone_weights=mesh.boneWeights.Select(w=>w.weight0).ToArray(),shapes=shapes.ToArray()});
@@ -477,7 +497,8 @@ namespace DesktopFish.Editor
                 // strand detail without a uniform comb of vertical stripes.
                 float strand=Mathf.Sin(u*43+t*3+Mathf.Sin(t*7+u*5))*.006f+
                     Mathf.Sin(u*19-t*2)*.012f;
-                baseColor*=1-edge*.18f+strand;
+                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.36f,t))):.18f;
+                baseColor*=1-edge*edgeContrast+strand;
                 float glints=0;
                 if(!cyan) {
                     if(strip==0) {

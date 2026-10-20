@@ -5,6 +5,7 @@ Reads the generated geometry, idle-pose JSON and authored HairPaint.png atlas.
 """
 import bpy
 import json
+import math
 import struct
 from pathlib import Path
 from mathutils import Vector, Matrix, Quaternion
@@ -38,6 +39,7 @@ for index, item in enumerate(data['bones']):
 bpy.ops.object.mode_set(mode='OBJECT')
 rig.show_in_front = True
 rig.display_type = 'WIRE'
+degenerate_normal_positions = {}
 
 for index, item in enumerate(data['meshes']):
     mesh = bpy.data.meshes.new(item['name'])
@@ -53,6 +55,18 @@ for index, item in enumerate(data['meshes']):
     bpy.context.collection.objects.link(obj)
     for poly in mesh.polygons:
         poly.use_smooth = True
+    assert len(item['normals']) == len(item['vertices'])
+    authored_normals = [xyz(n) for n in item['normals']]
+    assert all(math.isfinite(c) for n in authored_normals for c in n)
+    mesh.normals_split_custom_set_from_vertices(authored_normals)
+    mesh.update()
+    collapsed_vertices = {v for poly in mesh.polygons if poly.area < 1e-12 for v in poly.vertices}
+    degenerate_normal_positions[item['name']] = {
+        tuple(round(item['vertices'][v][c], 6) for c in 'xyz') for v in collapsed_vertices}
+    for loop, normal in zip(mesh.loops, mesh.corner_normals):
+        expected = authored_normals[loop.vertex_index]
+        if expected.length_squared > .5 and loop.vertex_index not in collapsed_vertices:
+            assert normal.vector.dot(expected) > .9999, (item['name'], loop.vertex_index, tuple(normal.vector), tuple(expected))
     colors = mesh.color_attributes.new(name='Color', type='FLOAT_COLOR', domain='POINT')
     for vertex, color in zip(colors.data, item['colors']):
         vertex.color_srgb = (color['r'], color['g'], color['b'], color['a'])
@@ -157,14 +171,43 @@ blob = (folder / 'BigFish.glb').read_bytes()
 json_length = struct.unpack_from('<I', blob, 12)[0]
 document = json.loads(blob[20:20 + json_length])
 binary = blob[28 + json_length:]
+
+
+def float_vectors(accessor_id):
+    accessor = document['accessors'][accessor_id]
+    assert accessor['componentType'] == 5126
+    dimensions = {'VEC2': 2, 'VEC3': 3}[accessor['type']]
+    view = document['bufferViews'][accessor['bufferView']]
+    offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
+    stride = view.get('byteStride', dimensions * 4)
+    return [struct.unpack_from('<' + 'f' * dimensions, binary, offset + i * stride)
+            for i in range(accessor['count'])]
+
+
 assert len(document['meshes']) == len(data['meshes'])
 assert len(document['images']) == 1
 assert len(document['skins'][0]['joints']) == len(data['bones'])
 blended_vertices = 0
+checked_normals = 0
 for mesh in document['meshes']:
+    source = next(item for item in data['meshes'] if item['name'] == mesh['name'])
+    normals_by_position = {}
+    for position, normal in zip(source['vertices'], source['normals']):
+        key = tuple(round(position[c], 6) for c in 'xyz')
+        normals_by_position.setdefault(key, []).append(Vector(tuple(normal[c] for c in 'xyz')))
     for primitive in mesh['primitives']:
         attributes = primitive['attributes']
-        assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0'} <= attributes.keys()
+        assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', 'NORMAL'} <= attributes.keys()
+        for position, normal in zip(float_vectors(attributes['POSITION']), float_vectors(attributes['NORMAL'])):
+            assert all(math.isfinite(c) for c in normal)
+            key = tuple(round(c, 6) for c in position)
+            candidates = normals_by_position[key]
+            # Collapsed poles can have zero or ambiguous fan normals; Blender
+            # calculates fallback corners there. Check every other source normal.
+            if key not in degenerate_normal_positions[mesh['name']] and not any(n.length_squared < .5 for n in candidates):
+                assert abs(Vector(normal).length - 1) < .001
+                assert max(Vector(normal).dot(n) for n in candidates) > .9999, 'Authored GLB normal changed'
+                checked_normals += 1
         assert 'COLOR_1' not in attributes
         accessor = document['accessors'][attributes['COLOR_0']]
         view = document['bufferViews'][accessor['bufferView']]
@@ -187,5 +230,6 @@ for mesh in document['meshes']:
     assert not any(mesh.get('weights', [])), "Facial expressions must start neutral"
 assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
 assert blended_vertices > 0, "Smooth hair-root weights must survive the GLB export"
+assert checked_normals > .9 * sum(len(item['vertices']) for item in data['meshes'])
 print(f'Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig, '
-      f'{blended_vertices} blended vertices and neutral expressions.')
+      f'{blended_vertices} blended vertices, {checked_normals} shading normals and neutral expressions.')
