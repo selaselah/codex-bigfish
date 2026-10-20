@@ -166,7 +166,8 @@ namespace DesktopFish.Editor
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
-                float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0) {
+                float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
+                float tipPaintEase = 1) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -269,6 +270,10 @@ namespace DesktopFish.Editor
                         float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
                             paintStrip*.25f+.012f+(u+1)*.113f;
                         float paintT=paintStart>0?Mathf.InverseLerp(paintStart,1,t):t;
+                        if(tipPaintEase!=1&&paintT>.46f) {
+                            float eased=.46f+.54f*Mathf.Pow((paintT-.46f)/.54f,tipPaintEase);
+                            paintT=Mathf.Lerp(paintT,eased,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.46f,.62f,paintT)));
+                        }
                         int vertex=body.Add(p,shade,bone,new Vector2(paintU,
                             .02f+.94f*Mathf.Clamp01(paintT+.021f*Mathf.Sin(phase))),head,anchored);
                         if(crown>0&&front>=-.001f) {
@@ -572,6 +577,14 @@ namespace DesktopFish.Editor
                 }
                 float fineTip=Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*64+t*4)),14)*
                     Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.94f,t))*(1-ends*.5f);
+                if(!cyan) {
+                    // A few uneven, curved strokes keep the enlarged pale tips
+                    // from becoming a comb of identical parallel filaments.
+                    float stroke=PaintBrush(u,t,.17f+.025f*strip,.67f,.028f,.035f);
+                    stroke=Mathf.Max(stroke,.72f*PaintBrush(u,t,.43f-.020f*strip,.76f,.020f,-.025f));
+                    stroke=Mathf.Max(stroke,.84f*PaintBrush(u,t,.78f-.015f*strip,.71f,.026f,-.020f));
+                    fineTip=stroke*(1-ends*.5f);
+                }
                 baseColor=Color.Lerp(baseColor,Hex("8BA6D5"),glints*.60f);
                 baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("CBD5E8"),fineTip*(cyan?.035f:.12f));
                 baseColor.a=1;
@@ -605,9 +618,9 @@ namespace DesktopFish.Editor
             a.Sphere(a.body, V(0, .773f, 0), V(.214f, .187f, .166f), Skin, head, 48, 28);
             for(int i=0;i<a.body.p.Count;i++) {
                 Vector3 p=a.body.p[i];
-                float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.138f)/.041f,2)
-                    -Mathf.Pow((p.y-.660f)/.025f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
-                a.body.colors[i]=Color.Lerp(Skin,Hex("F1BFC3"),blush*.78f);
+                float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.125f)/.045f,2)
+                    -Mathf.Pow((p.y-.665f)/.026f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
+                a.body.colors[i]=Color.Lerp(Skin,Hex("F1BFC3"),blush*.80f);
             }
             a.Sphere(a.body, V(0, .555f, 0), V(.028f, .035f, .029f), Skin, neck);
             a.Sphere(a.body, V(0, .460f, 0), V(.120f, .108f, .080f), Navy, chest);
@@ -890,14 +903,14 @@ namespace DesktopFish.Editor
                     V(sign*.19f,.64f,.16f),V(sign*.142f,.625f,.16f)},.022f,head,false,4,rootTaper:.22f,paintStart:.50f);
                 a.HairPanel(new[]{V(sign*.030f,.968f,.060f),V(sign*.115f,.95f,.16f),
                     V(sign*.115f,.80f,.20f),V(sign*.102f,.747f,.184f)},.056f,head,false,sign,
-                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f);
+                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f);
             }
             a.HairPanel(new[]{V(-.012f,.978f,.055f),V(-.046f,.91f,.185f),
                 V(.018f,.79f,.205f),V(.016f,.716f,.191f)},.056f,head,false,0,
-                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f);
+                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f,tipPaintEase:.50f);
             a.HairPanel(new[]{V(.019f,.966f,.06f),V(.064f,.90f,.19f),
                 V(.043f,.79f,.208f),V(.054f,.725f,.194f)},.029f,head,false,2,
-                tipStart:.74f,tipBias:.04f,tipPower:.94f);
+                tipStart:.74f,tipBias:.04f,tipPower:.94f,tipPaintEase:.56f);
             a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,0),
                 V(.10f,1.10f,.005f),V(.12f,1.03f,.015f)},24),
                 t=>.010f*Mathf.Sin(Mathf.PI*Mathf.Lerp(.25f,1,t)),t=>.0035f,t=>Hair,head,8);
