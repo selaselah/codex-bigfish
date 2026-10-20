@@ -611,18 +611,20 @@ namespace DesktopFish.Editor
                 baseColor*=1-edge*edgeContrast+strand;
                 float glints=0;
                 if(!cyan) {
+                    // A connected main brush and a smaller satellite read at pet
+                    // scale, while three layouts avoid an even dotted highlight.
                     if(strip==0) {
-                        glints=Mathf.Max(PaintSpot(u,t,.29f,.34f,.050f,.051f,.25f),
-                            PaintSpot(u,t,.43f,.36f,.100f,.029f,-.16f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.65f,.345f,.029f,.025f,.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.29f,.34f,.067f,.067f,.25f),
+                            PaintSpot(u,t,.43f,.36f,.145f,.041f,-.16f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.66f,.345f,.034f,.029f,.1f));
                     } else if(strip==1) {
-                        glints=Mathf.Max(PaintSpot(u,t,.31f,.35f,.052f,.073f,.30f),
-                            PaintSpot(u,t,.47f,.39f,.043f,.027f,-.2f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.73f,.36f,.022f,.018f,.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.31f,.35f,.074f,.091f,.30f),
+                            PaintSpot(u,t,.42f,.39f,.073f,.039f,-.2f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.70f,.36f,.029f,.024f,.1f));
                     } else {
-                        glints=Mathf.Max(PaintSpot(u,t,.38f,.365f,.099f,.036f,.05f),
-                            PaintSpot(u,t,.56f,.35f,.061f,.030f,.1f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.75f,.37f,.021f,.026f,-.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.38f,.365f,.145f,.048f,.05f),
+                            PaintSpot(u,t,.56f,.35f,.082f,.039f,.1f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.76f,.37f,.029f,.032f,-.1f));
                     }
                 }
                 float fineTip=Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*64+t*4)),14)*
