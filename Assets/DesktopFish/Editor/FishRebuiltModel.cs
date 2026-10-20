@@ -108,7 +108,7 @@ namespace DesktopFish.Editor
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
-                float lowerWidth = 1) {
+                float lowerWidth = 1, float tipBias = 0, float tipPower = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -146,7 +146,8 @@ namespace DesktopFish.Editor
                     if(previousSide.sqrMagnitude>.1f&&Vector3.Dot(side,previousSide)<0)side=-side;
                     previousSide=side;
                     Vector3 thicknessAxis=Vector3.Cross(side,tangent).normalized;
-                    float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(tipStart,1,t)),outward.HasValue?1.05f:.83f);
+                    float taperPower=tipPower>0?tipPower:outward.HasValue?1.05f:.83f;
+                    float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(tipStart,1,t)),taperPower);
                     float rootWidth=outward.HasValue?
                         Mathf.Clamp01(Mathf.Sqrt(Mathf.Pow(path[row].x/.244f,2)+Mathf.Pow(path[row].z/.192f,2))):
                         .66f+.34f*Mathf.Sin(t*Mathf.PI*.85f);
@@ -159,7 +160,12 @@ namespace DesktopFish.Editor
                         float angle=j/(float)sides*Mathf.PI*2;
                         float u=Mathf.Cos(angle),front=Mathf.Sin(angle);
                         float facet=Mathf.Pow(Mathf.Abs(front),.7f)*Mathf.Sign(front);
-                        Vector3 p=path[row]+side*(u*w)+thicknessAxis*facet*thickness;
+                        // Different taper starts on the two edges let a fringe
+                        // sweep into an off-center point without changing roots.
+                        float edgeTaper=tipBias==0?taper:Mathf.Pow(1-Mathf.SmoothStep(0,1,
+                            Mathf.InverseLerp(tipStart+tipBias*u,1,t)),taperPower);
+                        float edgeWidth=tipBias==0?w:width*rootWidth*rootBlend*lowerScale*edgeTaper+.00015f;
+                        Vector3 p=path[row]+side*(u*edgeWidth)+thicknessAxis*facet*thickness;
                         if(outward.HasValue&&p.y>.72f) {
                             // Wrap the whole width around the scalp, not just the
                             // centerline. Flat roots otherwise read as raised plates.
@@ -748,12 +754,15 @@ namespace DesktopFish.Editor
                 a.HairPanel(new[]{V(sign*.163f,.83f,.137f),V(sign*.25f,.72f,.13f),
                     V(sign*.19f,.64f,.16f),V(sign*.142f,.625f,.16f)},.022f,head,false,4);
                 a.HairPanel(new[]{V(sign*.030f,.968f,.060f),V(sign*.115f,.95f,.16f),
-                    V(sign*.115f,.80f,.20f),V(sign*.102f,.747f,.184f)},.056f,head,false,sign,tipStart:.74f);
+                    V(sign*.115f,.80f,.20f),V(sign*.102f,.747f,.184f)},.056f,head,false,sign,
+                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f);
             }
             a.HairPanel(new[]{V(-.012f,.978f,.055f),V(-.046f,.91f,.185f),
-                V(.033f,.79f,.205f),V(-.007f,.714f,.191f)},.056f,head,false,0,tipStart:.73f,rootScale:.93f);
+                V(.018f,.79f,.205f),V(.016f,.716f,.191f)},.056f,head,false,0,
+                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f);
             a.HairPanel(new[]{V(.019f,.966f,.06f),V(.064f,.90f,.19f),
-                V(.040f,.79f,.208f),V(.047f,.719f,.194f)},.029f,head,false,2,tipStart:.76f);
+                V(.043f,.79f,.208f),V(.054f,.725f,.194f)},.029f,head,false,2,
+                tipStart:.74f,tipBias:.04f,tipPower:.94f);
             a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,0),
                 V(.10f,1.10f,.005f),V(.12f,1.03f,.015f)},24),
                 t=>.010f*Mathf.Sin(Mathf.PI*Mathf.Lerp(.25f,1,t)),t=>.0035f,t=>Hair,head,8);
