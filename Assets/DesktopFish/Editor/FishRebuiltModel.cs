@@ -781,15 +781,22 @@ namespace DesktopFish.Editor
             ClothPanel(a,V(0,.470f,.080f),.071f,.074f,.009f,chest);
             Collar(a,chest);
             foreach(int sign in new[]{-1,1}) {
-                // Pleated lace straps, continuous cloth rather than bead chains.
-                int first=a.body.p.Count; const int rows=40,cols=5;
+                // Gathered side lace starts on the bib surface and opens into
+                // broad rounded folds, with enough samples to avoid saw teeth.
+                int first=a.body.p.Count,laceTriangles=a.body.tri.Count; const int rows=48,cols=6;
                 for(int y=0;y<=rows;y++)for(int x=0;x<=cols;x++) {
-                    float t=y/(float)rows,r=x/(float)cols,fold=Mathf.Cos(t*Mathf.PI*14);
-                    float px=sign*(.074f+.020f*r+.003f*r*fold);
-                    a.body.Add(V(px,.523f-t*.121f,.081f+.006f*Mathf.Sin(r*Mathf.PI)+.004f*r*fold),
-                        Color.Lerp(White*.87f,White,(fold+1)*.5f),chest);
+                    float t=y/(float)rows,r=x/(float)cols;
+                    float phase=t*Mathf.PI*12+.25f*Mathf.Sin(t*Mathf.PI*2),fold=Mathf.Cos(phase);
+                    float inner=.069f-.008f*Mathf.Pow(Mathf.Abs(t*2-1),6);
+                    float endTaper=.70f+.30f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.40f);
+                    float py=.530f-t*.119f,px=sign*(inner+.019f*r*(1+.13f*fold)*endTaper);
+                    float baseDepth=.082f+BibDepth(inner,py-.470f,.071f,.074f,.009f);
+                    a.body.Add(V(px,py+.002f*r*Mathf.Sin(phase),
+                        baseDepth+.006f*Mathf.Sin(r*Mathf.PI)+.0035f*r*fold),
+                        Color.Lerp(White*.91f,White,(fold+1)*.5f),chest);
                 }
                 Grid(a.body,first,rows,cols);
+                if(sign>0)ReverseFaces(a.body,laceTriangles);
                 GoldBow(a,V(sign*.142f,.220f,0),hips,.022f);
                 Star(a,V(sign*.094f,.217f,0),.0065f,hips);
                 Star(a,V(sign*.184f,.223f,0),.0065f,hips);
@@ -801,7 +808,11 @@ namespace DesktopFish.Editor
                 SkirtLeaf(a,V(sign*.144f,.251f,0),V(sign*.154f,.258f,0),.0034f,hips);
                 SkirtLeaf(a,V(sign*.144f,.256f,0),V(sign*.133f,.263f,0),.0038f,hips);
             }
-            for(int i=0;i<3;i++)a.Sphere(a.body,V(0,.425f+i*.022f,.092f),V(.004f,.004f,.002f),Ink,chest,12,6);
+            for(int i=0;i<3;i++) {
+                float y=.425f+i*.022f;
+                a.Sphere(a.body,V(0,y,.0818f+BibDepth(0,y-.470f,.071f,.074f,.009f)),
+                    V(.004f,.004f,.002f),Ink,chest,12,6);
+            }
             a.Sphere(a.body,V(0,.376f,.083f),V(.006f,.003f,.002f),Gold,hips,12,6);
             foreach(float y in new[]{.184f,.195f}) {
                 int start=a.body.p.Count;const int sides=144,rows=2;
@@ -963,16 +974,34 @@ namespace DesktopFish.Editor
         }
 
         static void ClothPanel(Author a,Vector3 center,float rx,float ry,float bulge,int bone) {
-            int start=a.body.p.Count; const int rings=6,sides=64;
-            for(int row=0;row<=rings;row++)for(int i=0;i<=sides;i++) {
-                float r=row/(float)rings,t=i/(float)sides*Mathf.PI*2;
-                float x=Mathf.Sign(Mathf.Cos(t))*Mathf.Pow(Mathf.Abs(Mathf.Cos(t)),.55f)*rx*r;
-                float y=Mathf.Sign(Mathf.Sin(t))*Mathf.Pow(Mathf.Abs(Mathf.Sin(t)),.55f)*ry*r;
-                float fold=Mathf.Cos(x/rx*Mathf.PI*4);
-                a.body.Add(center+V(x,y,bulge*(1-r*r)+.0015f*fold),
-                    Color.Lerp(White*.89f,White,.55f+.45f*fold),bone);
+            // A regular grid spends samples across folds and avoids the repeated
+            // center vertices and thin triangles of concentric rings.
+            int start=a.body.p.Count; const int rows=16,cols=24;
+            for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
+                float u=i/(float)cols*2-1,v=row/(float)rows*2-1;
+                const float power=2/.55f;
+                float radius=Mathf.Pow(Mathf.Pow(Mathf.Abs(u),power)+Mathf.Pow(Mathf.Abs(v),power),1/power);
+                float r=Mathf.Max(Mathf.Abs(u),Mathf.Abs(v)),fit=radius>.00001f?r/radius:1;
+                float x=u*fit*rx,y=v*fit*ry;
+                float depth=BibDepth(x,y,rx,ry,bulge);
+                float fold=depth-bulge*(1-r*r);
+                a.body.Add(center+V(x,y,depth),White*(.96f+.065f*Mathf.Clamp(fold/.003f,-1,1)),bone);
             }
-            Grid(a.body,start,rings,sides);
+            Grid(a.body,start,rows,cols);
+        }
+        static float BibDepth(float x,float y,float rx,float ry,float bulge) {
+            float u=x/rx,v=y/ry,h=Mathf.Clamp01((v+1)*.5f);
+            const float power=2/.55f;
+            float radius=Mathf.Pow(Mathf.Pow(Mathf.Abs(u),power)+Mathf.Pow(Mathf.Abs(v),power),1/power);
+            float gather=Mathf.Exp(-Mathf.Pow((h-.08f)/.22f,2))+
+                .80f*Mathf.Exp(-Mathf.Pow((h-.94f)/.25f,2));
+            float arc=Mathf.Sin(h*Mathf.PI),guide=.46f+.16f*arc+.035f*(h-.5f);
+            float width=.075f+.065f*arc;
+            float ridge=Mathf.Exp(-Mathf.Pow((Mathf.Abs(u)-guide)/width,2));
+            float valley=Mathf.Exp(-Mathf.Pow((Mathf.Abs(u)-guide-.15f)/(width*.80f),2));
+            float centerClear=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.13f,.30f,Mathf.Abs(u)));
+            float fold=(.004f*ridge-.0035f*valley)*(.32f+.68f*gather)*centerClear;
+            return bulge*Mathf.Max(0,1-radius*radius)+fold;
         }
 
         static void Lathe(Author a,int bone,float y0,float y1,Func<float,float> rx,Func<float,float> rz,Color color,int rows,int sides) {
