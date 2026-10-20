@@ -1377,6 +1377,10 @@ namespace DesktopFish.Editor
                 }
                 Grid(a.body,palmStart,palmRings,palmSides);
                 if(s<0)ReverseFaces(a.body,palmTriangles);
+                for(int row=0;row<palmRings;row++) {
+                    int first=palmStart+row*(palmSides+1);
+                    a.body.smoothNormalPairs.Add(new Vector2Int(first,first+palmSides));
+                }
                 string[] names={"Index","Middle","Ring","Little"};
                 for(int f=0;f<4;f++) {
                     // The index finger sits next to the thumb; the knuckle line
@@ -1419,14 +1423,21 @@ namespace DesktopFish.Editor
                     int fingerTriangles=a.body.tri.Count;
                     Grid(a.body,start,rings,sides);
                     if(s<0)ReverseFaces(a.body,fingerTriangles);
+                    for(int row=0;row<rings;row++) {
+                        int first=start+row*(sides+1);
+                        a.body.smoothNormalPairs.Add(new Vector2Int(first,first+sides));
+                    }
                 }
                 int thumb=a.Bone(prefix+"Thumb1",hand,V(s*.353f,.487f,.023f));
+                int thumbStart=a.body.p.Count;
                 var thumbPath=Curve(new[]{V(s*.348f,.490f,.014f),V(s*.353f,.486f,.024f),
                     V(s*.365f,.484f,.031f),V(s*.374f,.484f,.031f)},12);
                 a.Sweep(a.body,thumbPath,
                     t=>(.0118f-.002f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
                     t=>(.0108f-.001f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
                     t=>Skin,thumb,10);
+                for(int row=0;row<thumbPath.Length-1;row++)
+                    a.body.smoothNormalPairs.Add(new Vector2Int(thumbStart+row*11,thumbStart+row*11+10));
                 int thigh=a.Bone(prefix+"UpperLeg",hips,V(s*.065f,.27f,0));
                 int knee=a.Bone(prefix+"LowerLeg",thigh,V(s*.065f,.16f,0));
                 int foot=a.Bone(prefix+"Foot",knee,V(s*.065f,.062f,0));

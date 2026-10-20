@@ -28,11 +28,14 @@ Shader "DesktopFish/Rebuilt Toon"
             float _Flat;
             sampler2D _MainTex;
             struct app { float4 vertex:POSITION; float3 normal:NORMAL; float4 color:COLOR; float2 uv:TEXCOORD0; };
-            struct v2f { float4 pos:SV_POSITION; float3 normal:TEXCOORD0; float4 color:COLOR; float2 uv:TEXCOORD1; };
+            struct v2f { float4 pos:SV_POSITION; float3 normal:TEXCOORD0; float4 color:COLOR; float2 uv:TEXCOORD1; float skin:TEXCOORD2; };
             v2f vert(app v) {
                 v2f o; o.pos=UnityObjectToClipPos(v.vertex);
                 o.normal=UnityObjectToWorldNormal(v.normal); o.color=v.color;
                 o.uv=v.uv;
+                // Classify the authored warm skin before color-space conversion.
+                // Ivory cloth stays softly lit, while skin keeps more roundness.
+                o.skin=smoothstep(.025,.050,v.color.r-v.color.g);
                 #ifndef UNITY_COLORSPACE_GAMMA
                 o.color.rgb=GammaToLinearSpace(o.color.rgb);
                 #endif
@@ -43,7 +46,7 @@ Shader "DesktopFish/Rebuilt Toon"
                 float shade=lerp(0.76,1.04,smoothstep(-0.45,0.95,light));
                 float3 albedo=i.color.rgb*tex2D(_MainTex,i.uv).rgb;
                 float ivory=smoothstep(.60,.85,min(albedo.r,min(albedo.g,albedo.b)));
-                shade=lerp(shade,.99,ivory*.75);
+                shade=lerp(shade,.99,ivory*.75*(1-.55*i.skin));
                 return float4(albedo*lerp(shade,1,_Flat),1);
             }
             ENDCG
