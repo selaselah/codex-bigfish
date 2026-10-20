@@ -556,6 +556,7 @@ namespace DesktopFish.Editor
             float[] brushCenters={.10f,.46f,.85f};
             float[] brushStarts={.59f,.71f,.64f};
             float[] brushWidths={.29f,.23f,.27f};
+            float[] reflectionCenters={.37f,.61f,.44f},reflectionHeights={.32f,.39f,.35f},reflectionBends={.18f,-.15f,.10f};
             for(int y=0;y<size;y++)for(int x=0;x<size;x++) {
                 float ax=x/(float)(size-1),ay=y/(float)(size-1);
                 int strip=Mathf.Min(3,(int)(ax*4));bool cyan=strip==3;
@@ -588,6 +589,19 @@ namespace DesktopFish.Editor
                     blue=Mathf.Max(blue,PaintBrush(u,1-t,.72f-longPaint*.055f,.10f,.047f,.025f));
                     blue*=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.59f,.75f,t));
                     baseColor=Color.Lerp(baseColor,Hex("385B99"),blue*.70f);
+                }
+                if(cyan) {
+                    // Broad off-center blue reflections describe the long locks'
+                    // middle volume; leave their crown join and cyan tips intact.
+                    float center=reflectionCenters[longPaint];
+                    float height=reflectionHeights[longPaint];
+                    float bend=reflectionBends[longPaint];
+                    float du=(u-center-bend*Mathf.Sin((t-.14f)*Mathf.PI*2))/.36f;
+                    float dt=(t-height)/.24f;
+                    float envelope=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.10f,.18f,t))*
+                        (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.58f,t)));
+                    float reflection=Mathf.Exp(-du*du*1.4f-dt*dt)*envelope;
+                    baseColor=Color.Lerp(baseColor,Hex("668CC5"),reflection*.34f);
                 }
                 // Slightly wandering broad streaks and finer tip strokes retain
                 // strand detail without a uniform comb of vertical stripes.
