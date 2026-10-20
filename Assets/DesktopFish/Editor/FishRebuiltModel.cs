@@ -516,9 +516,29 @@ namespace DesktopFish.Editor
             }
             details.Apply();
             File.WriteAllBytes("work/rebuilt-joints-and-face.png",details.EncodeToPNG());
+            // Tick the working state to include its blend, then inspect bent
+            // sleeves and curled fingers from oblique and side views.
+            var working=new Texture2D(1440,960,TextureFormat.RGBA32,false);
+            motion.Play(FishMotion.Gesture.None,0);
+            for(int pose=0;pose<2;pose++) {
+                motion.Tick(pose==0?2.2f:3f,1,0,0,"working",false);
+                for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++)
+                    companion.face.SetBlendShapeWeight(shape,0);
+                for(int i=0;i<skins.Length;i++) {
+                    UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                    var mesh=new Mesh();skins[i].BakeMesh(mesh);snapshots[i].sharedMesh=mesh;
+                }
+                camera.transform.position=center+Quaternion.Euler(0,pose==0?35:90,0)*(front-center);
+                camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                working.SetPixels(pose*720,0,720,960,frame.GetPixels());
+            }
+            working.Apply();
+            File.WriteAllBytes("work/rebuilt-working.png",working.EncodeToPNG());
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
             UnityEngine.Object.DestroyImmediate(details);
+            UnityEngine.Object.DestroyImmediate(working);
             foreach(var snapshot in snapshots) {
                 UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);
                 UnityEngine.Object.DestroyImmediate(snapshot.gameObject);
@@ -786,10 +806,25 @@ namespace DesktopFish.Editor
                 int upper=a.Bone(prefix+"UpperArm",shoulder,V(s*.13f,.49f,0));
                 int elbow=a.Bone(prefix+"LowerArm",upper,V(s*.235f,.49f,0));
                 int hand=a.Bone(prefix+"Hand",elbow,V(s*.34f,.49f,0));
-                a.Sweep(a.body,new[]{V(s*.13f,.49f,0),V(s*.18f,.49f,0),V(s*.235f,.49f,0)},
-                    t=>Mathf.Lerp(.042f,.032f,t),t=>Mathf.Lerp(.039f,.031f,t),t=>Navy,upper,16);
-                a.Sweep(a.body,new[]{V(s*.232f,.49f,0),V(s*.28f,.49f,0),V(s*.325f,.49f,0)},
-                    t=>Mathf.Lerp(.034f,.027f,t),t=>Mathf.Lerp(.033f,.027f,t),t=>Navy,elbow,16);
+                // One rounded sleeve bridges shoulder and elbow with continuous
+                // weights; the cuff remains rigid with the forearm.
+                float[] sleeveX={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.317f,.325f};
+                float[] sleeveRadius={.025f,.040f,.045f,.046f,.041f,.035f,.033f,.032f,.032f,.030f,.028f,.0275f,.0275f,.027f};
+                int sleeveStart=a.body.p.Count,sleeveTriangles=a.body.tri.Count;const int sleeveSides=16;
+                for(int row=0;row<sleeveX.Length;row++)for(int j=0;j<=sleeveSides;j++) {
+                    float x=sleeveX[row],theta=j/(float)sleeveSides*Mathf.PI*2;
+                    float gathering=Mathf.Sin(Mathf.InverseLerp(.11f,.205f,x)*Mathf.PI);
+                    float fold=Mathf.Cos(theta*4+.6f)*gathering;
+                    float radius=sleeveRadius[row]*(1+.035f*fold);
+                    int primary=x<.18f?chest:upper,secondary=x<.18f?upper:elbow;
+                    float blend=x<.18f?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.097f,.155f,x)):
+                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.212f,.258f,x));
+                    Color cloth=Navy*(.98f+.025f*fold);cloth.a=1;
+                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,Mathf.Sin(theta)*radius*.95f),
+                        cloth,primary,null,secondary,blend);
+                }
+                Grid(a.body,sleeveStart,sleeveX.Length-1,sleeveSides);
+                if(s<0)ReverseFaces(a.body,sleeveTriangles);
                 foreach(float x in new[]{.309f,.317f}) {
                     var ring=Enumerable.Range(0,25).Select(i=>V(s*x,.49f+Mathf.Sin(i/24f*Mathf.PI*2)*.0275f,Mathf.Cos(i/24f*Mathf.PI*2)*.0275f)).ToArray();
                     a.Tube(a.body,ring,.0018f,Gold,elbow,4);
@@ -813,9 +848,20 @@ namespace DesktopFish.Editor
                     for(int row=0;row<=rings;row++)for(int j=0;j<=sides;j++) {
                         float t=row/(float)rings,theta=j/(float)sides*Mathf.PI*2;
                         float radius=.0068f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.4f)/.6f),2)));
-                        int joint=Mathf.Min(2,Mathf.FloorToInt(t*3));
-                        a.body.Add(V(s*(.367f+t*(f==3?.025f:.030f)),.49f+Mathf.Cos(theta)*radius,z+Mathf.Sin(theta)*radius),
-                            Skin,joints[joint]);
+                        float x=.367f+t*(f==3?.025f:.030f);
+                        int primary,secondary;float blend;
+                        if(x<.373f) {
+                            primary=hand;secondary=joints[0];
+                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.365f,.372f,x));
+                        } else if(x<.380f) {
+                            primary=joints[0];secondary=joints[1];
+                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.373f,.379f,x));
+                        } else {
+                            primary=joints[1];secondary=joints[2];
+                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.380f,.386f,x));
+                        }
+                        a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,z+Mathf.Sin(theta)*radius),
+                            Skin,primary,null,secondary,blend);
                     }
                     Grid(a.body,start,rings,sides);
                 }
