@@ -958,11 +958,21 @@ namespace DesktopFish.Editor
                 // A sideways finish puts each tapered tip on the silhouette
                 // instead of pointing every curl straight into the rear view.
                 Vector3 lateral=V(Mathf.Cos(theta),0,-Mathf.Sin(theta));
+                float edgeBias=0;
+                if(group==2) {
+                    // A broad lower S-bend and an inward finishing tip break up
+                    // the nearly parallel rear locks, below their fixed roots.
+                    float direction=i<4?1:-1;
+                    float[] drift={.010f,.030f,.040f,.010f,-.035f,-.060f};
+                    for(int k=7;k<=12;k++)controls[k]+=lateral*drift[k-7]*direction;
+                    taperAt=.63f;edgeBias=.055f*direction;
+                }
                 if(i==4) {
                     // The center lock changes direction once through its lower
                     // body, then follows that curve into an off-center tip.
                     float[] drift={0,0,0,-.010f,-.020f,-.045f,-.060f};
                     for(int k=6;k<=12;k++)controls[k]+=lateral*drift[k-6];
+                    taperAt=.62f;edgeBias=-.060f;
                 }
                 float curl=i==4?-.020f:Mathf.Sign(Mathf.Sin(theta)*Mathf.Cos(theta))*
                     new[]{0f,.012f,.025f,.020f,.020f}[group];
@@ -971,7 +981,7 @@ namespace DesktopFish.Editor
                 controls[11]+=lateral*curl*.65f;
                 controls[12]+=lateral*curl;
                 a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
-                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth);
+                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias);
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
