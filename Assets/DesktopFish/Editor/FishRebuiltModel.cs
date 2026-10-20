@@ -106,7 +106,8 @@ namespace DesktopFish.Editor
             // The cross-section closes at the edges; neighboring locks overlap at
             // the roots and terminate in sharp, offset tips rather than tubes.
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
-                Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f, float rootScale = 1) {
+                Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
+                float rootScale = 1, float backSweep = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -171,6 +172,10 @@ namespace DesktopFish.Editor
                             float skin=1-Mathf.Pow(p.x/.214f,2)-Mathf.Pow((p.y-.773f)/.187f,2);
                             if(skin>0)p.z=Mathf.Max(p.z,.166f*Mathf.Sqrt(skin)+.0045f+front*.002f);
                         }
+                        // Sweep the complete section rearward below the crown.
+                        // Deforming the frame with the vertices retains its width
+                        // and curled tips while leaving the shared roots in place.
+                        p=SweepHairSection(p,backSweep);
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         Color shade=Color.white*ridge; shade.a=1;
                         float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
@@ -201,7 +206,7 @@ namespace DesktopFish.Editor
                             Mathf.Cos(theta)*(rz+.006f*fold*t));
                         Color color=Color.Lerp(Hair,Hex("3D619C"),t*.35f);
                         color*=1-.18f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.4f,t))*(.5f-.5f*fold);color.a=1;
-                        body.Add(p,color,head);
+                        body.Add(SweepHairSection(p,HairSweepAtAngle(theta)*1.25f),color,head);
                     }
                     Grid(body,layerStart,rows,cols);
                 }
@@ -571,7 +576,8 @@ namespace DesktopFish.Editor
                     radial(.325f,.33f,.310f),radial(.220f,.27f,.220f),
                     radial(.230f,.215f,.215f),radial(.240f,.145f,.225f),
                     radial(.280f,.145f,.275f),radial(.300f,.172f+(i%3)*.009f,.290f)};
-                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44);
+                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
+                    backSweep:HairSweepAtAngle(theta));
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
@@ -604,6 +610,17 @@ namespace DesktopFish.Editor
             a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,0),
                 V(.10f,1.10f,.005f),V(.12f,1.03f,.015f)},24),
                 t=>.010f*Mathf.Sin(Mathf.PI*Mathf.Lerp(.25f,1,t)),t=>.0035f,t=>Hair,head,8);
+        }
+
+        static float HairSweepAtAngle(float angle) {
+            float signed=Mathf.DeltaAngle(0,angle*Mathf.Rad2Deg)*Mathf.Deg2Rad;
+            float side=Mathf.Clamp01((Mathf.PI-Mathf.Abs(signed))/(Mathf.PI-1.12f));
+            return Mathf.Sign(signed)*.75f*side;
+        }
+        static Vector3 SweepHairSection(Vector3 p,float amount) {
+            float sweep=amount*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.74f,.42f,p.y));
+            float c=Mathf.Cos(sweep),s=Mathf.Sin(sweep);
+            return V(p.x*c+p.z*s,p.y,-p.x*s+p.z*c);
         }
 
         static void BuildDress(Author a, int hips, int chest)
