@@ -915,7 +915,7 @@ namespace DesktopFish.Editor
             Lathe(a,hips,.133f,.170f,t=>Mathf.Lerp(.214f,.222f,t),
                 t=>Mathf.Lerp(.134f,.138f,t),White*.96f,2,72);
             Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
-            Ruffle(a,hips,.145f,.213f,.130f,.022f,24);
+            Ruffle(a,hips,.145f,.213f,.130f,.022f,24,Mathf.PI*.65f);
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,2,48);
             ClothPanel(a,V(0,.470f,.080f),.071f,.074f,.009f,chest);
             Collar(a,chest);
@@ -1154,15 +1154,20 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,start,rows,sides);
         }
-        static void Ruffle(Author a,int bone,float y,float rx,float rz,float width,int lobes) {
+        static void Ruffle(Author a,int bone,float y,float rx,float rz,float width,int lobes,float phase=0) {
             int start=a.body.p.Count;const int sides=144,rows=5;
             for(int j=0;j<=rows;j++)for(int i=0;i<=sides;i++) {
                 float theta=i/(float)sides*Mathf.PI*2,t=j/(float)rows;
-                float fold=Mathf.Cos(theta*lobes),radius=1+width*t/rx*(1+.32f*fold);
-                a.body.Add(V(Mathf.Sin(theta)*rx*radius,y-t*.014f+fold*.0035f*t,Mathf.Cos(theta)*rz*radius),
-                    Color.Lerp(White*.87f,White,(fold+1)*.5f),bone);
+                float fold=Mathf.Cos(theta*lobes+phase),opening=Mathf.Sin(t*Mathf.PI*.5f);
+                float gather=Mathf.SmoothStep(0,1,t);
+                float radius=1+width*opening/rx*(1+.20f*fold*gather);
+                float drop=.019f*(1-Mathf.Cos(t*Mathf.PI*.5f))+.0032f*fold*t*t;
+                a.body.Add(V(Mathf.Sin(theta)*rx*radius,y-drop,Mathf.Cos(theta)*rz*radius),
+                    Color.Lerp(White*(.95f-.06f*t),White,(fold+1)*.5f),bone);
             }
+            int firstTriangle=a.body.tri.Count;
             Grid(a.body,start,rows,sides);
+            ReverseFaces(a.body,firstTriangle);
         }
 
         static void BuildLimbs(Author a,int hips,int chest)

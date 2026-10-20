@@ -72,6 +72,8 @@ The apron has a straight waist edge, softly rounded lower corners and shallow ga
 
 The gold hem and bow embroidery now use broad surface bands instead of flattened tubes. The main hem band is wider than the secondary line; bow loops have distinct knots and curved tails, with larger stars and paired leaf accents. Artwork projects onto the frontmost segment of the same pleated skirt surface, including folds near its sides. The motifs sit above the hem with visible spacing. This pass removes 912 triangles while retaining and enlarging the gold detail; front previews are also compared at 240×320 pixels to check desktop-size readability.
 
+Both white hem ruffles now open gradually from their roots and curve downward toward the edge. Their folds start with restrained gathers, and the lower layer is offset around the skirt so the two scalloped edges no longer rise together. Corrected surface winding points the shading normals outward. Both layers retain their 24 folds and existing sampling; topology counts, skin weights, rig, expressions, gold trim and whale artwork are unchanged. Front, side and small previews retain visible legs, though the repeating edge rhythm still needs further refinement.
+
 ## Reproduce
 
 1. Run Unity batch method `DesktopFish.Editor.FishRebuiltModel.ReviewAndBuild`. This creates the Unity assets, previews, geometry/idle-pose JSON under `work/`, and `Builds/RebuiltBigFish.app`.
