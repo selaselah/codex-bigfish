@@ -704,7 +704,8 @@ namespace DesktopFish.Editor
             Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
             Ruffle(a,hips,.145f,.213f,.130f,.022f,24);
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,2,48);
-            ClothPanel(a,V(0,.463f,.080f),.071f,.063f,.009f,chest);
+            ClothPanel(a,V(0,.470f,.080f),.071f,.074f,.009f,chest);
+            Collar(a,chest);
             foreach(int sign in new[]{-1,1}) {
                 // Pleated lace straps, continuous cloth rather than bead chains.
                 int first=a.body.p.Count; const int rows=40,cols=5;
@@ -715,8 +716,6 @@ namespace DesktopFish.Editor
                         Color.Lerp(White*.87f,White,(fold+1)*.5f),chest);
                 }
                 Grid(a.body,first,rows,cols);
-                Fan(a,new[]{V(sign*.004f,.578f,.074f),V(sign*.085f,.565f,.057f),
-                    V(sign*.066f,.532f,.091f),V(sign*.035f,.549f,.098f)},White,chest);
                 GoldBow(a,V(sign*.142f,.220f,0),hips,.022f);
                 Star(a,V(sign*.094f,.217f,0),.0065f,hips);
                 Star(a,V(sign*.184f,.223f,0),.0065f,hips);
@@ -825,6 +824,68 @@ namespace DesktopFish.Editor
                 a.body.Add(ApronSurface(p.x,p.y)+Vector3.forward*.0015f,color,bone);
             }
             Grid(a.body,start,path.Length-1,cols);
+        }
+
+        static void Collar(Author a,int bone) {
+            int start=a.body.p.Count;const int sides=32;
+            for(int row=0;row<=2;row++)for(int i=0;i<=sides;i++) {
+                float t=row/2f,theta=i/(float)sides*Mathf.PI*2;
+                float radius=Mathf.Lerp(.038f,.031f,t);
+                a.body.Add(V(Mathf.Sin(theta)*radius,Mathf.Lerp(.550f,.576f,t),
+                    Mathf.Cos(theta)*radius),White*.94f,bone);
+            }
+            Grid(a.body,start,2,sides);
+            foreach(int sign in new[]{-1,1}) {
+                var neck=Curve(new[]{V(sign*.004f,.575f,.028f),V(sign*.019f,.576f,.029f),
+                    V(sign*.035f,.568f,.012f),V(sign*.032f,.559f,.004f)},12);
+                var edge=Curve(new[]{V(sign*.014f,.547f,.090f),V(sign*.030f,.545f,.083f),
+                    V(sign*.072f,.546f,.054f),V(sign*.074f,.541f,.030f)},12);
+                int first=a.body.p.Count,triangles=a.body.tri.Count;const int cols=4;
+                for(int i=0;i<=12;i++)for(int j=0;j<=cols;j++) {
+                    float t=i/12f,r=j/(float)cols;
+                    Vector3 p=Vector3.Lerp(neck[i],edge[i],r);
+                    p.y+=.002f*Mathf.Sin(r*Mathf.PI);
+                    p.z+=.003f*Mathf.Sin(r*Mathf.PI)*Mathf.Sin(t*Mathf.PI);
+                    Color color=White*Mathf.Lerp(.90f,1,Mathf.Sin(r*Mathf.PI*.70f));color.a=1;
+                    a.body.Add(p,color,bone);
+                }
+                Grid(a.body,first,12,cols);
+                if(sign<0)ReverseFaces(a.body,triangles);
+            }
+        }
+
+        static void ChestRibbon(Author a,int bone) {
+            foreach(int sign in new[]{-1,1}) {
+                const int rows=10,cols=6;
+                foreach(int surface in new[]{1,-1}) {
+                    int start=a.body.p.Count,triangles=a.body.tri.Count;
+                    for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
+                        float u=i/(float)rows,v=j/(float)cols*2-1;
+                        float swell=Mathf.Sin(u*Mathf.PI)*(1-v*v);
+                        float fold=Mathf.Exp(-Mathf.Pow((Mathf.Abs(v)-.34f)/.18f,2))*Mathf.Sin(u*Mathf.PI);
+                        float x=sign*(.005f+.057f*u)*(1-.08f*Mathf.Pow(Mathf.Abs(v),3));
+                        float y=.550f+.002f*u+v*(.006f+.014f*Mathf.Sin(u*Mathf.PI*.55f));
+                        float z=.103f-.012f*u+(surface>0?.006f:-.002f)*swell-surface*.0025f*fold;
+                        Color color=Color.Lerp(Navy,Hex("4B5B8B"),swell*.24f)*(.93f+.16f*(v+1)*.5f-.18f*fold);color.a=1;
+                        a.body.Add(V(x,y,z),color,bone);
+                    }
+                    Grid(a.body,start,rows,cols);
+                    if((surface>0)==(sign>0))ReverseFaces(a.body,triangles);
+                }
+                // Two broad draped tails keep the notch and center gap readable.
+                int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;const int tailCols=4;
+                for(int i=0;i<=10;i++)for(int j=0;j<=tailCols;j++) {
+                    float t=i/10f,v=j/(float)tailCols*2-1;
+                    float x=sign*(.010f+.010f*t+.007f*t*t+v*(.004f+.012f*t));
+                    float y=.548f-.045f*t+.006f*(1-Mathf.Abs(v))*Mathf.Pow(t,10);
+                    float z=.100f+.005f*Mathf.Sin(t*Mathf.PI)-.004f*v*v;
+                    Color color=Navy*(.90f+.16f*(1-v*v));color.a=1;
+                    a.body.Add(V(x,y,z),color,bone);
+                }
+                Grid(a.body,tailStart,10,tailCols);
+                if(sign>0)ReverseFaces(a.body,tailTriangles);
+            }
+            a.Sphere(a.body,V(0,.552f,.104f),V(.010f,.008f,.006f),Navy,bone,12,8);
         }
 
         static void ClothPanel(Author a,Vector3 center,float rx,float ry,float bulge,int bone) {
@@ -989,7 +1050,7 @@ namespace DesktopFish.Editor
                     head,Hex("283C72"),Hex("394E84"),true,.006f,turn*Vector3.forward);
                 Bow(a,V(s*.281f,.835f,.070f),head,.034f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
             }
-            Bow(a,V(0,.552f,.101f),chest,.060f,Navy);
+            ChestRibbon(a,chest);
             a.Sphere(a.body,V(0,.552f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
             a.Sphere(a.body,V(0,.553f,.113f),V(.006f,.005f,.002f),Hex("67AACA"),chest,14,8);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
