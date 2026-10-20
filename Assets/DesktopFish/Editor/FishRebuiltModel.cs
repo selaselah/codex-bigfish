@@ -161,7 +161,7 @@ namespace DesktopFish.Editor
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
-                float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0) {
+                float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -263,8 +263,9 @@ namespace DesktopFish.Editor
                         int longPaint=((phase%3)+3)%3;
                         float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
                             paintStrip*.25f+.012f+(u+1)*.113f;
+                        float paintT=paintStart>0?Mathf.InverseLerp(paintStart,1,t):t;
                         int vertex=body.Add(p,shade,bone,new Vector2(paintU,
-                            .02f+.94f*Mathf.Clamp01(t+.021f*Mathf.Sin(phase))),head,anchored);
+                            .02f+.94f*Mathf.Clamp01(paintT+.021f*Mathf.Sin(phase))),head,anchored);
                         if(crown>0&&front>=-.001f) {
                             // A shared scalp normal joins the exposed root faces;
                             // the closed inner surface and lower locks retain their own normals.
@@ -855,8 +856,8 @@ namespace DesktopFish.Editor
                 // Broad cheek-framing sheets with narrow, swept tips.
                 a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.235f,.94f,.12f),
                     V(sign*.225f,.67f,.16f),V(sign*.135f,.607f,.14f)},.072f,head,false,1,tipStart:.64f,rootScale:.79f);
-                a.HairPanel(new[]{V(sign*.163f,.83f,.137f),V(sign*.25f,.72f,.13f),
-                    V(sign*.19f,.64f,.16f),V(sign*.142f,.625f,.16f)},.022f,head,false,4);
+                a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.245f,.74f,.112f),
+                    V(sign*.19f,.64f,.16f),V(sign*.142f,.625f,.16f)},.022f,head,false,4,rootTaper:.22f,paintStart:.50f);
                 a.HairPanel(new[]{V(sign*.030f,.968f,.060f),V(sign*.115f,.95f,.16f),
                     V(sign*.115f,.80f,.20f),V(sign*.102f,.747f,.184f)},.056f,head,false,sign,
                     tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f);
