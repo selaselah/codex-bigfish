@@ -41,10 +41,10 @@ Shader "DesktopFish/Rebuilt Toon"
             fixed4 frag(v2f i):SV_Target {
                 float light=dot(normalize(i.normal),normalize(float3(-0.35,0.65,0.80)));
                 float shade=lerp(0.76,1.04,smoothstep(-0.45,0.95,light));
-                float ivory=smoothstep(.60,.85,min(i.color.r,min(i.color.g,i.color.b)));
+                float3 albedo=i.color.rgb*tex2D(_MainTex,i.uv).rgb;
+                float ivory=smoothstep(.60,.85,min(albedo.r,min(albedo.g,albedo.b)));
                 shade=lerp(shade,.99,ivory*.75);
-                float3 paint=tex2D(_MainTex,i.uv).rgb;
-                return float4(i.color.rgb*paint*lerp(shade,1,_Flat),1);
+                return float4(albedo*lerp(shade,1,_Flat),1);
             }
             ENDCG
         }
