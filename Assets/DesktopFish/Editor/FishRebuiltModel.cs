@@ -978,11 +978,16 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,bindingStart,2,100);
             foreach(int s in new[]{-1,1}) {
+                // Mount the fin on the side of the hair, with its full surface
+                // turning outward instead of hiding a frontal sheet in the fringe.
+                Quaternion turn=Quaternion.Euler(0,s*55,0);
+                Vector3 root=V(s*.280f,.795f,.075f);
+                Func<float,float,float,Vector3> ear=(x,y,z)=>root+turn*V(s*x,y,z);
                 FinBlade(a,
-                    new[]{V(s*.216f,.785f,.035f),V(s*.236f,.760f,.025f),V(s*.277f,.738f,.025f),V(s*.331f,.720f,.035f)},
-                    new[]{V(s*.216f,.785f,.035f),V(s*.203f,.704f,.075f),V(s*.274f,.687f,.080f),V(s*.331f,.720f,.035f)},
-                    head,Hair,Hex("3E588D"),true,.006f);
-                Bow(a,V(s*.257f,.835f,.065f),head,.025f,Hex("65BDD4"));
+                    new[]{ear(0,0,0),ear(.015f,-.018f,0),ear(.060f,-.063f,.005f),ear(.120f,-.070f,0)},
+                    new[]{ear(-.028f,-.042f,.005f),ear(-.005f,-.095f,.010f),ear(.080f,-.115f,.025f),ear(.120f,-.070f,0)},
+                    head,Hex("283C72"),Hex("394E84"),true,.006f,turn*Vector3.forward);
+                Bow(a,V(s*.281f,.835f,.070f),head,.034f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
             }
             Bow(a,V(0,.552f,.101f),chest,.060f,Navy);
             a.Sphere(a.body,V(0,.552f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
@@ -1006,23 +1011,28 @@ namespace DesktopFish.Editor
             ReverseFaces(a.body,tailTriangles);
         }
         static void FinBlade(Author a,Vector3[] leading,Vector3[] trailing,int bone,
-            Color rootColor,Color tipColor,bool paleInset,float thickness)
+            Color rootColor,Color tipColor,bool paleInset,float thickness,Vector3? surfaceNormal=null)
         {
+            Vector3 normal=(surfaceNormal??Vector3.forward).normalized;
             int rows=paleInset?14:12,cols=paleInset?8:4,mid=rows/2;
             var edgeA=Curve(leading,rows);var edgeB=Curve(trailing,rows);
-            bool forward=Vector3.Dot(Vector3.Cross(edgeB[mid]-edgeA[mid],edgeA[mid+1]-edgeA[mid-1]),Vector3.forward)>0;
+            if(paleInset)for(int i=0;i<=rows;i++) {
+                float t=i/(float)rows;
+                edgeB[i].y-=.003f*Mathf.Sin(t*Mathf.PI)*(.5f+.5f*Mathf.Cos(t*Mathf.PI*6));
+            }
+            bool forward=Vector3.Dot(Vector3.Cross(edgeB[mid]-edgeA[mid],edgeA[mid+1]-edgeA[mid-1]),normal)>0;
             foreach(int side in new[]{1,-1}) {
                 int start=a.body.p.Count,triangles=a.body.tri.Count;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
                     float t=row/(float)rows,v=col/(float)cols;
                     float lens=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)*Mathf.Sin(v*Mathf.PI)),.7f);
-                    Vector3 p=Vector3.Lerp(edgeA[row],edgeB[row],v)+Vector3.forward*(side*thickness*lens);
+                    Vector3 p=Vector3.Lerp(edgeA[row],edgeB[row],v)+normal*(side*thickness*lens);
                     Color color=Color.Lerp(rootColor,tipColor,Mathf.SmoothStep(0,1,t));
                     if(paleInset&&side>0) {
-                        float inset=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.36f,t))*
+                        float inset=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.25f,.42f,t))*
                             (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.73f,.94f,t)))*
-                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.38f,.58f,v))*
-                            (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.82f,1,v)));
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.70f,v))*
+                            (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.94f,1,v)));
                         color=Color.Lerp(color,White,inset);
                     }
                     a.body.Add(p,color,bone);
@@ -1041,21 +1051,39 @@ namespace DesktopFish.Editor
             foreach(var p in points)a.body.Add(p,color,bone);
             for(int i=1;i<points.Length-1;i++)a.body.Face(start,start+i,start+i+1);
         }
-        static void Bow(Author a,Vector3 center,int bone,float size,Color color) {
+        static void Bow(Author a,Vector3 center,int bone,float size,Color color,Quaternion? orientation=null) {
+            int first=a.body.p.Count;
             foreach(int s in new[]{-1,1}) {
-                int start=a.body.p.Count;const int rows=12,cols=8;
-                for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
-                    float u=i/(float)rows,v=j/(float)cols*2-1;
-                    float height=size*(.08f+.38f*Mathf.Sin(u*Mathf.PI*.78f));
-                    float z=size*(.12f*Mathf.Sin(u*Mathf.PI)+.08f*(1-v*v));
-                    Color shaded=Color.Lerp(color*.72f,color*1.17f,(v+1)*.5f);shaded.a=1;
-                    a.body.Add(center+V(s*size*u,v*height,z),shaded,bone);
+                bool gathered=orientation.HasValue;
+                int rows=gathered?10:12,cols=gathered?6:8;
+                foreach(int surface in gathered?new[]{1,-1}:new[]{1}) {
+                    int start=a.body.p.Count,triangles=a.body.tri.Count;
+                    for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
+                        float u=i/(float)rows,v=j/(float)cols*2-1;
+                        float height=size*(.08f+.38f*Mathf.Sin(u*Mathf.PI*.78f));
+                        float z=size*(.12f*Mathf.Sin(u*Mathf.PI)+.08f*(1-v*v));
+                        float x=s*size*u;
+                        Color shaded=Color.Lerp(color*.72f,color*1.17f,(v+1)*.5f);
+                        if(gathered) {
+                            float swell=Mathf.Sin(u*Mathf.PI)*(1-v*v);
+                            float fold=Mathf.Exp(-Mathf.Pow((Mathf.Abs(v)-.38f)/.18f,2));
+                            x*=1-.14f*Mathf.Pow(Mathf.Abs(v),3);
+                            z=size*swell*(surface>0?.25f:-.10f);
+                            z-=surface*size*.045f*fold*Mathf.Sin(u*Mathf.PI);
+                            shaded*=1-.15f*fold*Mathf.Sin(u*Mathf.PI);
+                        }
+                        shaded.a=1;
+                        a.body.Add(center+V(x,v*height,z),shaded,bone);
+                    }
+                    Grid(a.body,start,rows,cols);
+                    if(gathered&&((surface>0)==(s>0)))ReverseFaces(a.body,triangles);
                 }
-                Grid(a.body,start,rows,cols);
                 Fan(a,new[]{center+V(s*size*.05f,-size*.08f,0),center+V(s*size*.62f,-size*.83f,.001f),
                     center+V(s*size*.32f,-size*.72f,.003f),center+V(s*size*.12f,-size*.88f,.004f)},color,bone);
             }
             a.Sphere(a.body,center+V(0,0,.002f),V(size*.17f,size*.20f,size*.13f),color,bone,12,8);
+            if(orientation.HasValue)for(int i=first;i<a.body.p.Count;i++)
+                a.body.p[i]=center+orientation.Value*(a.body.p[i]-center);
         }
         static void GoldBow(Author a,Vector3 c,int bone,float size) {
             foreach(int s in new[]{-1,1}) {
