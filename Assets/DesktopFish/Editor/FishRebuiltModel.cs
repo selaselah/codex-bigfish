@@ -158,6 +158,14 @@ namespace DesktopFish.Editor
                         }
                         int head=ids["J_Bip_C_Head"];
                         if(bone==head&&!outward.HasValue&&p.y>.70f) {
+                            // The root cross-section shares the headband's arc.
+                            // Radial fitting preserves the crown volume instead
+                            // of cutting a horizontal step into the side locks.
+                            float radius=Mathf.Sqrt(p.x*p.x+Mathf.Pow(p.y-.765f,2));
+                            float tuck=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.82f,.94f,p.y))*
+                                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.13f,.18f,p.z)));
+                            float fit=Mathf.Lerp(1,Mathf.Min(1,.218f/Mathf.Max(.001f,radius)),tuck);
+                            p.x*=fit;p.y=.765f+(p.y-.765f)*fit;
                             // The inner edge of a broad cheek lock can cross the
                             // forehead even while its centerline remains outside.
                             float skin=1-Mathf.Pow(p.x/.214f,2)-Mathf.Pow((p.y-.773f)/.187f,2);
@@ -823,12 +831,25 @@ namespace DesktopFish.Editor
             for(int row=0;row<=4;row++)for(int i=0;i<=100;i++) {
                 float angle=Mathf.Lerp(-1.34f,1.34f,i/100f),t=row/4f;
                 float fold=Mathf.Cos(angle*40);
-                float radius=.218f+t*(.060f+.006f*fold);
+                float radius=.218f+t*(.047f+.005f*fold);
                 a.body.Add(V(Mathf.Sin(angle)*radius,.765f+Mathf.Cos(angle)*radius,
                     .045f+Mathf.Sin(t*Mathf.PI)*.015f+t*fold*.006f),
                     Color.Lerp(White*.83f,White,(fold+1)*.5f),head);
             }
             Grid(a.body,headbandStart,4,100);
+            // A narrow continuous binding joins the pleats to the hairline.
+            // It slopes back into the existing ruffle instead of enlarging it.
+            int bindingStart=a.body.p.Count;
+            for(int row=0;row<=2;row++)for(int i=0;i<=100;i++) {
+                float angle=Mathf.Lerp(-1.34f,1.34f,i/100f),t=row/2f;
+                float radius=Mathf.Lerp(.219f,.229f,t);
+                float fold=Mathf.Cos(angle*40),ruffleT=.011f/(.047f+.005f*fold);
+                float joinZ=.045f+Mathf.Sin(ruffleT*Mathf.PI)*.015f+ruffleT*fold*.006f;
+                float z=Mathf.Lerp(.065f,joinZ,t)+.002f*Mathf.Sin(t*Mathf.PI);
+                a.body.Add(V(Mathf.Sin(angle)*radius,.765f+Mathf.Cos(angle)*radius,z),
+                    Color.Lerp(White*.92f,White,t),head);
+            }
+            Grid(a.body,bindingStart,2,100);
             foreach(int s in new[]{-1,1}) {
                 FinBlade(a,
                     new[]{V(s*.216f,.785f,.035f),V(s*.236f,.760f,.025f),V(s*.277f,.738f,.025f),V(s*.331f,.720f,.035f)},

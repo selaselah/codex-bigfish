@@ -24,11 +24,13 @@ The next volume pass replaces five front-facing rear strips with nine radial loc
 
 The fringe now keeps its width longer before tapering, with inward-swept side tips and forehead clearance across each sheet. Three independently painted highlight layouts replace the repeated square glints; the fourth atlas strip supplies the longer blue/cyan locks. The shader classifies pale cloth using the textured surface color, so the hair's neutral vertex colors no longer flatten its directional shading.
 
+The upper fringe follows the headband's inner arc with a gradual radial fit into the side locks. A narrow sewn binding joins that hairline to the pleats, and the outer ruffle is slightly narrower. This removes the squared root tabs without cutting steps into the sides or increasing the overall accessory silhouette. The binding uses 400 triangles.
+
 Facial layers now follow the curved head with concentric mesh rings and smaller depth offsets. Closed eyelids use a rounded cross-section instead of flattened open-eye vertices; mouth expressions retain their surface offset. Round wrist volumes bridge the cuffs and palms during hand rotation. `work/rebuilt-joints-and-face.png` shows idle, both wave extremes and closed eyes at 35 degrees for depth inspection, in addition to the front gesture sheet and 150-pose bounds checks.
 
 The side fins and the two tail lobes use curved leading/trailing contours with a thin closed volume. The ear fins retain a blue border and a pale inner area; the tail ends in two dark-blue lobes with a visible notch. Small gold buckles follow the shoe surfaces. These accessories remain bound to the existing head, tail and foot bones.
 
-The apron has a straight waist edge, softly rounded lower corners and shallow gathered folds. Its cloth, flat seam and U-shaped lace follow the skirt curvature. The large whale is rebuilt as surface artwork, with its belly, eye and water strokes on separate depth layers; mirrored artwork is reprojected onto the asymmetric cloth folds. Removing the old hidden sphere backs brings the complete model to 54,172 triangles without shrinking the emblem or removing the lace.
+The apron has a straight waist edge, softly rounded lower corners and shallow gathered folds. Its cloth, flat seam and U-shaped lace follow the skirt curvature. The large whale is rebuilt as surface artwork, with its belly, eye and water strokes on separate depth layers; mirrored artwork is reprojected onto the asymmetric cloth folds. This removes 896 triangles compared with the previous rounded apron and sphere-based artwork, without shrinking the emblem or removing the lace.
 
 ## Reproduce
 
