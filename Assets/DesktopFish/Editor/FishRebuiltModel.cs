@@ -195,7 +195,10 @@ namespace DesktopFish.Editor
                         Color shade=Color.white*ridge; shade.a=1;
                         float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                         int paintStrip=cyan?3:((phase%3)+3)%3;
-                        body.Add(p,shade,bone,new Vector2(paintStrip*.25f+.012f+(u+1)*.113f,
+                        int longPaint=((phase%3)+3)%3;
+                        float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
+                            paintStrip*.25f+.012f+(u+1)*.113f;
+                        body.Add(p,shade,bone,new Vector2(paintU,
                             .02f+.94f*Mathf.Clamp01(t+.021f*Mathf.Sin(phase))),head,anchored);
                     }
                 }
@@ -388,21 +391,48 @@ namespace DesktopFish.Editor
         }
 
         // A small authored UV atlas supplies paint detail without adding hair geometry.
-        // Three fringe variations and one cyan-ended strip prevent every lock
+        // Three fringe strips and three narrower cyan-ended layouts prevent locks
         // repeating the same highlights. The upper-right swatch stays neutral white.
         static void WriteHairPaint() {
             const int size=1024;
             var texture=new Texture2D(size,size,TextureFormat.RGBA32,false);
             var pixels=new Color[size*size];
+            float[] brushCenters={.10f,.46f,.85f};
+            float[] brushStarts={.59f,.71f,.64f};
+            float[] brushWidths={.29f,.23f,.27f};
             for(int y=0;y<size;y++)for(int x=0;x<size;x++) {
                 float ax=x/(float)(size-1),ay=y/(float)(size-1);
                 int strip=Mathf.Min(3,(int)(ax*4));bool cyan=strip==3;
                 float u=Mathf.Clamp01((ax-strip*.25f-.012f)/.226f);
+                int longPaint=cyan?Mathf.Min(2,(int)((ax-.75f)*12)):0;
+                if(cyan)u=Mathf.Clamp01((ax-.75f-longPaint/12f-.004f)/.075f);
                 float t=Mathf.Clamp01((ay-.02f)/.94f);
                 float edge=Mathf.Pow(Mathf.Abs(u*2-1),8);
                 Color baseColor=Color.Lerp(Hex("2B4588"),Hex("4165A1"),Mathf.Sin(t*Mathf.PI)*.50f);
-                float ends=Mathf.SmoothStep(0,1,Mathf.InverseLerp(cyan?.47f:.76f,1,t));
+                float ends=cyan?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.95f,t))*.90f:
+                    Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,t));
+                if(cyan) {
+                    // Broad, tapered brush shapes grow upward from the tips.
+                    // Changing their height and bend per layout keeps the lower
+                    // silhouette readable without a comb of evenly spaced lines.
+                    float brush=0;
+                    for(int k=0;k<brushCenters.Length;k++) {
+                        float shift=.035f*Mathf.Sin(k*2.3f+longPaint*2.1f);
+                        float top=brushStarts[(k+longPaint)%brushStarts.Length]+.025f*Mathf.Sin(k+longPaint);
+                        brush=Mathf.Max(brush,PaintBrush(u,t,brushCenters[k]+shift,top,
+                            brushWidths[k],.045f*Mathf.Sin(k*1.7f+longPaint)));
+                    }
+                    ends=Mathf.Max(ends,brush*.90f);
+                }
                 baseColor=Color.Lerp(baseColor,cyan?Hex("59BED8"):Hex("94A8CF"),ends);
+                if(cyan) {
+                    // A few blue tongues extend into the cyan, separating broad
+                    // painted masses without outlining every individual strand.
+                    float blue=PaintBrush(u,1-t,.24f+longPaint*.065f,.045f,.072f,-.035f);
+                    blue=Mathf.Max(blue,PaintBrush(u,1-t,.72f-longPaint*.055f,.10f,.047f,.025f));
+                    blue*=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.59f,.75f,t));
+                    baseColor=Color.Lerp(baseColor,Hex("385B99"),blue*.70f);
+                }
                 // Slightly wandering broad streaks and finer tip strokes retain
                 // strand detail without a uniform comb of vertical stripes.
                 float strand=Mathf.Sin(u*43+t*3+Mathf.Sin(t*7+u*5))*.006f+
@@ -427,7 +457,7 @@ namespace DesktopFish.Editor
                 float fineTip=Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*64+t*4)),14)*
                     Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.94f,t))*(1-ends*.5f);
                 baseColor=Color.Lerp(baseColor,Hex("8BA6D5"),glints*.60f);
-                baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("CBD5E8"),fineTip*.12f);
+                baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("CBD5E8"),fineTip*(cyan?.035f:.12f));
                 baseColor.a=1;
                 pixels[y*size+x]=(ax>.98f&&ay>.98f)?Color.white:baseColor;
             }
@@ -439,6 +469,13 @@ namespace DesktopFish.Editor
             float dx=(u-x-tilt*(t-y))/rx,dy=(t-y)/ry;
             float distance=dx*dx+dy*dy;
             return 1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,1,distance));
+        }
+        static float PaintBrush(float u,float t,float center,float start,float width,float bend) {
+            float p=Mathf.Clamp01((t-start)/(1-start));
+            float radius=width*Mathf.Pow(p,.60f)+.00001f;
+            float x=center+bend*Mathf.Sin(p*Mathf.PI*.8f);
+            float edge=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,1,Mathf.Abs(u-x)/radius));
+            return edge*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.06f,p));
         }
 
         public static GameObject Create()
