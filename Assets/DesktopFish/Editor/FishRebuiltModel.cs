@@ -107,7 +107,8 @@ namespace DesktopFish.Editor
             // the roots and terminate in sharp, offset tips rather than tubes.
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
-                float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1) {
+                float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
+                float lowerWidth = 1) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -131,18 +132,27 @@ namespace DesktopFish.Editor
                     float turn=sideTurn*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.38f,t));
                     Vector3 sectionFacing=Quaternion.Euler(0,turn,0)*facing;
                     Vector3 side=Vector3.Cross(tangent,sectionFacing);
+                    float facingCross=side.magnitude;
+                    if(outward.HasValue&&previousSide.sqrMagnitude>.1f) {
+                        Vector3 transported=Vector3.ProjectOnPlane(previousSide,tangent).normalized;
+                        Vector3 desired=side.normalized;
+                        if(Vector3.Dot(desired,transported)<0)desired=-desired;
+                        float aligned=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.70f,facingCross));
+                        side=Vector3.Lerp(transported,desired,aligned);
+                    }
                     if(side.sqrMagnitude<.001f)side=Vector3.ProjectOnPlane(previousSide,tangent);
                     if(side.sqrMagnitude<.001f)side=Vector3.right;
                     side.Normalize();
                     if(previousSide.sqrMagnitude>.1f&&Vector3.Dot(side,previousSide)<0)side=-side;
                     previousSide=side;
                     Vector3 thicknessAxis=Vector3.Cross(side,tangent).normalized;
-                    float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(tipStart,1,t)),.83f);
+                    float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(tipStart,1,t)),outward.HasValue?1.05f:.83f);
                     float rootWidth=outward.HasValue?
                         Mathf.Clamp01(Mathf.Sqrt(Mathf.Pow(path[row].x/.244f,2)+Mathf.Pow(path[row].z/.192f,2))):
                         .66f+.34f*Mathf.Sin(t*Mathf.PI*.85f);
                     float rootBlend=Mathf.Lerp(rootScale,1,Mathf.SmoothStep(0,1,t/.35f));
-                    float w=width*rootWidth*rootBlend*taper+.00015f;
+                    float lowerScale=Mathf.Lerp(1,lowerWidth,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.42f,t)));
+                    float w=width*rootWidth*rootBlend*taper*lowerScale+.00015f;
                     float volume=Mathf.Lerp(1,fullness,Mathf.Sin(t*Mathf.PI));
                     float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper*volume+.0001f;
                     for(int j=0;j<=sides;j++) {
@@ -197,11 +207,13 @@ namespace DesktopFish.Editor
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
                         float t=row/(float)rows,theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
-                        float y=.978f-.490f*t;
+                        float y=.978f-.490f*t-.130f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,1,t));
                         float scalp=Mathf.Sqrt(Mathf.Max(.01f,1-Mathf.Pow((y-.765f)/.215f,2)));
                         float lower=Mathf.InverseLerp(.765f,.488f,y);
                         float rx=y>.765f?.232f*scalp+.002f:.234f-.030f*Mathf.SmoothStep(0,1,lower);
                         float rz=y>.765f?.182f*scalp+.002f:.184f+.024f*lower;
+                        float innerHem=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.488f,.358f,y));
+                        rx-=.020f*innerHem;rz-=.010f*innerHem;
                         float undercut=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.91f,.75f,y))*.08f;
                         rx*=1-undercut;rz*=1-undercut;
                         float fold=Mathf.Cos(theta*12+t*.6f),thickness=layer*.005f;
@@ -595,14 +607,32 @@ namespace DesktopFish.Editor
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
                 Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
                 int bone=a.ids["J_Sec_Hair"+(1+Mathf.RoundToInt(i*.5f))+"_01"];
+                int group=Mathf.Min(i,8-i);
+                float lift=new[]{.008f,.055f,.022f,.085f,.035f}[group];
+                float layer=new[]{.008f,-.006f,.013f,-.010f,.006f}[group];
+                float tipRadius=new[]{.300f,.275f,.320f,.265f,.290f}[group];
+                float lowerWidth=new[]{.77f,.66f,.80f,.70f,.78f}[group];
+                float taperAt=new[]{.64f,.59f,.67f,.58f,.65f}[group];
                 var controls=new[]{radial(.008f,.979f,.006f),radial(.150f,.979f,.118f),
                     radial(.244f,.88f,.192f),radial(.244f,.735f,.192f),
-                    radial(.244f,.65f,.205f),radial(.243f,.56f,.225f),radial(.265f,.48f,.248f),
-                    radial(.325f,.33f,.310f),radial(.220f,.27f,.220f),
-                    radial(.230f,.215f,.215f),radial(.240f,.145f,.225f),
-                    radial(.280f,.145f,.275f),radial(.300f,.172f+(i%3)*.009f,.290f)};
+                    radial(.244f,.65f,.205f),radial(.243f+layer*.25f,.56f,.225f+layer*.25f),
+                    radial(.265f+layer,.48f+lift*.18f,.248f+layer),
+                    radial(.325f+layer,.33f+lift*.60f,.310f+layer),
+                    radial(.220f+layer,.27f+lift,.220f+layer),
+                    radial(.230f+layer,.215f+lift,.215f+layer),radial(.240f+layer,.145f+lift,.225f+layer),
+                    radial(tipRadius-.020f,.145f+lift,.275f+layer),
+                    radial(tipRadius,.172f+lift+(i%3)*.006f,tipRadius-.010f)};
+                // A sideways finish puts each tapered tip on the silhouette
+                // instead of pointing every curl straight into the rear view.
+                Vector3 lateral=V(Mathf.Cos(theta),0,-Mathf.Sin(theta));
+                float curl=i==4?-.020f:Mathf.Sign(Mathf.Sin(theta)*Mathf.Cos(theta))*
+                    new[]{0f,.012f,.025f,.020f,.020f}[group];
+                controls[9]+=lateral*curl*.10f;
+                controls[10]+=lateral*curl*.25f;
+                controls[11]+=lateral*curl*.65f;
+                controls[12]+=lateral*curl;
                 a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
-                    backSweep:HairSweepAtAngle(theta));
+                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth);
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
