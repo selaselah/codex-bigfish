@@ -6,6 +6,8 @@ This version authors mesh positions, topology, vertex colors, bones and five fac
 
 Mesh density is recorded in `Assets/DesktopFish/Rebuilt/provenance.json`. The model uses two material slots, one generated 1024×1024 paint atlas, 51 bones and five expression morphs. Blender materials approximate the Unity toon shader rather than reproducing it exactly.
 
+A topology cleanup removes 1,152 collapsed triangles and 75 unreferenced vertices, leaving 53,276 triangles and 32,419 vertices (30,358 body, 2,061 face). A triangle is discarded only when its area is below 1e-12 square model units and a coincident edge has matching skin weights and every expression delta. Cleanup runs after expression generation, remapping all retained attributes and morph frames together while preserving their authored normals. Multi-view and hand-pose pixel comparisons show only small rasterization differences; the 150-pose check and Blender/GLB validation pass. This is redundant topology removal, without deleting visual detail; frame-rate improvement has not been measured.
+
 ## Local visual reference
 
 `Assets/DesktopFish/Generated/Ref.asset` is the retained local reference mesh (30,033 vertices, 43,815 triangles, 38 material slots). `DesktopFish.Editor.FishReferenceReview.Render` renders it with the compatible local legacy rig/materials into `work/reference-review/`, at front, 35-degree and side views. It leaves the reference file unchanged and does not place reference assets into the rebuilt exports.

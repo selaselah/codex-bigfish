@@ -70,6 +70,51 @@ namespace DesktopFish.Editor
             }
         }
 
+        // Remove collapsed edges only when the coincident vertices also deform
+        // together. Rest-pose collinearity alone is unsafe for a skinned mesh.
+        static Mesh CompactMesh(Mesh source) {
+            var vertices=source.vertices;var weights=source.boneWeights;
+            var frames=new List<Tuple<string,float,Vector3[],Vector3[],Vector3[]>>();
+            for(int shape=0;shape<source.blendShapeCount;shape++)
+                for(int frame=0;frame<source.GetBlendShapeFrameCount(shape);frame++) {
+                    var dp=new Vector3[vertices.Length];var dn=new Vector3[vertices.Length];var dt=new Vector3[vertices.Length];
+                    source.GetBlendShapeFrameVertices(shape,frame,dp,dn,dt);
+                    frames.Add(Tuple.Create(source.GetBlendShapeName(shape),source.GetBlendShapeFrameWeight(shape,frame),dp,dn,dt));
+                }
+            Func<int,int,bool> sameMotion=(a,b)=>(vertices[a]-vertices[b]).sqrMagnitude<1e-14f &&
+                weights[a].Equals(weights[b]) && frames.All(f=>(f.Item3[a]-f.Item3[b]).sqrMagnitude<1e-14f);
+            var triangles=new List<int>();var original=source.triangles;
+            for(int i=0;i<original.Length;i+=3) {
+                int a=original[i],b=original[i+1],c=original[i+2];
+                // Double precision avoids float cancellation at collapsed poles.
+                double ux=(double)vertices[b].x-vertices[a].x,uy=(double)vertices[b].y-vertices[a].y,uz=(double)vertices[b].z-vertices[a].z;
+                double vx=(double)vertices[c].x-vertices[a].x,vy=(double)vertices[c].y-vertices[a].y,vz=(double)vertices[c].z-vertices[a].z;
+                double nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+                bool tiny=nx*nx+ny*ny+nz*nz<4e-24;
+                if(tiny&&(sameMotion(a,b)||sameMotion(b,c)||sameMotion(c,a)))continue;
+                triangles.Add(a);triangles.Add(b);triangles.Add(c);
+            }
+            var used=new HashSet<int>(triangles);
+            int[] retained=Enumerable.Range(0,vertices.Length).Where(used.Contains).ToArray();
+            var remap=new int[vertices.Length];
+            for(int i=0;i<retained.Length;i++)remap[retained[i]]=i;
+            var mesh=new Mesh {name=source.name,indexFormat=retained.Length>65535?IndexFormat.UInt32:IndexFormat.UInt16};
+            var normals=source.normals;var colors=source.colors;var uv=source.uv;
+            mesh.vertices=retained.Select(i=>vertices[i]).ToArray();
+            mesh.normals=retained.Select(i=>normals[i]).ToArray();
+            mesh.colors=retained.Select(i=>colors[i]).ToArray();
+            mesh.uv=retained.Select(i=>uv[i]).ToArray();
+            mesh.boneWeights=retained.Select(i=>weights[i]).ToArray();mesh.bindposes=source.bindposes;
+            mesh.triangles=triangles.Select(i=>remap[i]).ToArray();
+            foreach(var frame in frames)mesh.AddBlendShapeFrame(frame.Item1,frame.Item2,
+                retained.Select(i=>frame.Item3[i]).ToArray(),retained.Select(i=>frame.Item4[i]).ToArray(),
+                retained.Select(i=>frame.Item5[i]).ToArray());
+            mesh.RecalculateBounds();
+            Debug.Log($"Compacted {source.name}: {vertices.Length} -> {retained.Length} vertices; {original.Length/3} -> {triangles.Count/3} triangles");
+            UnityEngine.Object.DestroyImmediate(source);
+            return mesh;
+        }
+
         sealed class Author
         {
             public readonly GameObject root = new GameObject("Rebuilt BigFish");
@@ -389,6 +434,7 @@ namespace DesktopFish.Editor
                     var geo = part == 0 ? body : face;
                     var mesh = geo.Build(part == 0 ? "Authored body" : "Authored expressions", root.transform, bones.ToArray());
                     if (part == 1) Expressions(mesh);
+                    mesh=CompactMesh(mesh);
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
                         var deltas = new Vector3[mesh.vertexCount];
@@ -425,7 +471,7 @@ namespace DesktopFish.Editor
                 }));
                 AssetDatabase.SaveAssets();
                 PrefabUtility.SaveAsPrefabAsset(root, Folder + "/BigFish.prefab");
-                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"body_vertices\": " + body.p.Count + ",\n  \"face_vertices\": " + face.p.Count + ",\n  \"triangles\": " + (body.tri.Count + face.tri.Count) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
+                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
                 return root;
             }
         }

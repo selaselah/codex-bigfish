@@ -189,6 +189,7 @@ assert len(document['images']) == 1
 assert len(document['skins'][0]['joints']) == len(data['bones'])
 blended_vertices = 0
 checked_normals = 0
+exported_normals = 0
 for mesh in document['meshes']:
     source = next(item for item in data['meshes'] if item['name'] == mesh['name'])
     normals_by_position = {}
@@ -199,6 +200,7 @@ for mesh in document['meshes']:
         attributes = primitive['attributes']
         assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', 'NORMAL'} <= attributes.keys()
         for position, normal in zip(float_vectors(attributes['POSITION']), float_vectors(attributes['NORMAL'])):
+            exported_normals += 1
             assert all(math.isfinite(c) for c in normal)
             key = tuple(round(c, 6) for c in position)
             candidates = normals_by_position[key]
@@ -230,6 +232,6 @@ for mesh in document['meshes']:
     assert not any(mesh.get('weights', [])), "Facial expressions must start neutral"
 assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
 assert blended_vertices > 0, "Smooth hair-root weights must survive the GLB export"
-assert checked_normals > .9 * sum(len(item['vertices']) for item in data['meshes'])
+assert checked_normals > .99 * exported_normals
 print(f'Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig, '
-      f'{blended_vertices} blended vertices, {checked_normals} shading normals and neutral expressions.')
+      f'{blended_vertices} blended vertices, {checked_normals}/{exported_normals} shading normals and neutral expressions.')
