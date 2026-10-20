@@ -317,6 +317,9 @@ namespace DesktopFish
             Aim(upper, elbow, new Vector3(sign * 0.20f, -0.95f, 0.22f), weight);
             Aim(elbow, hand, new Vector3(-sign * 0.20f, 0.05f, 1), weight);
             Quaternion palm = Quaternion.LookRotation(side == "R" ? Vector3.left : Vector3.right, Vector3.forward);
+            // Let the rebuilt palm lean forward at rest instead of folding
+            // almost 90 degrees across the short, rounded wrist.
+            if (rebuiltRig) palm = Quaternion.AngleAxis(-30, Vector3.right) * palm;
             hand.rotation = Quaternion.Slerp(hand.rotation, model.rotation * palm, weight);
         }
 
