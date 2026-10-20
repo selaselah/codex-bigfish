@@ -67,6 +67,7 @@ namespace DesktopFish.Editor
             public readonly Dictionary<string, int> ids = new Dictionary<string, int>();
             public readonly Geo body = new Geo(), face = new Geo();
             readonly List<Tuple<int, Vector3, string>> features = new List<Tuple<int, Vector3, string>>();
+            readonly Dictionary<int,Vector3> closedLashes = new Dictionary<int,Vector3>();
             public int Bone(string name, int parent, Vector3 position) {
                 var bone = new GameObject(name).transform;
                 bone.SetParent(parent < 0 ? root.transform : bones[parent], false); bone.position = position;
@@ -176,24 +177,35 @@ namespace DesktopFish.Editor
             public void Disk(Geo g, Vector2 center, Vector2 size, Color color, int bone,
                 float offset, string feature = "", int steps = 40) {
                 int start = g.p.Count;
-                int index = g.Add(FacePoint(center.x, center.y, offset), feature == "iris" ? Hex("293D78") : color, bone);
-                if (feature != "") features.Add(Tuple.Create(index, V(center.x, center.y, offset), feature));
-                for (int i = 0; i <= steps; i++) {
-                    float angle = i * Mathf.PI * 2 / steps;
-                    Vector2 xy = center + Vector2.Scale(size, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)));
-                    Color shade = color;
-                    if (feature == "iris") {
-                        float height=Mathf.InverseLerp(center.y-size.y,center.y+size.y,xy.y);
-                        shade=Color.Lerp(Hex("74DDF2"),Hex("242C66"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.10f,.60f,height)));
+                // Concentric rings follow the cheek surface. A single triangle fan
+                // cuts through the curved face and needs an excessive depth offset.
+                int rings = Mathf.Max(1, Mathf.CeilToInt(Mathf.Max(size.x,size.y)/.010f));
+                for (int row = 0; row <= rings; row++) {
+                    float r = row / (float)rings;
+                    for (int i = 0; i <= steps; i++) {
+                        float angle = i * Mathf.PI * 2 / steps;
+                        Vector2 xy = center + Vector2.Scale(size, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle))) * r;
+                        int index = g.Add(FacePoint(xy.x, xy.y, offset), color, bone);
+                        if (feature != "") features.Add(Tuple.Create(index, V(center.x, center.y, offset), feature));
                     }
-                    index = g.Add(FacePoint(xy.x, xy.y, offset), shade, bone);
-                    if (feature != "") features.Add(Tuple.Create(index, V(center.x, center.y, offset), feature));
-                    if (i > 0) g.Face(start, index - 1, index);
                 }
+                Grid(g,start,rings,steps);
             }
-            public void FaceLine(Vector2[] xy, float radius, Color color, int bone, string feature = "") {
+            public void FaceLine(Vector2[] xy, float radius, Color color, int bone, string feature = "", float? eyeCenter = null) {
                 int start = face.p.Count;
-                Tube(face, xy.Select(p => FacePoint(p.x, p.y, .018f)).ToArray(), radius, color, bone, 6);
+                Tube(face, xy.Select(p => FacePoint(p.x, p.y, .0035f)).ToArray(), radius, color, bone, 6);
+                if(feature=="lash") {
+                    float center=eyeCenter??xy.Average(p=>p.x);
+                    var closed=new Geo();
+                    var path=xy.Select(p=>{
+                        float y=.698f-.008f*(1-Mathf.Clamp01(Mathf.Pow((p.x-center)/.054f,2)));
+                        return FacePoint(p.x,y,.0035f);
+                    }).ToArray();
+                    // Rebuild the closed cross-section instead of flattening every
+                    // vertex onto one y value, which creates a degenerate eyelid.
+                    Tube(closed,path,Mathf.Min(radius,.0021f),color,bone,6);
+                    for(int i=0;i<closed.p.Count;i++)closedLashes[start+i]=closed.p[i];
+                }
                 if (feature != "") for (int i = start; i < face.p.Count; i++)
                     features.Add(Tuple.Create(i, V(xy.Average(p => p.x), .700f, 0), feature));
             }
@@ -206,8 +218,8 @@ namespace DesktopFish.Editor
                     Color color=Color.Lerp(Hex("8BE6F2"),Hex("26376C"),
                         Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.72f,h)));
                     color=Color.Lerp(color,Hex("24325D"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,1,r))*.75f);
-                    int index=face.Add(FacePoint(px,py,.011f),color,bone);
-                    features.Add(Tuple.Create(index,V(x,.695f,.011f),"iris"));
+                    int index=face.Add(FacePoint(px,py,.0027f),color,bone);
+                    features.Add(Tuple.Create(index,V(x,.695f,.0027f),"iris"));
                 }
                 Grid(face,start,rows,cols);
             }
@@ -221,7 +233,7 @@ namespace DesktopFish.Editor
                         if (name == "Fcl_EYE_Close") {
                             if (kind == "eye" || kind == "iris" || kind == "pupil" || kind == "shine")
                                 target = V(c.x, .700f, FacePoint(c.x, .700f, -.025f).z);
-                            if (kind == "lash") target.y = .698f - .008f * (1 - Mathf.Clamp01(Mathf.Pow((p.x - c.x) / .054f, 2)));
+                            if (kind == "lash") target = closedLashes[i];
                         }
                         if ((name == "Fcl_ALL_Joy" || name == "Fcl_ALL_Fun") && kind == "mouth") {
                             target.x *= 1.5f; target.y += .007f * Mathf.Pow(p.x / .018f, 2);
@@ -230,6 +242,8 @@ namespace DesktopFish.Editor
                         if (name == "Fcl_ALL_Surprised" && kind == "mouth") {
                             target.x *= .5f; target.y = .625f + (p.y - .625f) * 4;
                         }
+                        if (kind == "mouth")
+                            target.z += FacePoint(target.x,target.y,0).z - FacePoint(p.x,p.y,0).z;
                         delta[i] = target - p;
                     }
                     mesh.AddBlendShapeFrame(name, 100, delta, new Vector3[delta.Length], new Vector3[delta.Length]);
@@ -404,11 +418,13 @@ namespace DesktopFish.Editor
             var motion=new FishMotion(companion.model){randomActions=false};
             motion.Tick(0,1,0,0,"idle",false);
             var skins=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
+            var snapshots=new List<MeshFilter>();
             foreach(var skin in skins) {
                 var mesh=new Mesh();skin.BakeMesh(mesh);
                 var snapshot=new GameObject("Rebuilt review snapshot");
                 snapshot.transform.SetParent(skin.transform,false);
-                snapshot.AddComponent<MeshFilter>().sharedMesh=mesh;
+                var filter=snapshot.AddComponent<MeshFilter>();
+                filter.sharedMesh=mesh;snapshots.Add(filter);
                 snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;
                 skin.enabled=false;
             }
@@ -424,31 +440,58 @@ namespace DesktopFish.Editor
                 frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
                 File.WriteAllBytes("work/rebuilt-angle-"+angle+".png",frame.EncodeToPNG());
             }
+            // Inspect the wrist at both wave extremes and the eyelid surface from
+            // an oblique view. The usual front contact sheet hides depth defects.
+            var details=new Texture2D(1440,1920,TextureFormat.RGBA32,false);
+            camera.transform.position=center+Quaternion.Euler(0,35,0)*(front-center);
+            camera.transform.LookAt(center);
+            for(int pose=0;pose<4;pose++) {
+                motion.Play(pose==1||pose==2?FishMotion.Gesture.Wave:FishMotion.Gesture.None,0);
+                motion.Evaluate(pose==1?1.3625f:pose==2?1.7875f:1,0,0,"idle",false);
+                for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++)
+                    companion.face.SetBlendShapeWeight(shape,
+                        companion.face.sharedMesh.GetBlendShapeName(shape)=="Fcl_EYE_Close"&&pose==3?100:0);
+                for(int i=0;i<skins.Length;i++) {
+                    UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                    var mesh=new Mesh();skins[i].BakeMesh(mesh);snapshots[i].sharedMesh=mesh;
+                }
+                camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                details.SetPixels((pose%2)*720,(1-pose/2)*960,720,960,frame.GetPixels());
+            }
+            details.Apply();
+            File.WriteAllBytes("work/rebuilt-joints-and-face.png",details.EncodeToPNG());
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+            UnityEngine.Object.DestroyImmediate(details);
+            foreach(var snapshot in snapshots) {
+                UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);
+                UnityEngine.Object.DestroyImmediate(snapshot.gameObject);
+            }
+            foreach(var skin in skins)skin.enabled=true;
         }
 
         static void BuildFace(Author a, int head)
         {
             foreach (int sign in new[] { -1, 1 }) {
                 float x = sign * .085f;
-                a.Disk(a.face, new Vector2(x, .700f), new Vector2(.050f, .041f), Hex("FFFCFA"), head, .006f, "eye");
+                a.Disk(a.face, new Vector2(x, .700f), new Vector2(.050f, .041f), Hex("FFFCFA"), head, .0015f, "eye");
                 a.Iris(x,head);
-                a.Disk(a.face, new Vector2(x, .703f), new Vector2(.014f, .022f), Hex("253965"), head, .013f, "pupil");
-                a.Disk(a.face, new Vector2(x - .011f, .719f), new Vector2(.008f, .008f), Color.white, head, .016f, "shine");
-                a.Disk(a.face, new Vector2(x + .009f, .725f), new Vector2(.003f, .003f), Color.white, head, .016f, "shine");
-                a.Disk(a.face, new Vector2(x, .666f), new Vector2(.018f, .005f), Hex("C4F6FF"), head, .014f, "shine");
+                a.Disk(a.face, new Vector2(x, .703f), new Vector2(.014f, .022f), Hex("253965"), head, .0036f, "pupil",32);
+                a.Disk(a.face, new Vector2(x - .011f, .719f), new Vector2(.008f, .008f), Color.white, head, .0045f, "shine",24);
+                a.Disk(a.face, new Vector2(x + .009f, .725f), new Vector2(.003f, .003f), Color.white, head, .0045f, "shine",16);
+                a.Disk(a.face, new Vector2(x, .666f), new Vector2(.018f, .005f), Hex("C4F6FF"), head, .0042f, "shine",24);
                 var lash = new Vector2[25];
                 for (int i = 0; i < lash.Length; i++) {
                     float t = i / 24f * Mathf.PI;
                     lash[i] = new Vector2(x + Mathf.Cos(t) * .052f, .704f + Mathf.Sin(t) * .034f);
                 }
-                a.FaceLine(lash, .0048f, Ink, head, "lash");
-                a.FaceLine(new[] { new Vector2(x + sign * .041f, .728f), new Vector2(x + sign * .065f, .735f) }, .0035f, Ink, head,"lash");
+                a.FaceLine(lash, .0048f, Ink, head, "lash",x);
+                a.FaceLine(new[] { new Vector2(x + sign * .041f, .728f), new Vector2(x + sign * .065f, .735f) }, .0035f, Ink, head,"lash",x);
                 a.FaceLine(new[] { new Vector2(x - .031f, .751f), new Vector2(x, .760f), new Vector2(x + .029f, .754f) }, .0016f, Hex("83666B"), head);
             }
             a.FaceLine(new[]{new Vector2(-.020f,.628f),new Vector2(-.009f,.625f),new Vector2(.009f,.625f),new Vector2(.020f,.628f)},.0014f,Hex("AE7C7B"),head,"mouth");
-            a.Disk(a.face,new Vector2(0,.652f),new Vector2(.0015f,.0018f),Hex("E5B5A6"),head,.004f);
+            a.Disk(a.face,new Vector2(0,.652f),new Vector2(.0015f,.0018f),Hex("E5B5A6"),head,.0018f,"",16);
         }
 
         static void BuildHair(Author a, int head)
@@ -628,6 +671,9 @@ namespace DesktopFish.Editor
                     var ring=Enumerable.Range(0,25).Select(i=>V(s*x,.49f+Mathf.Sin(i/24f*Mathf.PI*2)*.0275f,Mathf.Cos(i/24f*Mathf.PI*2)*.0275f)).ToArray();
                     a.Tube(a.body,ring,.0018f,Gold,elbow,4);
                 }
+                // A round wrist overlaps both the sleeve opening and the palm.
+                // Keeping it on the forearm fills the joint while the hand waves.
+                a.Sphere(a.body,V(s*.335f,.49f,0),V(.022f,.018f,.021f),Skin,elbow,16,10);
                 a.Sphere(a.body,V(s*.354f,.49f,0),V(.024f,.015f,.024f),Skin,hand,16,10);
                 string[] names={"Index","Middle","Ring","Little"};
                 for(int f=0;f<4;f++) {
