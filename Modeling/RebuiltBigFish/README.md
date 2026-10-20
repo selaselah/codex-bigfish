@@ -24,6 +24,8 @@ The next volume pass replaces five front-facing rear strips with nine radial loc
 
 Facial layers now follow the curved head with concentric mesh rings and smaller depth offsets. Closed eyelids use a rounded cross-section instead of flattened open-eye vertices; mouth expressions retain their surface offset. Round wrist volumes bridge the cuffs and palms during hand rotation. `work/rebuilt-joints-and-face.png` shows idle, both wave extremes and closed eyes at 35 degrees for depth inspection, in addition to the front gesture sheet and 150-pose bounds checks.
 
+The side fins and the two tail lobes use curved leading/trailing contours with a thin closed volume. The ear fins retain a blue border and a pale inner area; the tail ends in two dark-blue lobes with a visible notch. Small gold buckles follow the shoe surfaces. These accessories remain bound to the existing head, tail and foot bones.
+
 ## Reproduce
 
 1. Run Unity batch method `DesktopFish.Editor.FishRebuiltModel.ReviewAndBuild`. This creates the Unity assets, previews, geometry/idle-pose JSON under `work/`, and `Builds/RebuiltBigFish.app`.

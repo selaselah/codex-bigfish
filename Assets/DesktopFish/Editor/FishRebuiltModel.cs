@@ -725,6 +725,15 @@ namespace DesktopFish.Editor
                 a.Sphere(a.body,V(s*.065f,.045f,.022f),V(.048f,.031f,.068f),Navy,foot,20,10);
                 a.Sphere(a.body,V(s*.065f,.020f,.023f),V(.049f,.009f,.069f),Ink,foot,16,6);
                 a.Tube(a.body,new[]{V(s*.065f-.027f,.066f,.059f),V(s*.065f,.073f,.067f),V(s*.065f+.027f,.066f,.059f)},.006f,White,foot);
+                Func<float,float,Vector3> shoeSurface=(x,y)=>V(x,y,.022f+.068f*Mathf.Sqrt(Mathf.Max(.01f,
+                    1-Mathf.Pow((x-s*.065f)/.048f,2)-Mathf.Pow((y-.045f)/.031f,2)))+.0018f);
+                float buckleX=s*.089f;
+                var buckle=new[]{new Vector2(-.008f,-.0025f),new Vector2(-.006f,-.0045f),
+                    new Vector2(.006f,-.0045f),new Vector2(.008f,-.0025f),new Vector2(.008f,.0025f),
+                    new Vector2(.006f,.0045f),new Vector2(-.006f,.0045f),new Vector2(-.008f,.0025f),
+                    new Vector2(-.008f,-.0025f)};
+                a.Tube(a.body,buckle.Select(p=>shoeSurface(buckleX+p.x,.059f+p.y)).ToArray(),.0014f,Gold,foot,6);
+                a.Tube(a.body,new[]{shoeSurface(buckleX,.055f),shoeSurface(buckleX,.063f)},.0011f,Gold,foot,4);
             }
         }
 
@@ -742,9 +751,10 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,headbandStart,4,100);
             foreach(int s in new[]{-1,1}) {
-                var fin=new[]{V(s*.215f,.775f,.04f),V(s*.271f,.727f,.04f),V(s*.325f,.732f,.04f),V(s*.270f,.695f,.045f),V(s*.217f,.717f,.055f)};
-                Fan(a,fin,Hair,head);
-                Fan(a,new[]{V(s*.225f,.742f,.057f),V(s*.300f,.728f,.057f),V(s*.265f,.710f,.059f)},White,head);
+                FinBlade(a,
+                    new[]{V(s*.216f,.785f,.035f),V(s*.236f,.760f,.025f),V(s*.277f,.738f,.025f),V(s*.331f,.720f,.035f)},
+                    new[]{V(s*.216f,.785f,.035f),V(s*.203f,.704f,.075f),V(s*.274f,.687f,.080f),V(s*.331f,.720f,.035f)},
+                    head,Hair,Hex("3E588D"),true,.006f);
                 Bow(a,V(s*.257f,.835f,.065f),head,.025f,Hex("65BDD4"));
             }
             Bow(a,V(0,.552f,.101f),chest,.060f,Navy);
@@ -752,13 +762,47 @@ namespace DesktopFish.Editor
             a.Sphere(a.body,V(0,.553f,.113f),V(.006f,.005f,.002f),Hex("67AACA"),chest,14,8);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
             int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;
-            a.Sweep(a.body,Curve(new[]{V(.02f,.26f,-.095f),V(.19f,.18f,-.12f),V(.22f,.10f,-.12f),V(.31f,.13f,-.065f)},28),
-                t=>Mathf.Lerp(.030f,.014f,t),t=>Mathf.Lerp(.020f,.010f,t),t=>Color.Lerp(Hair,Tip,t),tail,12);
-            Fan(a,new[]{V(.285f,.12f,-.066f),V(.31f,.18f,-.06f),V(.365f,.186f,-.035f),V(.34f,.14f,-.03f),V(.375f,.115f,-.03f),V(.32f,.095f,-.055f)},Tip,tail);
+            a.Sweep(a.body,Curve(new[]{V(.02f,.26f,-.095f),V(.19f,.18f,-.12f),V(.22f,.10f,-.12f),V(.31f,.13f,-.065f)},20),
+                t=>Mathf.Lerp(.030f,.012f,t),t=>Mathf.Lerp(.020f,.009f,t),t=>Color.Lerp(Hair,Hex("689AAF"),t),tail,10);
+            // Two curved lobes leave an open notch instead of a flat arrowhead.
+            FinBlade(a,
+                new[]{V(.302f,.132f,-.064f),V(.303f,.179f,-.060f),V(.347f,.217f,-.025f),V(.369f,.222f,-.018f)},
+                new[]{V(.302f,.132f,-.064f),V(.355f,.138f,-.035f),V(.341f,.190f,-.020f),V(.369f,.222f,-.018f)},
+                tail,Hex("4A6E9C"),Hair,false,.005f);
+            FinBlade(a,
+                new[]{V(.302f,.132f,-.064f),V(.351f,.144f,-.040f),V(.378f,.169f,-.015f),V(.408f,.163f,-.006f)},
+                new[]{V(.302f,.132f,-.064f),V(.331f,.103f,-.060f),V(.386f,.118f,-.028f),V(.408f,.163f,-.006f)},
+                tail,Hex("4A6E9C"),Hair,false,.005f);
             for(int i=tailStart;i<a.body.p.Count;i++) {
                 Vector3 p=a.body.p[i];p.x=-p.x;a.body.p[i]=p;
             }
             ReverseFaces(a.body,tailTriangles);
+        }
+        static void FinBlade(Author a,Vector3[] leading,Vector3[] trailing,int bone,
+            Color rootColor,Color tipColor,bool paleInset,float thickness)
+        {
+            int rows=paleInset?14:12,cols=paleInset?8:4,mid=rows/2;
+            var edgeA=Curve(leading,rows);var edgeB=Curve(trailing,rows);
+            bool forward=Vector3.Dot(Vector3.Cross(edgeB[mid]-edgeA[mid],edgeA[mid+1]-edgeA[mid-1]),Vector3.forward)>0;
+            foreach(int side in new[]{1,-1}) {
+                int start=a.body.p.Count,triangles=a.body.tri.Count;
+                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
+                    float t=row/(float)rows,v=col/(float)cols;
+                    float lens=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)*Mathf.Sin(v*Mathf.PI)),.7f);
+                    Vector3 p=Vector3.Lerp(edgeA[row],edgeB[row],v)+Vector3.forward*(side*thickness*lens);
+                    Color color=Color.Lerp(rootColor,tipColor,Mathf.SmoothStep(0,1,t));
+                    if(paleInset&&side>0) {
+                        float inset=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.20f,.36f,t))*
+                            (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.73f,.94f,t)))*
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.38f,.58f,v))*
+                            (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.82f,1,v)));
+                        color=Color.Lerp(color,White,inset);
+                    }
+                    a.body.Add(p,color,bone);
+                }
+                Grid(a.body,start,rows,cols);
+                if((side>0)!=forward)ReverseFaces(a.body,triangles);
+            }
         }
         static void ReverseFaces(Geo geo,int start) {
             for(int i=start;i<geo.tri.Count;i+=3) {
