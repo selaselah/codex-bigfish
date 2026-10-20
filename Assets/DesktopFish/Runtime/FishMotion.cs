@@ -205,6 +205,10 @@ namespace DesktopFish
                     PresentPalm("R", -35, weight);
                 }
             }
+            if (rebuiltRig) {
+                AlignForearmRoll("L", -1);
+                AlignForearmRoll("R", 1);
+            }
             float fingerRelax = gesture == Gesture.Wave || gesture == Gesture.Cheer ? 1 - weight : 1;
             if (gesture == Gesture.Wave) fingerRelax = 1 - 0.88f * weight;
             RelaxFingers("L", 1, fingerRelax);
@@ -269,6 +273,21 @@ namespace DesktopFish
             elbow.localRotation = Quaternion.Slerp(baseElbow, raisedElbow, weight);
             hand.rotation = baseHand;
             PresentPalm(side, tilt, weight);
+        }
+
+        void AlignForearmRoll(string side, float sign)
+        {
+            if (!bones.TryGetValue("J_Bip_" + side + "_LowerArm", out Transform elbow) ||
+                !bones.TryGetValue("J_Bip_" + side + "_Hand", out Transform hand)) return;
+            // The IK solve fixes the forearm's direction but leaves its axial
+            // roll unconstrained. Match the palm's roll before skinning the wrist.
+            Quaternion palm = hand.rotation;
+            Vector3 axis = sign * (hand.position - elbow.position).normalized;
+            Vector3 up = Vector3.ProjectOnPlane(palm * Vector3.up, axis);
+            if (up.sqrMagnitude < .0001f) return;
+            up.Normalize();
+            elbow.rotation = Quaternion.LookRotation(Vector3.Cross(axis, up), up);
+            hand.rotation = palm;
         }
 
         void RelaxFingers(string side, float sign, float weight)

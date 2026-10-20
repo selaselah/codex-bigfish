@@ -559,6 +559,8 @@ namespace DesktopFish.Editor
             }
             working.Apply();
             File.WriteAllBytes("work/rebuilt-working.png",working.EncodeToPNG());
+            RenderHandDetails(companion,motion,skins,snapshots,camera,"R");
+            RenderHandDetails(companion,motion,skins,snapshots,camera,"L");
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
             UnityEngine.Object.DestroyImmediate(details);
@@ -568,6 +570,41 @@ namespace DesktopFish.Editor
                 UnityEngine.Object.DestroyImmediate(snapshot.gameObject);
             }
             foreach(var skin in skins)skin.enabled=true;
+        }
+
+        static void RenderHandDetails(FishCompanion companion,FishMotion motion,
+            SkinnedMeshRenderer[] skins,List<MeshFilter> snapshots,Camera camera,string side) {
+            float sign=side=="R"?1:-1;
+            var hand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_"+side+"_Hand");
+            Vector3 oldPosition=camera.transform.position;
+            Quaternion oldRotation=camera.transform.rotation;
+            float oldSize=camera.orthographicSize;
+            var oldTarget=camera.targetTexture;
+            var target=new RenderTexture(512,512,24){antiAliasing=4};
+            var frame=new Texture2D(512,512,TextureFormat.RGBA32,false);
+            var sheet=new Texture2D(1024,1024,TextureFormat.RGBA32,false);
+            camera.targetTexture=target;camera.orthographicSize=.063f;
+            for(int pose=0;pose<4;pose++) {
+                motion.Play(pose==1||pose==2?FishMotion.Gesture.Wave:FishMotion.Gesture.None,0);
+                motion.Tick(pose==1?1.3625f:pose==2?1.7875f:pose==3?3:1,1,0,0,
+                    pose==3?"working":"idle",false);
+                for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++)
+                    companion.face.SetBlendShapeWeight(shape,0);
+                for(int i=0;i<skins.Length;i++) {
+                    UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                    var mesh=new Mesh();skins[i].BakeMesh(mesh);snapshots[i].sharedMesh=mesh;
+                }
+                Vector3 focus=hand.TransformPoint(V(sign*.031f,0,.004f));
+                camera.transform.position=focus+Quaternion.Euler(0,sign*35,0)*V(0,.018f,.40f);
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,512,512),0,0);frame.Apply();
+                sheet.SetPixels((pose%2)*512,(1-pose/2)*512,512,512,frame.GetPixels());
+            }
+            sheet.Apply();File.WriteAllBytes("work/rebuilt-hands"+(side=="R"?"":"-left")+".png",sheet.EncodeToPNG());
+            camera.targetTexture=oldTarget;RenderTexture.active=null;
+            camera.transform.SetPositionAndRotation(oldPosition,oldRotation);camera.orthographicSize=oldSize;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+            UnityEngine.Object.DestroyImmediate(sheet);
         }
 
         static void BuildFace(Author a, int head)
@@ -954,13 +991,29 @@ namespace DesktopFish.Editor
                     var ring=Enumerable.Range(0,25).Select(i=>V(s*x,.49f+Mathf.Sin(i/24f*Mathf.PI*2)*.0275f,Mathf.Cos(i/24f*Mathf.PI*2)*.0275f)).ToArray();
                     a.Tube(a.body,ring,.0018f,Gold,elbow,4);
                 }
-                // A round wrist overlaps both the sleeve opening and the palm.
-                // Keeping it on the forearm fills the joint while the hand waves.
-                a.Sphere(a.body,V(s*.335f,.49f,0),V(.022f,.018f,.021f),Skin,elbow,16,10);
-                a.Sphere(a.body,V(s*.354f,.49f,0),V(.024f,.015f,.024f),Skin,hand,16,10);
+                // One soft volume joins wrist and palm. Gradual skin weights
+                // avoid the seam between two independently turning spheres.
+                int palmStart=a.body.p.Count,palmTriangles=a.body.tri.Count;
+                const int palmRings=16,palmSides=16;
+                for(int row=0;row<=palmRings;row++)for(int j=0;j<=palmSides;j++) {
+                    float t=row/(float)palmRings,theta=j/(float)palmSides*Mathf.PI*2;
+                    float x=.319f+.062f*t;
+                    float cap=Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.70f)/.30f),2)));
+                    float ry=.018f*(1+.08f*Mathf.Sin(t*Mathf.PI))*cap;
+                    float rz=(.019f+.007f*Mathf.Sin(t*Mathf.PI))*cap;
+                    float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.326f,.350f,x));
+                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*ry,Mathf.Sin(theta)*rz),
+                        Skin,elbow,null,hand,blend);
+                }
+                Grid(a.body,palmStart,palmRings,palmSides);
+                if(s<0)ReverseFaces(a.body,palmTriangles);
                 string[] names={"Index","Middle","Ring","Little"};
                 for(int f=0;f<4;f++) {
-                    float z=(f-1.5f)*.010f;
+                    // The index finger sits next to the thumb; the knuckle line
+                    // forms a shallow arc instead of three equal-length tips.
+                    float z=(1.5f-f)*.010f;
+                    float length=new[]{.027f,.030f,.028f,.022f}[f];
+                    float fingerRadius=new[]{.0073f,.0076f,.0072f,.0067f}[f];
                     int previous=hand;
                     var joints=new int[3];
                     for(int joint=1;joint<=3;joint++) {
@@ -971,9 +1024,14 @@ namespace DesktopFish.Editor
                     // One continuous rounded finger replaces three overlapping balls.
                     int start=a.body.p.Count;const int rings=9,sides=10;
                     for(int row=0;row<=rings;row++)for(int j=0;j<=sides;j++) {
-                        float t=row/(float)rings,theta=j/(float)sides*Mathf.PI*2;
-                        float radius=.0068f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.4f)/.6f),2)));
-                        float x=.367f+t*(f==3?.025f:.030f);
+                        float theta=j/(float)sides*Mathf.PI*2;
+                        // Five stem intervals and four angular cap intervals
+                        // produce a round fingertip without an elongated point.
+                        float capAngle=Mathf.Max(0,(row-5)/4f)*Mathf.PI*.5f;
+                        float x=row<=5?.366f+(length-fingerRadius)*(row/5f):
+                            .366f+length-fingerRadius+Mathf.Sin(capAngle)*fingerRadius;
+                        float radius=row<=5?fingerRadius*Mathf.Lerp(1.10f,1,row/5f):
+                            fingerRadius*Mathf.Max(0,Mathf.Cos(capAngle));
                         int primary,secondary;float blend;
                         if(x<.373f) {
                             primary=hand;secondary=joints[0];
@@ -988,10 +1046,17 @@ namespace DesktopFish.Editor
                         a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,z+Mathf.Sin(theta)*radius),
                             Skin,primary,null,secondary,blend);
                     }
+                    int fingerTriangles=a.body.tri.Count;
                     Grid(a.body,start,rings,sides);
+                    if(s<0)ReverseFaces(a.body,fingerTriangles);
                 }
                 int thumb=a.Bone(prefix+"Thumb1",hand,V(s*.353f,.487f,.023f));
-                a.Sphere(a.body,V(s*.360f,.483f,.029f),V(.014f,.010f,.010f),Skin,thumb,14,10);
+                var thumbPath=Curve(new[]{V(s*.348f,.490f,.014f),V(s*.353f,.486f,.024f),
+                    V(s*.365f,.484f,.031f),V(s*.374f,.484f,.031f)},12);
+                a.Sweep(a.body,thumbPath,
+                    t=>(.0118f-.002f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
+                    t=>(.0108f-.001f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
+                    t=>Skin,thumb,10);
                 int thigh=a.Bone(prefix+"UpperLeg",hips,V(s*.065f,.27f,0));
                 int knee=a.Bone(prefix+"LowerLeg",thigh,V(s*.065f,.16f,0));
                 int foot=a.Bone(prefix+"Foot",knee,V(s*.065f,.062f,0));
