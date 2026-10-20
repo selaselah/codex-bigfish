@@ -81,7 +81,13 @@ for index, item in enumerate(data['meshes']):
     obj.parent = rig
     groups = [obj.vertex_groups.new(name=b['name']) for b in data['bones']]
     for v, bone in enumerate(item['bone_indices']):
-        groups[bone].add([v], 1.0, 'REPLACE')
+        primary = item['primary_bone_weights'][v]
+        secondary = item['secondary_bone_indices'][v]
+        assert 0 <= primary <= 1 and 0 <= secondary < len(groups)
+        if primary > 0:
+            groups[bone].add([v], primary, 'REPLACE')
+        if primary < 1:
+            groups[secondary].add([v], 1 - primary, 'ADD')
     modifier = obj.modifiers.new('Armature', 'ARMATURE')
     modifier.object = rig
     if item['shapes']:
@@ -154,6 +160,7 @@ binary = blob[28 + json_length:]
 assert len(document['meshes']) == len(data['meshes'])
 assert len(document['images']) == 1
 assert len(document['skins'][0]['joints']) == len(data['bones'])
+blended_vertices = 0
 for mesh in document['meshes']:
     for primitive in mesh['primitives']:
         attributes = primitive['attributes']
@@ -165,6 +172,20 @@ for mesh in document['meshes']:
         kind = {5121: 'B', 5123: 'H', 5126: 'f'}[accessor['componentType']]
         rgba = struct.unpack_from('<' + kind * 4, binary, offset)
         assert len(set(rgba[:3])) > 1, f"Unexpected neutral vertex color in {mesh['name']}"
+        weights = document['accessors'][attributes['WEIGHTS_0']]
+        weight_view = document['bufferViews'][weights['bufferView']]
+        weight_offset = weight_view.get('byteOffset', 0) + weights.get('byteOffset', 0)
+        weight_kind = {5121: 'B', 5123: 'H', 5126: 'f'}[weights['componentType']]
+        size = struct.calcsize('<' + weight_kind * 4)
+        stride = weight_view.get('byteStride', size)
+        divisor = {5121: 255, 5123: 65535, 5126: 1}[weights['componentType']]
+        for vertex in range(weights['count']):
+            values = [w / divisor for w in struct.unpack_from(
+                '<' + weight_kind * 4, binary, weight_offset + vertex * stride)]
+            assert all(0 <= w <= 1 for w in values) and abs(sum(values) - 1) < .0001
+            blended_vertices += sum(w > .0001 for w in values) > 1
     assert not any(mesh.get('weights', [])), "Facial expressions must start neutral"
 assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
-print('Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig and neutral expressions.')
+assert blended_vertices > 0, "Smooth hair-root weights must survive the GLB export"
+print(f'Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig, '
+      f'{blended_vertices} blended vertices and neutral expressions.')

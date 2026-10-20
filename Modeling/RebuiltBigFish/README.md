@@ -20,7 +20,7 @@ The latest visual pass separates the lower hair into S-shaped locks, reduces the
 
 `HairPaint.png` is generated alongside the Unity meshes. The Blender file packs this image; the GLB includes the image, UVs and the named `Color` vertex attribute as `COLOR_0`, preserving skin/cloth/eye colors in viewers.
 
-The next volume pass replaces five front-facing rear strips with nine radial locks. These follow the authored scalp surface, keep a consistent cross-section through curled tips, and cover the side/back down to the hem. The underlying mantle is shortened to reveal individual ends. Upper root junctions still need further visual refinement.
+The next volume pass replaces five front-facing rear strips with nine radial locks. These follow the authored scalp surface, keep a consistent cross-section through curled tips, and cover the side/back down to the hem. The underlying mantle is shortened to reveal individual ends. The roots now begin at the crown and share angular boundaries on the scalp. Their skin weights blend gradually from the head to the moving hair bones; both influences are preserved by the Blender/GLB exporter. A rear view is included in `RenderAngles()` for checking those junctions. The lower locks still need more varied silhouettes and less uniform paint.
 
 Facial layers now follow the curved head with concentric mesh rings and smaller depth offsets. Closed eyelids use a rounded cross-section instead of flattened open-eye vertices; mouth expressions retain their surface offset. Round wrist volumes bridge the cuffs and palms during hand rotation. `work/rebuilt-joints-and-face.png` shows idle, both wave extremes and closed eyes at 35 degrees for depth inspection, in addition to the front gesture sheet and 150-pose bounds checks.
 

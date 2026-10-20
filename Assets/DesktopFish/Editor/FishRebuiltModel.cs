@@ -21,7 +21,8 @@ namespace DesktopFish.Editor
         [Serializable] sealed class ShapeDump { public string name; public Vector3[] deltas; }
         [Serializable] sealed class MeshDump {
             public string name; public Vector3[] vertices; public Color[] colors; public Vector2[] uv;
-            public int[] triangles, bone_indices; public ShapeDump[] shapes;
+            public int[] triangles, bone_indices, secondary_bone_indices;
+            public float[] primary_bone_weights; public ShapeDump[] shapes;
         }
         [Serializable] sealed class ModelDump { public BoneDump[] bones; public MeshDump[] meshes; }
         [Serializable] sealed class PoseBone { public string name; public Vector3 position; public Quaternion rotation; }
@@ -41,9 +42,10 @@ namespace DesktopFish.Editor
             public readonly List<Vector2> uv = new List<Vector2>();
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
             public readonly List<int> tri = new List<int>();
-            public int Add(Vector3 v, Color color, int bone, Vector2? texture = null) {
+            public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
                 p.Add(v); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
-                weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1 });
+                weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
+                    boneIndex1 = secondaryBone < 0 ? bone : secondaryBone, weight1 = secondaryWeight });
                 return p.Count - 1;
             }
             public void Face(int a, int b, int c) { tri.Add(a); tri.Add(b); tri.Add(c); }
@@ -132,7 +134,7 @@ namespace DesktopFish.Editor
                     Vector3 thicknessAxis=Vector3.Cross(side,tangent).normalized;
                     float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.58f,1,t)),.83f);
                     float rootWidth=outward.HasValue?
-                        Mathf.Lerp(.10f,1,Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.075f,t))):
+                        Mathf.Clamp01(Mathf.Sqrt(Mathf.Pow(path[row].x/.244f,2)+Mathf.Pow(path[row].z/.192f,2))):
                         .66f+.34f*Mathf.Sin(t*Mathf.PI*.85f);
                     float w=width*rootWidth*taper+.00015f;
                     float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper+.0001f;
@@ -141,10 +143,24 @@ namespace DesktopFish.Editor
                         float u=Mathf.Cos(angle),front=Mathf.Sin(angle);
                         float facet=Mathf.Pow(Mathf.Abs(front),.7f)*Mathf.Sign(front);
                         Vector3 p=path[row]+side*(u*w)+thicknessAxis*facet*thickness;
+                        if(outward.HasValue&&p.y>.72f) {
+                            // Wrap the whole width around the scalp, not just the
+                            // centerline. Flat roots otherwise read as raised plates.
+                            float height=Mathf.Clamp((path[row].y-.765f)/.215f,-1,1);
+                            float scalp=Mathf.Sqrt(Mathf.Max(.0001f,1-height*height));
+                            float centerAngle=Mathf.Atan2(facing.x,facing.z);
+                            float scalpAngle=centerAngle-u*(Mathf.PI*2-2*1.12f)/16;
+                            float lift=.0045f+front*.002f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.18f,t));
+                            Vector3 onScalp=V(Mathf.Sin(scalpAngle)*(.232f+lift)*scalp,
+                                .765f+(.215f+lift)*height,Mathf.Cos(scalpAngle)*(.182f+lift)*scalp);
+                            p=Vector3.Lerp(p,onScalp,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.86f,p.y)));
+                        }
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         Color shade=Color.white*ridge; shade.a=1;
+                        int head=ids["J_Bip_C_Head"];
+                        float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                         body.Add(p,shade,bone,new Vector2((cyan?.51f:.01f)+(u+1)*.235f,
-                            .02f+.94f*Mathf.Clamp01(t+.021f*Mathf.Sin(phase))));
+                            .02f+.94f*Mathf.Clamp01(t+.021f*Mathf.Sin(phase))),head,anchored);
                     }
                 }
                 Grid(body,start,rows,sides);
@@ -272,7 +288,9 @@ namespace DesktopFish.Editor
                         shapes.Add(new ShapeDump { name=mesh.GetBlendShapeName(i), deltas=deltas });
                     }
                     exports.Add(new MeshDump {name=mesh.name, vertices=mesh.vertices, colors=mesh.colors, uv=mesh.uv,
-                        triangles=mesh.triangles,bone_indices=mesh.boneWeights.Select(w=>w.boneIndex0).ToArray(),shapes=shapes.ToArray()});
+                        triangles=mesh.triangles,bone_indices=mesh.boneWeights.Select(w=>w.boneIndex0).ToArray(),
+                        secondary_bone_indices=mesh.boneWeights.Select(w=>w.boneIndex1).ToArray(),
+                        primary_bone_weights=mesh.boneWeights.Select(w=>w.weight0).ToArray(),shapes=shapes.ToArray()});
                     string path = Folder + (part == 0 ? "/Body.asset" : "/Face.asset");
                     // Replace the generated mesh natively; CopySerialized does not reliably
                     // invalidate skinning/GPU buffers after a topology-size change.
@@ -434,7 +452,7 @@ namespace DesktopFish.Editor
             var target=new RenderTexture(720,960,24){antiAliasing=4};
             var frame=new Texture2D(720,960,TextureFormat.RGBA32,false);
             camera.targetTexture=target;
-            foreach(int angle in new[]{0,35,90}) {
+            foreach(int angle in new[]{0,35,90,180}) {
                 camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);
                 camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
                 frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
@@ -515,12 +533,13 @@ namespace DesktopFish.Editor
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
                 Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
                 int bone=a.ids["J_Sec_Hair"+(1+Mathf.RoundToInt(i*.5f))+"_01"];
-                var controls=new[]{radial(.128f,.943f,.101f),radial(.240f,.80f,.188f),
-                    radial(.243f,.63f,.218f),radial(.265f,.48f,.248f),
+                var controls=new[]{radial(.008f,.979f,.006f),radial(.150f,.979f,.118f),
+                    radial(.244f,.88f,.192f),radial(.244f,.735f,.192f),
+                    radial(.244f,.65f,.205f),radial(.243f,.56f,.225f),radial(.265f,.48f,.248f),
                     radial(.325f,.33f,.310f),radial(.220f,.27f,.220f),
                     radial(.230f,.215f,.215f),radial(.240f,.145f,.225f),
                     radial(.280f,.145f,.275f),radial(.300f,.172f+(i%3)*.009f,.290f)};
-                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),10,36);
+                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44);
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
