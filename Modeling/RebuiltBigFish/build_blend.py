@@ -5,6 +5,7 @@ Reads the generated geometry, idle-pose JSON and authored HairPaint.png atlas.
 """
 import bpy
 import json
+import struct
 from pathlib import Path
 from mathutils import Vector, Matrix, Quaternion
 
@@ -143,4 +144,27 @@ bpy.ops.export_scene.gltf(filepath=str(folder / 'BigFish.glb'), export_format='G
                           use_selection=True, export_animations=False, export_skins=True,
                           export_morph=True, export_vertex_color='NAME',
                           export_vertex_color_name='Color', export_all_vertex_colors=False)
-print('Saved editable Blender source and portable GLB.')
+
+# Check the exported interchange data, not just Blender's successful-save message.
+# A previous exporter fallback substituted a white COLOR_0 for the authored colors.
+blob = (folder / 'BigFish.glb').read_bytes()
+json_length = struct.unpack_from('<I', blob, 12)[0]
+document = json.loads(blob[20:20 + json_length])
+binary = blob[28 + json_length:]
+assert len(document['meshes']) == len(data['meshes'])
+assert len(document['images']) == 1
+assert len(document['skins'][0]['joints']) == len(data['bones'])
+for mesh in document['meshes']:
+    for primitive in mesh['primitives']:
+        attributes = primitive['attributes']
+        assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0'} <= attributes.keys()
+        assert 'COLOR_1' not in attributes
+        accessor = document['accessors'][attributes['COLOR_0']]
+        view = document['bufferViews'][accessor['bufferView']]
+        offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
+        kind = {5121: 'B', 5123: 'H', 5126: 'f'}[accessor['componentType']]
+        rgba = struct.unpack_from('<' + kind * 4, binary, offset)
+        assert len(set(rgba[:3])) > 1, f"Unexpected neutral vertex color in {mesh['name']}"
+    assert not any(mesh.get('weights', [])), "Facial expressions must start neutral"
+assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
+print('Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig and neutral expressions.')

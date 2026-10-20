@@ -20,9 +20,13 @@ The latest visual pass separates the lower hair into S-shaped locks, reduces the
 
 `HairPaint.png` is generated alongside the Unity meshes. The Blender file packs this image; the GLB includes the image, UVs and the named `Color` vertex attribute as `COLOR_0`, preserving skin/cloth/eye colors in viewers.
 
+The next volume pass replaces five front-facing rear strips with nine radial locks. These follow the authored scalp surface, keep a consistent cross-section through curled tips, and cover the side/back down to the hem. The underlying mantle is shortened to reveal individual ends. Upper root junctions and the wrist/cuff connection still need further visual refinement.
+
 ## Reproduce
 
 1. Run Unity batch method `DesktopFish.Editor.FishRebuiltModel.ReviewAndBuild`. This creates the Unity assets, previews, geometry/idle-pose JSON under `work/`, and `Builds/RebuiltBigFish.app`.
 2. Run Blender in background with `--factory-startup --python Modeling/RebuiltBigFish/build_blend.py` from the project root. This regenerates both editable exports from that JSON, with the idle pose applied to the rig.
+
+For geometry iteration without rebuilding the app, run `DesktopFish.Editor.FishRebuiltModel.Review`. The Blender exporter checks the resulting GLB's packed image, UVs, authored colors, joints, unlit face material and neutral facial weights.
 
 The normal legacy build remains separate in `Builds/BigFatBlueFish.app`. Generated Unity assets and exported Blender/GLB files should be regenerated together after changing model dimensions or paint.

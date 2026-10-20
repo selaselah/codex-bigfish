@@ -102,22 +102,44 @@ namespace DesktopFish.Editor
             // Flattened, ridged locks with separately authored silhouette widths.
             // The cross-section closes at the edges; neighboring locks overlap at
             // the roots and terminate in sharp, offset tips rather than tubes.
-            public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0) {
-                int start=body.p.Count; int rows=controls.Length>4?36:24; const int sides=12;
+            public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
+                Vector3? outward = null, int sides = 12, int samples = 0) {
+                int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
+                Vector3 facing=outward??Vector3.forward;
+                if(outward.HasValue)for(int i=0;i<path.Length;i++) {
+                    Vector3 p=path[i];
+                    if(p.y>.675f&&p.y<.975f) {
+                        float scalp=Mathf.Sqrt(Mathf.Max(.01f,1-Mathf.Pow((p.y-.765f)/.215f,2)));
+                        float ellipse=Mathf.Sqrt(Mathf.Pow(p.x/(.232f*scalp),2)+Mathf.Pow(p.z/(.182f*scalp),2));
+                        // Follow our analytic scalp instead of letting the cap cut
+                        // across a recessed lock with an exposed polygonal edge.
+                        float clearance=Mathf.Max(1,1.025f/Mathf.Max(.001f,ellipse));
+                        path[i]=V(p.x*clearance,p.y,p.z*clearance);
+                    }
+                }
+                Vector3 previousSide=Vector3.zero;
                 for(int row=0;row<=rows;row++) {
                     float t=row/(float)rows;
                     Vector3 tangent=(path[Mathf.Min(row+1,rows)]-path[Mathf.Max(row-1,0)]).normalized;
-                    Vector3 side=Vector3.Cross(tangent,Vector3.forward).normalized;
-                    if(side.sqrMagnitude<.1f)side=Vector3.right;
+                    Vector3 side=Vector3.Cross(tangent,facing);
+                    if(side.sqrMagnitude<.001f)side=Vector3.ProjectOnPlane(previousSide,tangent);
+                    if(side.sqrMagnitude<.001f)side=Vector3.right;
+                    side.Normalize();
+                    if(previousSide.sqrMagnitude>.1f&&Vector3.Dot(side,previousSide)<0)side=-side;
+                    previousSide=side;
+                    Vector3 thicknessAxis=Vector3.Cross(side,tangent).normalized;
                     float taper=Mathf.Pow(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.58f,1,t)),.83f);
-                    float w=width*(.66f+.34f*Mathf.Sin(t*Mathf.PI*.85f))*taper+.00015f;
+                    float rootWidth=outward.HasValue?
+                        Mathf.Lerp(.10f,1,Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.075f,t))):
+                        .66f+.34f*Mathf.Sin(t*Mathf.PI*.85f);
+                    float w=width*rootWidth*taper+.00015f;
                     float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper+.0001f;
                     for(int j=0;j<=sides;j++) {
                         float angle=j/(float)sides*Mathf.PI*2;
                         float u=Mathf.Cos(angle),front=Mathf.Sin(angle);
                         float facet=Mathf.Pow(Mathf.Abs(front),.7f)*Mathf.Sign(front);
-                        Vector3 p=path[row]+side*(u*w)+Vector3.forward*facet*thickness;
+                        Vector3 p=path[row]+side*(u*w)+thicknessAxis*facet*thickness;
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         Color shade=Color.white*ridge; shade.a=1;
                         body.Add(p,shade,bone,new Vector2((cyan?.51f:.01f)+(u+1)*.235f,
@@ -127,23 +149,24 @@ namespace DesktopFish.Editor
                 Grid(body,start,rows,sides);
             }
             public void HairMantle(int head) {
-                const int rows=22,cols=40;
+                const int rows=16,cols=40;
                 for(int layer=0;layer<1;layer++) {
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
                         float t=row/(float)rows,theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
-                        float y=.978f-.765f*t;
+                        float y=.978f-.490f*t;
                         float scalp=Mathf.Sqrt(Mathf.Max(.01f,1-Mathf.Pow((y-.765f)/.215f,2)));
-                        float lower=Mathf.InverseLerp(.765f,.213f,y);
-                        float rx=y>.765f?.232f*scalp+.002f:.234f-.094f*Mathf.SmoothStep(0,1,lower);
-                        float rz=y>.765f?.182f*scalp+.002f:.184f+.045f*Mathf.Sin(lower*Mathf.PI)
-                            -.065f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.45f,1,lower));
+                        float lower=Mathf.InverseLerp(.765f,.488f,y);
+                        float rx=y>.765f?.232f*scalp+.002f:.234f-.030f*Mathf.SmoothStep(0,1,lower);
+                        float rz=y>.765f?.182f*scalp+.002f:.184f+.024f*lower;
+                        float undercut=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.91f,.75f,y))*.08f;
+                        rx*=1-undercut;rz*=1-undercut;
                         float fold=Mathf.Cos(theta*12+t*.6f),thickness=layer*.005f;
                         rx-=thickness;rz-=thickness;
                         float tip=Mathf.Pow(t,12)*(.018f+.040f*(.5f+.5f*Mathf.Cos(theta*11)));
                         Vector3 p=V(Mathf.Sin(theta)*(rx+.007f*fold*t),y+tip,
                             Mathf.Cos(theta)*(rz+.006f*fold*t));
-                        Color color=Color.Lerp(Hair,Tip,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.58f,1,t)));
+                        Color color=Color.Lerp(Hair,Hex("3D619C"),t*.35f);
                         color*=1-.18f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.4f,t))*(.5f-.5f*fold);color.a=1;
                         body.Add(p,color,head);
                     }
@@ -370,7 +393,10 @@ namespace DesktopFish.Editor
             FishBuild.BuildMac();
         }
 
-        public static void ReviewAndBuild() { Preview(); RenderAngles(); Build(); }
+        [MenuItem("Desktop Fish/Rebuilt Model/Review Geometry")]
+        public static void Review() { Preview(); RenderAngles(); }
+
+        public static void ReviewAndBuild() { Review(); Build(); }
 
         public static void RenderAngles() {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
@@ -437,10 +463,21 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,start,rings,sides);
             for(int i=0;i<5;i++) {
-                float x=(i-2)*.065f;
-                int bone=a.Bone("J_Sec_Hair"+(i+1)+"_01",head,V(x,.84f,-.11f));
-                a.HairPanel(new[]{V(x,.91f,-.095f),V(x*1.45f,.67f,-.19f),
-                    V(x*1.65f,.25f,-.15f),V(x*1.85f+.014f,.150f+(i%2)*.025f,-.07f)},.068f,bone,true,i);
+                float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/4f);
+                a.Bone("J_Sec_Hair"+(i+1)+"_01",head,V(Mathf.Sin(theta)*.16f,.90f,Mathf.Cos(theta)*.13f));
+            }
+            // Radial locks wrap the back of the head. Each has its own transverse
+            // direction, so it retains width in a side view and curls at the hem.
+            for(int i=0;i<9;i++) {
+                float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
+                Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
+                int bone=a.ids["J_Sec_Hair"+(1+Mathf.RoundToInt(i*.5f))+"_01"];
+                var controls=new[]{radial(.128f,.943f,.101f),radial(.240f,.80f,.188f),
+                    radial(.243f,.63f,.218f),radial(.265f,.48f,.248f),
+                    radial(.325f,.33f,.310f),radial(.220f,.27f,.220f),
+                    radial(.230f,.215f,.215f),radial(.240f,.145f,.225f),
+                    radial(.280f,.145f,.275f),radial(.300f,.172f+(i%3)*.009f,.290f)};
+                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),10,36);
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
