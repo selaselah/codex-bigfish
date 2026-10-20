@@ -107,7 +107,7 @@ namespace DesktopFish.Editor
             // the roots and terminate in sharp, offset tips rather than tubes.
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
-                float rootScale = 1, float backSweep = 0) {
+                float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -126,7 +126,11 @@ namespace DesktopFish.Editor
                 for(int row=0;row<=rows;row++) {
                     float t=row/(float)rows;
                     Vector3 tangent=(path[Mathf.Min(row+1,rows)]-path[Mathf.Max(row-1,0)]).normalized;
-                    Vector3 side=Vector3.Cross(tangent,facing);
+                    // Independent locks can turn their broad surface toward the
+                    // side without invoking the radial scalp-root construction.
+                    float turn=sideTurn*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.38f,t));
+                    Vector3 sectionFacing=Quaternion.Euler(0,turn,0)*facing;
+                    Vector3 side=Vector3.Cross(tangent,sectionFacing);
                     if(side.sqrMagnitude<.001f)side=Vector3.ProjectOnPlane(previousSide,tangent);
                     if(side.sqrMagnitude<.001f)side=Vector3.right;
                     side.Normalize();
@@ -139,7 +143,8 @@ namespace DesktopFish.Editor
                         .66f+.34f*Mathf.Sin(t*Mathf.PI*.85f);
                     float rootBlend=Mathf.Lerp(rootScale,1,Mathf.SmoothStep(0,1,t/.35f));
                     float w=width*rootWidth*rootBlend*taper+.00015f;
-                    float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper+.0001f;
+                    float volume=Mathf.Lerp(1,fullness,Mathf.Sin(t*Mathf.PI));
+                    float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper*volume+.0001f;
                     for(int j=0;j<=sides;j++) {
                         float angle=j/(float)sides*Mathf.PI*2;
                         float u=Mathf.Cos(angle),front=Mathf.Sin(angle);
@@ -604,17 +609,22 @@ namespace DesktopFish.Editor
                 // Separate long S-shaped locks leave negative space at the hem.
                 a.HairPanel(new[]{V(sign*.17f,.90f,-.045f),V(sign*.27f,.73f,-.025f),
                     V(sign*.22f,.59f,.005f),V(sign*.245f,.45f,.02f),
-                    V(sign*.28f,.31f,.035f),V(sign*.17f,.21f,.055f),V(sign*.29f,.17f,.06f)},.057f,bone,true,2);
+                    V(sign*.28f,.31f,.035f),V(sign*.17f,.21f,.055f),V(sign*.29f,.17f,.06f)},.063f,bone,true,2,
+                    rootScale:.50f,backSweep:sign*.20f,sideTurn:sign*32,fullness:1.8f);
                 a.HairPanel(new[]{V(sign*.21f,.79f,-.04f),V(sign*.28f,.64f,-.005f),
                     V(sign*.28f,.47f,.025f),V(sign*.31f,.36f,.025f),
-                    V(sign*.39f,.22f,.035f),V(sign*.22f,.28f,.055f),V(sign*.22f,.16f,.06f)},.031f,bone,true,3);
+                    V(sign*.39f,.22f,.035f),V(sign*.22f,.28f,.055f),V(sign*.22f,.16f,.06f)},.035f,bone,true,3,
+                    rootScale:.50f,backSweep:sign*.12f,sideTurn:sign*46,fullness:2.2f);
                 a.HairPanel(new[]{V(sign*.225f,.68f,-.04f),V(sign*.35f,.51f,.01f),
                     V(sign*.29f,.48f,.01f),V(sign*.27f,.47f,.025f),
-                    V(sign*.24f,.46f,.025f),V(sign*.27f,.44f,.03f),V(sign*.30f,.43f,.03f)},.014f,bone,false,4);
+                    V(sign*.24f,.46f,.025f),V(sign*.27f,.44f,.03f),V(sign*.30f,.43f,.03f)},.014f,bone,false,4,
+                    backSweep:sign*.12f,sideTurn:sign*42,fullness:1.5f);
                 a.HairPanel(new[]{V(sign*.177f,.67f,.118f),V(sign*.105f,.55f,.15f),
-                    V(sign*.233f,.52f,.16f),V(sign*.155f,.444f,.16f)},.030f,bone,true,5);
+                    V(sign*.233f,.52f,.16f),V(sign*.155f,.444f,.16f)},.030f,bone,true,5,
+                    sideTurn:sign*18,fullness:1.6f);
                 a.HairPanel(new[]{V(sign*.177f,.51f,.15f),V(sign*.13f,.445f,.16f),
-                    V(sign*.135f,.414f,.16f),V(sign*.162f,.390f,.15f)},.025f,bone,true,6);
+                    V(sign*.135f,.414f,.16f),V(sign*.162f,.390f,.15f)},.025f,bone,true,6,
+                    sideTurn:sign*18,fullness:1.6f);
                 // Broad cheek-framing sheets with narrow, swept tips.
                 a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.235f,.94f,.12f),
                     V(sign*.225f,.67f,.16f),V(sign*.135f,.607f,.14f)},.072f,head,false,1,tipStart:.64f,rootScale:.79f);

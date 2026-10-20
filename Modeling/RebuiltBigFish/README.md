@@ -24,6 +24,8 @@ The next volume pass replaces five front-facing rear strips with nine radial loc
 
 Below the crown, the radial locks now sweep toward the back by an amount that decreases from the sides to the center rear. The full cross-sections and curled tips follow that deformation; the scalp anchors stay fixed. The underlying mantle follows with a slightly stronger sweep. This exposes the sleeves and skirt in side views while keeping the shorter front locks and the frontal volume. The change adds no vertices or triangles.
 
+The separate outer S-shaped locks now turn their cross-sections gradually toward the sides and gain modest thickness through their middle sections. A small rearward sweep keeps them near the side/back hair volume, while narrower roots tuck beneath the crown. This lets a side view show their surfaces instead of only thin vertical edges. Chest curls receive a gentler turn and thickness adjustment. The existing topology, paint layout and bone set are retained.
+
 The fringe now keeps its width longer before tapering, with inward-swept side tips and forehead clearance across each sheet. Three independently painted highlight layouts replace the repeated square glints; the fourth atlas strip supplies the longer blue/cyan locks. The shader classifies pale cloth using the textured surface color, so the hair's neutral vertex colors no longer flatten its directional shading.
 
 The upper fringe follows the headband's inner arc with a gradual radial fit into the side locks. A narrow sewn binding joins that hairline to the pleats, and the outer ruffle is slightly narrower. This removes the squared root tabs without cutting steps into the sides or increasing the overall accessory silhouette. The binding uses 400 triangles.
