@@ -161,7 +161,7 @@ namespace DesktopFish.Editor
             public void HairPanel(Vector3[] controls, float width, int bone, bool cyan, int phase = 0,
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
-                float lowerWidth = 1, float tipBias = 0, float tipPower = 0) {
+                float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -209,6 +209,9 @@ namespace DesktopFish.Editor
                     float w=width*rootWidth*rootBlend*taper*lowerScale+.00015f;
                     float volume=Mathf.Lerp(1,fullness,Mathf.Sin(t*Mathf.PI));
                     float thickness=(cyan?.005f:.006f)*(.6f+.4f*Mathf.Sin(t*Mathf.PI))*taper*volume+.0001f;
+                    // Secondary curls grow out of a narrow embedded root; both
+                    // width and depth open gradually into the existing lock.
+                    float rootNeck=rootTaper>0?Mathf.Lerp(.06f,1,Mathf.SmoothStep(0,1,t/rootTaper)):1;
                     for(int j=0;j<=sides;j++) {
                         float angle=j/(float)sides*Mathf.PI*2;
                         float u=Mathf.Cos(angle),front=Mathf.Sin(angle);
@@ -218,7 +221,7 @@ namespace DesktopFish.Editor
                         float edgeTaper=tipBias==0?taper:Mathf.Pow(1-Mathf.SmoothStep(0,1,
                             Mathf.InverseLerp(tipStart+tipBias*u,1,t)),taperPower);
                         float edgeWidth=tipBias==0?w:width*rootWidth*rootBlend*lowerScale*edgeTaper+.00015f;
-                        Vector3 p=path[row]+side*(u*edgeWidth)+thicknessAxis*facet*thickness;
+                        Vector3 p=path[row]+side*(u*edgeWidth*rootNeck)+thicknessAxis*facet*thickness*rootNeck;
                         if(outward.HasValue&&p.y>.72f) {
                             // Wrap the whole width around the scalp, not just the
                             // centerline. Flat roots otherwise read as raised plates.
@@ -839,16 +842,16 @@ namespace DesktopFish.Editor
                     V(sign*.28f,.47f,.025f),V(sign*.31f,.36f,.025f),
                     V(sign*.39f,.22f,.035f),V(sign*.22f,.28f,.055f),V(sign*.22f,.16f,.06f)},.035f,bone,true,3,
                     rootScale:.50f,backSweep:sign*.12f,sideTurn:sign*46,fullness:2.2f);
-                a.HairPanel(new[]{V(sign*.225f,.68f,-.04f),V(sign*.35f,.51f,.01f),
+                a.HairPanel(new[]{V(sign*.218f,.71f,.006f),V(sign*.255f,.62f,.014f),
                     V(sign*.29f,.48f,.01f),V(sign*.27f,.47f,.025f),
                     V(sign*.24f,.46f,.025f),V(sign*.27f,.44f,.03f),V(sign*.30f,.43f,.03f)},.014f,bone,false,4,
-                    backSweep:sign*.12f,sideTurn:sign*42,fullness:1.5f);
+                    backSweep:sign*.12f,sideTurn:sign*42,fullness:1.5f,rootTaper:.18f);
                 a.HairPanel(new[]{V(sign*.177f,.67f,.118f),V(sign*.105f,.55f,.15f),
                     V(sign*.233f,.52f,.16f),V(sign*.155f,.444f,.16f)},.030f,bone,true,5,
                     sideTurn:sign*18,fullness:1.6f);
-                a.HairPanel(new[]{V(sign*.177f,.51f,.15f),V(sign*.13f,.445f,.16f),
+                a.HairPanel(new[]{V(sign*.179f,.518f,.145f),V(sign*.13f,.445f,.16f),
                     V(sign*.135f,.414f,.16f),V(sign*.162f,.390f,.15f)},.025f,bone,true,6,
-                    sideTurn:sign*18,fullness:1.6f);
+                    sideTurn:sign*18,fullness:1.6f,rootTaper:.22f);
                 // Broad cheek-framing sheets with narrow, swept tips.
                 a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.235f,.94f,.12f),
                     V(sign*.225f,.67f,.16f),V(sign*.135f,.607f,.14f)},.072f,head,false,1,tipStart:.64f,rootScale:.79f);
