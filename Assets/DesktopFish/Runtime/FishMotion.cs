@@ -26,6 +26,8 @@ namespace DesktopFish
         int previousRandom = -1;
         public bool randomActions = true;
         public float ClosedEyes { get; private set; }
+        public float SmileEyes { get; private set; }
+        public float BlinkWeight(float blink = 0) => Mathf.Max(ClosedEyes, blink) * (1 - SmileEyes * .01f);
         public float Joy { get; private set; }
 
         public FishMotion(Transform target)
@@ -106,6 +108,7 @@ namespace DesktopFish
             float leftLeg = 0, rightLeg = 0, leftKnee = 0, rightKnee = 0;
             float rootY = 0, lean = 0, squash = 1;
             ClosedEyes = 0;
+            SmileEyes = 0;
             Joy = state == "complete" ? 65 : state == "idle" ? 8 : 0;
             // A readable thinking pose, with a slow nod and gentle sway while busy.
             head = Vector3.Lerp(head, new Vector3(9 + Mathf.Sin(now * 2.2f) * 3,
@@ -118,6 +121,8 @@ namespace DesktopFish
                 case Gesture.Wave:
                     head = Vector3.Lerp(head, new Vector3(0, 0, Mathf.Sin(elapsed * 1.3f) * 2.5f), weight * 0.9f);
                     Joy = Mathf.Lerp(Joy, 70, weight);
+                    if (rebuiltRig)
+                        SmileEyes = 100 * SmoothRange(.70f, 1.30f, elapsed) * (1 - SmoothRange(3.30f, 4.00f, elapsed));
                     break;
                 case Gesture.Bow:
                     chest.x += 20 * weight;

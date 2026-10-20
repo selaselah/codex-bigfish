@@ -8,7 +8,7 @@
 
 本仓库包含 Unity 源码、程序生成的重建模型、绘制纹理，以及可编辑的 Blender 和 GLB 文件。当前模型仍在细化，旧版本和本地参考资产不随仓库分发。
 
-运行时模型位于 `Assets/DesktopFish/Rebuilt/`，生成器为 `FishRebuiltModel.cs`；可编辑文件位于 `Modeling/RebuiltBigFish/`。当前使用两个材质槽、一张绘制纹理、51 根骨骼和 5 个表情通道。具体面数见生成目录中的 `provenance.json`。
+运行时模型位于 `Assets/DesktopFish/Rebuilt/`，生成器为 `FishRebuiltModel.cs`；可编辑文件位于 `Modeling/RebuiltBigFish/`。当前使用两个材质槽、一张绘制纹理、51 根骨骼和 6 个表情通道。具体面数见生成目录中的 `provenance.json`。
 
 ## 构建
 

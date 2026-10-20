@@ -46,12 +46,7 @@ namespace DesktopFish.Editor
                     {
                         motion.Play((FishMotion.Gesture)pose, 0);
                         motion.Evaluate(pose == 5 ? 0.65f : pose == 3 ? 3 : 1.5f, 0, 0, "idle", false);
-                        for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
-                        {
-                            string name = companion.face.sharedMesh.GetBlendShapeName(shape);
-                            companion.face.SetBlendShapeWeight(shape, name == "Fcl_ALL_Joy" ? motion.Joy :
-                                name == "Fcl_EYE_Close" ? motion.ClosedEyes : 0);
-                        }
+                        FishBuild.ApplyMotionExpressions(companion, motion);
                         for (int i = 0; i < skins.Length; i++)
                         {
                             if (filters[i].sharedMesh) UnityEngine.Object.DestroyImmediate(filters[i].sharedMesh);

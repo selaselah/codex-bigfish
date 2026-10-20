@@ -236,12 +236,7 @@ namespace DesktopFish.Editor
                 {
                     motion.Play((FishMotion.Gesture)i, 0);
                     motion.Evaluate(i == 5 ? 0.65f : i == 3 ? 3 : 1.5f, 0, 0, "idle", false);
-                    for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
-                    {
-                        string name = companion.face.sharedMesh.GetBlendShapeName(shape);
-                        companion.face.SetBlendShapeWeight(shape, name == "Fcl_EYE_Close" ? motion.ClosedEyes :
-                            name == "Fcl_ALL_Joy" ? motion.Joy : 0);
-                    }
+                    ApplyMotionExpressions(companion, motion);
                     for (int s = 0; s < skins.Length; s++)
                     {
                         if (snapshots[s].sharedMesh) UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);
@@ -279,6 +274,16 @@ namespace DesktopFish.Editor
             }
         }
 
+        internal static void ApplyMotionExpressions(FishCompanion companion, FishMotion motion)
+        {
+            for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
+            {
+                string name = companion.face.sharedMesh.GetBlendShapeName(shape);
+                companion.face.SetBlendShapeWeight(shape, name == "Fcl_EYE_Close" ? motion.BlinkWeight() :
+                    name == "Fcl_EYE_Joy" ? motion.SmileEyes : name == "Fcl_ALL_Joy" ? motion.Joy : 0);
+            }
+        }
+
         internal static void ValidateMotion(FishCompanion companion, FishMotion motion, SkinnedMeshRenderer[] skins)
         {
             Vector2 min = Vector2.one, max = Vector2.zero;
@@ -293,6 +298,9 @@ namespace DesktopFish.Editor
                         motion.Play((FishMotion.Gesture)action, 0);
                         float time = sample / 24f * (action == 1 ? FishMotion.WaveDuration : action == 3 ? 7 : action == 5 ? 2.4f : 4.2f);
                         motion.Evaluate(time, sample % 2 == 0 ? -1 : 1, sample % 3 == 0 ? -1 : 1, "idle", false);
+                        if(action!=1&&motion.SmileEyes!=0)
+                            throw new InvalidOperationException("Smile eyes leaked outside the wave gesture.");
+                        ApplyMotionExpressions(companion, motion);
                         foreach (var skin in skins)
                         {
                             skin.BakeMesh(baked);
@@ -310,7 +318,7 @@ namespace DesktopFish.Editor
                     }
                 if (min.x < 0.02f || min.y < 0.02f || max.x > 0.98f || max.y > 0.98f)
                     throw new InvalidOperationException("Gesture exceeds safe camera bounds: " + min + " / " + max);
-                int expectedShapes = companion.model.GetComponent<FishRigProfile>() ? 5 : 137;
+                int expectedShapes = companion.model.GetComponent<FishRigProfile>() ? 6 : 137;
                 if (companion.face.sharedMesh.blendShapeCount != expectedShapes)
                     throw new InvalidOperationException("Unexpected expression channel count.");
                 File.WriteAllText("work/motion-validation.json", "{\n  \"sampled_poses\": " + poses +

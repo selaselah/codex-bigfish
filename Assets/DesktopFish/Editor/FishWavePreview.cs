@@ -12,9 +12,12 @@ namespace DesktopFish.Editor
             public int frames;
             public float minimumElbowFlex = 180, maximumElbowFlex;
             public float minimumPalmForward = 1, maximumWristDrift;
-            public float endpointRotationDifference;
+            public float endpointRotationDifference, endpointExpressionDifference;
+            public float maximumSmileEyes, maximumCombinedEyeWeight;
             public bool passed;
         }
+
+        public static void RenderRebuilt() { FishBuild.UseRebuilt=true; Render(); }
 
         public static void Render()
         {
@@ -27,7 +30,7 @@ namespace DesktopFish.Editor
             var filters = new MeshFilter[skins.Length];
             for (int s = 0; s < skins.Length; s++)
             {
-                var snapshot = new GameObject("Wave Snapshot");
+                var snapshot = new GameObject("Wave Snapshot " + s);
                 snapshot.transform.SetParent(skins[s].transform, false);
                 filters[s] = snapshot.AddComponent<MeshFilter>();
                 snapshot.AddComponent<MeshRenderer>().sharedMaterials = skins[s].sharedMaterials;
@@ -52,6 +55,15 @@ namespace DesktopFish.Editor
                 {
                     float time = f / 24f;
                     motion.Evaluate(time, 0, 0, "idle", false);
+                    if(float.IsNaN(motion.SmileEyes)||motion.SmileEyes<0||motion.SmileEyes>100.001f)
+                        throw new InvalidOperationException("Invalid smile-eye weight.");
+                    report.maximumSmileEyes=Mathf.Max(report.maximumSmileEyes,motion.SmileEyes);
+                    foreach(float blink in new[]{0f,25,50,75,100}) {
+                        float combined=motion.SmileEyes+motion.BlinkWeight(blink);
+                        report.maximumCombinedEyeWeight=Mathf.Max(report.maximumCombinedEyeWeight,combined);
+                        if(combined<0||combined>100.001f)
+                            throw new InvalidOperationException("Overlapping blink and smile-eye morphs.");
+                    }
                     if (time >= 1.4f && time <= 3.4f)
                     {
                         for (int side = 0; side < 2; side++)
@@ -69,12 +81,7 @@ namespace DesktopFish.Editor
                         }
                         haveReference = true;
                     }
-                    for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
-                    {
-                        string name = companion.face.sharedMesh.GetBlendShapeName(shape);
-                        companion.face.SetBlendShapeWeight(shape, name == "Fcl_ALL_Joy" ? motion.Joy :
-                            name == "Fcl_EYE_Close" ? motion.ClosedEyes : 0);
-                    }
+                    FishBuild.ApplyMotionExpressions(companion, motion);
                     for (int s = 0; s < skins.Length; s++)
                     {
                         if (filters[s].sharedMesh) UnityEngine.Object.DestroyImmediate(filters[s].sharedMesh);
@@ -97,17 +104,22 @@ namespace DesktopFish.Editor
                 {
                     motion.Play(FishMotion.Gesture.Wave, 0);
                     motion.Evaluate(time, 0, 0, "idle", false);
+                    Vector3 waveExpression=new Vector3(motion.Joy,motion.ClosedEyes,motion.SmileEyes);
                     var rotations = all.ToDictionary(p => p.Key, p => p.Value.localRotation);
                     motion.Play(FishMotion.Gesture.None, 0);
                     motion.Evaluate(time, 0, 0, "idle", false);
+                    report.endpointExpressionDifference=Mathf.Max(report.endpointExpressionDifference,
+                        Vector3.Distance(waveExpression,new Vector3(motion.Joy,motion.ClosedEyes,motion.SmileEyes)));
                     foreach (var pair in all)
                         report.endpointRotationDifference = Mathf.Max(report.endpointRotationDifference,
                             Quaternion.Angle(rotations[pair.Key], pair.Value.localRotation));
                 }
                 if (report.minimumElbowFlex < 25 || report.maximumElbowFlex > 145 ||
                     report.minimumPalmForward < 0.95f || report.maximumWristDrift > 0.006f ||
-                    report.endpointRotationDifference > 0.1f)
+                    report.endpointRotationDifference > 0.1f || report.endpointExpressionDifference > .001f)
                     throw new InvalidOperationException("Wave pose validation failed: " + JsonUtility.ToJson(report));
+                if(companion.model.GetComponent<FishRigProfile>()&&report.maximumSmileEyes<99.9f)
+                    throw new InvalidOperationException("Rebuilt wave never reaches its smiling-eye pose.");
                 FishBuild.ValidateMotion(companion, motion, skins);
                 report.passed = true;
                 File.WriteAllText("work/wave-validation.json", JsonUtility.ToJson(report, true));

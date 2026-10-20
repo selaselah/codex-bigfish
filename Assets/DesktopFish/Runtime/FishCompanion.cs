@@ -150,8 +150,9 @@ namespace DesktopFish
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
             float blinkTime = t - blinkStart;
-            SetShape("Fcl_EYE_Close", Mathf.Max(motion.ClosedEyes, blinkTime < 0.19f ?
+            SetShape("Fcl_EYE_Close", motion.BlinkWeight(blinkTime < 0.19f ?
                 Mathf.Sin(blinkTime / 0.19f * Mathf.PI) * 100 : 0));
+            SetShape("Fcl_EYE_Joy", motion.SmileEyes);
             Expression("Fcl_ALL_Joy", motion.Joy);
             Expression("Fcl_ALL_Sorrow", state == "error" ? 70 : 0);
             Expression("Fcl_ALL_Surprised", dragging ? 35 : state == "waiting" ? 45 : 0);

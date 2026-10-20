@@ -128,6 +128,7 @@ namespace DesktopFish.Editor
             public readonly Geo body = new Geo(), face = new Geo();
             readonly List<Tuple<int, Vector3, string>> features = new List<Tuple<int, Vector3, string>>();
             readonly Dictionary<int,Vector3> closedLashes = new Dictionary<int,Vector3>();
+            readonly Dictionary<int,Vector3> smilingLashes = new Dictionary<int,Vector3>();
             public int Bone(string name, int parent, Vector3 position) {
                 var bone = new GameObject(name).transform;
                 bone.SetParent(parent < 0 ? root.transform : bones[parent], false); bone.position = position;
@@ -359,6 +360,13 @@ namespace DesktopFish.Editor
                     Func<float,float> closedThickness=t=>Mathf.Min(radius,.0021f)*Mathf.Lerp(startScale,endScale,t);
                     Sweep(closed,path,closedThickness,closedThickness,t=>color,bone,6);
                     for(int i=0;i<closed.p.Count;i++)closedLashes[start+i]=closed.p[i];
+                    var smiling=new Geo();
+                    var smilePath=xy.Select(p=>{
+                        float y=.694f+.016f*(1-Mathf.Clamp01(Mathf.Pow((p.x-center)/.050f,2)));
+                        return FacePoint(p.x,y,.0035f);
+                    }).ToArray();
+                    Sweep(smiling,smilePath,closedThickness,closedThickness,t=>color,bone,6);
+                    for(int i=0;i<smiling.p.Count;i++)smilingLashes[start+i]=smiling.p[i];
                 }
                 if (feature != "") for (int i = start; i < face.p.Count; i++)
                     features.Add(Tuple.Create(i, V(xy.Average(p => p.x), .700f, 0), feature));
@@ -422,20 +430,26 @@ namespace DesktopFish.Editor
                 }
             }
             public void Expressions(Mesh mesh) {
-                foreach (string name in new[] { "Fcl_EYE_Close", "Fcl_ALL_Joy", "Fcl_ALL_Fun", "Fcl_ALL_Sorrow", "Fcl_ALL_Surprised" }) {
+                foreach (string name in new[] { "Fcl_EYE_Close", "Fcl_ALL_Joy", "Fcl_ALL_Fun", "Fcl_ALL_Sorrow", "Fcl_ALL_Surprised", "Fcl_EYE_Joy" }) {
                     var delta = new Vector3[face.p.Count];
                     foreach (var feature in features) {
                         int i = feature.Item1; Vector3 p = face.p[i], c = feature.Item2;
                         string kind = feature.Item3;
                         Vector3 target = p;
-                        if (name == "Fcl_EYE_Close") {
-                            if (kind == "eye" || kind == "iris" || kind == "pupil" || kind == "shine")
-                                target = V(c.x, .700f, FacePoint(c.x, .700f, -.025f).z);
-                            if (kind == "lash") target = closedLashes[i];
+                        if (name == "Fcl_EYE_Close" || name == "Fcl_EYE_Joy") {
+                            if (kind == "eye" || kind == "iris" || kind == "pupil" || kind == "shine") {
+                                if(name=="Fcl_EYE_Joy") {
+                                    float lid=.694f+.016f*(1-Mathf.Clamp01(Mathf.Pow((p.x-Mathf.Sign(p.x)*.085f)/.050f,2)));
+                                    // Keep eye width during the slower smile transition;
+                                    // collapse vertically into the curved lid, just under skin.
+                                    target=FacePoint(p.x,lid,-.001f);
+                                } else target = V(c.x, .700f, FacePoint(c.x, .700f, -.025f).z);
+                            }
+                            if (kind == "lash") target = name=="Fcl_EYE_Joy" ? smilingLashes[i] : closedLashes[i];
                         }
-                        if(kind=="mouth"&&name!="Fcl_EYE_Close") {
+                        if(kind=="mouth"&&name.StartsWith("Fcl_ALL_")) {
                             float u=c.x,v=c.y,x=.020f*u,y=.625f+.003f*u*u+.0013f*v;
-                            if(name=="Fcl_ALL_Joy") {x=.027f*u;y=.625f+.010f*u*u+.0018f*v;}
+                            if(name=="Fcl_ALL_Joy") {x=.027f*u;y=.625f+.010f*u*u+.0075f*v;}
                             if(name=="Fcl_ALL_Fun") {x=.021f*u;y=.625f+.004f*u*u+.0012f*v+.002f*u;}
                             if(name=="Fcl_ALL_Sorrow") {x=.018f*u;y=.630f-.006f*u*u+.0012f*v;}
                             if(name=="Fcl_ALL_Surprised") {x=.010f*u;y=.628f+.011f*v;}
@@ -715,9 +729,8 @@ namespace DesktopFish.Editor
             for(int pose=0;pose<4;pose++) {
                 motion.Play(pose==1||pose==2?FishMotion.Gesture.Wave:FishMotion.Gesture.None,0);
                 motion.Evaluate(pose==1?1.3625f:pose==2?1.7875f:1,0,0,"idle",false);
-                for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++)
-                    companion.face.SetBlendShapeWeight(shape,
-                        companion.face.sharedMesh.GetBlendShapeName(shape)=="Fcl_EYE_Close"&&pose==3?100:0);
+                FishBuild.ApplyMotionExpressions(companion,motion);
+                if(pose==3)companion.face.SetBlendShapeWeight(companion.face.sharedMesh.GetBlendShapeIndex("Fcl_EYE_Close"),100);
                 for(int i=0;i<skins.Length;i++) {
                     UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
                     var mesh=new Mesh();skins[i].BakeMesh(mesh);snapshots[i].sharedMesh=mesh;
@@ -802,7 +815,7 @@ namespace DesktopFish.Editor
             Quaternion oldRotation=camera.transform.rotation;
             float oldSize=camera.orthographicSize;
             var oldTarget=camera.targetTexture;
-            const int size=384,columns=7;
+            const int size=384,columns=8;
             var target=new RenderTexture(size,size,24){antiAliasing=4};
             var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
             camera.targetTexture=target;camera.orthographicSize=.27f;
@@ -812,15 +825,16 @@ namespace DesktopFish.Editor
             Vector3 focus=head.position+companion.model.TransformVector(V(0,-.015f,.06f));
             foreach(bool extreme in new[]{false,true}) {
                 string[] names=extreme?
-                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_ALL_Joy"}:
-                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_EYE_Close"};
-                float[] amounts=extreme?new[]{0f,100,100,100,100,45,70}:new[]{0f,70,25,70,35,45,100};
+                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_ALL_Joy","Fcl_EYE_Joy"}:
+                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_EYE_Close","Fcl_EYE_Joy"};
+                float[] amounts=extreme?new[]{0f,100,100,100,100,45,70,100}:new[]{0f,70,25,70,35,45,100,100};
                 var sheet=new Texture2D(size*columns,size*2,TextureFormat.RGBA32,false);
                 for(int angle=0;angle<2;angle++)for(int pose=0;pose<columns;pose++) {
                     for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++) {
                         string name=companion.face.sharedMesh.GetBlendShapeName(shape);
                         float amount=name==names[pose]?amounts[pose]:0;
-                        if(extreme&&pose>=5&&name=="Fcl_EYE_Close")amount=100;
+                        if(extreme&&(pose==5||pose==6)&&name=="Fcl_EYE_Close")amount=100;
+                        if(pose==7&&name=="Fcl_ALL_Joy")amount=70;
                         companion.face.SetBlendShapeWeight(shape,amount);
                     }
                     for(int i=0;i<skins.Length;i++) {
