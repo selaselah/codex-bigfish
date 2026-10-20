@@ -43,6 +43,7 @@ namespace DesktopFish.Editor
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
             public readonly List<int> tri = new List<int>();
             public readonly Dictionary<int,Vector4> normalBlends = new Dictionary<int,Vector4>();
+            public readonly List<Vector2Int> smoothNormalPairs = new List<Vector2Int>();
             public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
                 p.Add(v); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
                 weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
@@ -63,6 +64,10 @@ namespace DesktopFish.Editor
                 foreach(var entry in normalBlends) {
                     Vector4 target=entry.Value;
                     normals[entry.Key]=Vector3.Lerp(normals[entry.Key],V(target.x,target.y,target.z),target.w).normalized;
+                }
+                foreach(var pair in smoothNormalPairs) {
+                    Vector3 joined=(normals[pair.x]+normals[pair.y]).normalized;
+                    normals[pair.x]=joined;normals[pair.y]=joined;
                 }
                 mesh.normals=normals;
                 mesh.RecalculateBounds();
@@ -1189,14 +1194,20 @@ namespace DesktopFish.Editor
                     float fold=Mathf.Cos(theta*4+.6f)*gathering;
                     float radius=sleeveRadius[row]*(1+.035f*fold);
                     int primary=x<.18f?chest:upper,secondary=x<.18f?upper:elbow;
-                    float blend=x<.18f?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.097f,.155f,x)):
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.212f,.258f,x));
+                    float blend=x<.18f?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.070f,.180f,x)):
+                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.192f,.278f,x));
                     Color cloth=Navy*(.98f+.025f*fold);cloth.a=1;
                     a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,Mathf.Sin(theta)*radius*.95f),
                         cloth,primary,null,secondary,blend);
                 }
                 Grid(a.body,sleeveStart,sleeveX.Length-1,sleeveSides);
                 if(s<0)ReverseFaces(a.body,sleeveTriangles);
+                // Keep the duplicated closure vertices for the grid, but shade
+                // the closed sleeve as one surface on both sides of its seam.
+                for(int row=0;row<sleeveX.Length;row++) {
+                    int first=sleeveStart+row*(sleeveSides+1);
+                    a.body.smoothNormalPairs.Add(new Vector2Int(first,first+sleeveSides));
+                }
                 foreach(float centerX in new[]{.309f,.317f}) {
                     // Shallow embroidered bands follow the same elliptical
                     // sleeve profile instead of intersecting it as round tubes.
