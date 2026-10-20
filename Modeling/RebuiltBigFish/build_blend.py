@@ -177,11 +177,28 @@ def float_vectors(accessor_id):
     accessor = document['accessors'][accessor_id]
     assert accessor['componentType'] == 5126
     dimensions = {'VEC2': 2, 'VEC3': 3}[accessor['type']]
-    view = document['bufferViews'][accessor['bufferView']]
-    offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
-    stride = view.get('byteStride', dimensions * 4)
-    return [struct.unpack_from('<' + 'f' * dimensions, binary, offset + i * stride)
-            for i in range(accessor['count'])]
+    values = [(0.0,) * dimensions for _ in range(accessor['count'])]
+    if 'bufferView' in accessor:
+        view = document['bufferViews'][accessor['bufferView']]
+        offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
+        stride = view.get('byteStride', dimensions * 4)
+        values = [struct.unpack_from('<' + 'f' * dimensions, binary, offset + i * stride)
+                  for i in range(accessor['count'])]
+    if 'sparse' in accessor:
+        sparse = accessor['sparse']
+        indices = sparse['indices']
+        index_view = document['bufferViews'][indices['bufferView']]
+        index_offset = index_view.get('byteOffset', 0) + indices.get('byteOffset', 0)
+        index_kind = {5121: 'B', 5123: 'H', 5125: 'I'}[indices['componentType']]
+        index_size = struct.calcsize('<' + index_kind)
+        replacements = sparse['values']
+        value_view = document['bufferViews'][replacements['bufferView']]
+        value_offset = value_view.get('byteOffset', 0) + replacements.get('byteOffset', 0)
+        for row in range(sparse['count']):
+            index = struct.unpack_from('<' + index_kind, binary, index_offset + row * index_size)[0]
+            assert 0 <= index < len(values)
+            values[index] = struct.unpack_from('<' + 'f' * dimensions, binary, value_offset + row * dimensions * 4)
+    return values
 
 
 assert len(document['meshes']) == len(data['meshes'])
@@ -190,16 +207,21 @@ assert len(document['skins'][0]['joints']) == len(data['bones'])
 blended_vertices = 0
 checked_normals = 0
 exported_normals = 0
+checked_morph_deltas = 0
 for mesh in document['meshes']:
     source = next(item for item in data['meshes'] if item['name'] == mesh['name'])
     normals_by_position = {}
-    for position, normal in zip(source['vertices'], source['normals']):
+    indices_by_position = {}
+    for index, (position, normal) in enumerate(zip(source['vertices'], source['normals'])):
         key = tuple(round(position[c], 6) for c in 'xyz')
         normals_by_position.setdefault(key, []).append(Vector(tuple(normal[c] for c in 'xyz')))
+        indices_by_position.setdefault(key, []).append(index)
+    assert mesh.get('extras', {}).get('targetNames', []) == [shape['name'] for shape in source['shapes']]
     for primitive in mesh['primitives']:
         attributes = primitive['attributes']
         assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', 'NORMAL'} <= attributes.keys()
-        for position, normal in zip(float_vectors(attributes['POSITION']), float_vectors(attributes['NORMAL'])):
+        positions = float_vectors(attributes['POSITION'])
+        for position, normal in zip(positions, float_vectors(attributes['NORMAL'])):
             exported_normals += 1
             assert all(math.isfinite(c) for c in normal)
             key = tuple(round(c, 6) for c in position)
@@ -210,6 +232,17 @@ for mesh in document['meshes']:
                 assert abs(Vector(normal).length - 1) < .001
                 assert max(Vector(normal).dot(n) for n in candidates) > .9999, 'Authored GLB normal changed'
                 checked_normals += 1
+        targets = primitive.get('targets', [])
+        assert len(targets) == len(source['shapes'])
+        if targets:
+            deltas = [float_vectors(target['POSITION']) for target in targets]
+            assert all(len(delta) == len(positions) for delta in deltas)
+            for vertex, position in enumerate(positions):
+                candidates = indices_by_position[tuple(round(c, 6) for c in position)]
+                assert any(all(
+                    (Vector(deltas[shape][vertex]) - Vector(tuple(source['shapes'][shape]['deltas'][index][c] for c in 'xyz'))).length < .000002
+                    for shape in range(len(targets))) for index in candidates), 'Authored GLB expression changed'
+            checked_morph_deltas += len(positions) * len(targets)
         assert 'COLOR_1' not in attributes
         accessor = document['accessors'][attributes['COLOR_0']]
         view = document['bufferViews'][accessor['bufferView']]
@@ -233,5 +266,7 @@ for mesh in document['meshes']:
 assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
 assert blended_vertices > 0, "Smooth hair-root weights must survive the GLB export"
 assert checked_normals > .99 * exported_normals
+assert checked_morph_deltas > 0, "Facial morph targets must survive the GLB export"
 print(f'Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig, '
-      f'{blended_vertices} blended vertices, {checked_normals}/{exported_normals} shading normals and neutral expressions.')
+      f'{blended_vertices} blended vertices, {checked_normals}/{exported_normals} shading normals, '
+      f'{checked_morph_deltas} expression deltas and neutral expressions.')

@@ -406,6 +406,21 @@ namespace DesktopFish.Editor
                 }
                 Grid(face,start,rows,cols);
             }
+            public void Mouth(int bone) {
+                int start=face.p.Count;const int rows=2,cols=32;
+                for(int row=0;row<=rows;row++)for(int j=0;j<(row==0?1:cols);j++) {
+                    float radius=row/(float)rows,angle=j/(float)cols*Mathf.PI*2;
+                    float u=Mathf.Cos(angle)*radius,v=Mathf.Sin(angle)*radius;
+                    int index=face.Add(FacePoint(.020f*u,.625f+.003f*u*u+.0013f*v,.0035f),Hex("AE7C7B"),bone);
+                    features.Add(Tuple.Create(index,V(u,v,0),"mouth"));
+                }
+                for(int j=0;j<cols;j++)face.Face(start,start+1+j,start+1+(j+1)%cols);
+                for(int row=1;row<rows;row++)for(int j=0;j<cols;j++) {
+                    int a=start+1+(row-1)*cols+j,b=start+1+row*cols+j;
+                    int an=start+1+(row-1)*cols+(j+1)%cols,bn=start+1+row*cols+(j+1)%cols;
+                    face.Face(a,b,bn);face.Face(a,bn,an);
+                }
+            }
             public void Expressions(Mesh mesh) {
                 foreach (string name in new[] { "Fcl_EYE_Close", "Fcl_ALL_Joy", "Fcl_ALL_Fun", "Fcl_ALL_Sorrow", "Fcl_ALL_Surprised" }) {
                     var delta = new Vector3[face.p.Count];
@@ -418,15 +433,22 @@ namespace DesktopFish.Editor
                                 target = V(c.x, .700f, FacePoint(c.x, .700f, -.025f).z);
                             if (kind == "lash") target = closedLashes[i];
                         }
-                        if ((name == "Fcl_ALL_Joy" || name == "Fcl_ALL_Fun") && kind == "mouth") {
-                            target.x *= 1.5f; target.y += .007f * Mathf.Pow(p.x / .018f, 2);
+                        if(kind=="mouth"&&name!="Fcl_EYE_Close") {
+                            float u=c.x,v=c.y,x=.020f*u,y=.625f+.003f*u*u+.0013f*v;
+                            if(name=="Fcl_ALL_Joy") {x=.027f*u;y=.625f+.010f*u*u+.0018f*v;}
+                            if(name=="Fcl_ALL_Fun") {x=.021f*u;y=.625f+.004f*u*u+.0012f*v+.002f*u;}
+                            if(name=="Fcl_ALL_Sorrow") {x=.018f*u;y=.630f-.006f*u*u+.0012f*v;}
+                            if(name=="Fcl_ALL_Surprised") {x=.010f*u;y=.628f+.011f*v;}
+                            target=FacePoint(x,y,.0035f);
                         }
-                        if (name == "Fcl_ALL_Sorrow" && kind == "mouth") target.y -= .008f * Mathf.Pow(p.x / .018f, 2);
-                        if (name == "Fcl_ALL_Surprised" && kind == "mouth") {
-                            target.x *= .5f; target.y = .625f + (p.y - .625f) * 4;
+                        if(kind=="brow") {
+                            float inward=Mathf.Clamp(-Mathf.Sign(c.x)*(p.x-c.x)/.031f,-1,1);
+                            if(name=="Fcl_ALL_Joy")target.y+=.002f+.002f*(1-inward*inward);
+                            if(name=="Fcl_ALL_Fun")target.y+=(c.x>0?.001f:-.001f)+.0015f*inward;
+                            if(name=="Fcl_ALL_Sorrow")target.y+=.004f+.009f*inward;
+                            if(name=="Fcl_ALL_Surprised")target.y+=.008f+.003f*(1-inward*inward);
+                            target.z+=FacePoint(target.x,target.y,0).z-FacePoint(p.x,p.y,0).z;
                         }
-                        if (kind == "mouth")
-                            target.z += FacePoint(target.x,target.y,0).z - FacePoint(p.x,p.y,0).z;
                         delta[i] = target - p;
                     }
                     mesh.AddBlendShapeFrame(name, 100, delta, new Vector3[delta.Length], new Vector3[delta.Length]);
@@ -727,6 +749,7 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/rebuilt-working.png",working.EncodeToPNG());
             RenderHandDetails(companion,motion,skins,snapshots,camera,"R");
             RenderHandDetails(companion,motion,skins,snapshots,camera,"L");
+            RenderExpressionDetails(companion,motion,skins,snapshots,camera);
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
             UnityEngine.Object.DestroyImmediate(details);
@@ -773,6 +796,51 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(sheet);
         }
 
+        static void RenderExpressionDetails(FishCompanion companion,FishMotion motion,
+            SkinnedMeshRenderer[] skins,List<MeshFilter> snapshots,Camera camera) {
+            Vector3 oldPosition=camera.transform.position;
+            Quaternion oldRotation=camera.transform.rotation;
+            float oldSize=camera.orthographicSize;
+            var oldTarget=camera.targetTexture;
+            const int size=384,columns=7;
+            var target=new RenderTexture(size,size,24){antiAliasing=4};
+            var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
+            camera.targetTexture=target;camera.orthographicSize=.27f;
+            motion.Play(FishMotion.Gesture.None,0);
+            motion.Tick(0,10,0,0,"idle",false);
+            var head=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_C_Head");
+            Vector3 focus=head.position+companion.model.TransformVector(V(0,-.015f,.06f));
+            foreach(bool extreme in new[]{false,true}) {
+                string[] names=extreme?
+                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_ALL_Joy"}:
+                    new[]{"","Fcl_ALL_Joy","Fcl_ALL_Fun","Fcl_ALL_Sorrow","Fcl_ALL_Surprised","Fcl_ALL_Surprised","Fcl_EYE_Close"};
+                float[] amounts=extreme?new[]{0f,100,100,100,100,45,70}:new[]{0f,70,25,70,35,45,100};
+                var sheet=new Texture2D(size*columns,size*2,TextureFormat.RGBA32,false);
+                for(int angle=0;angle<2;angle++)for(int pose=0;pose<columns;pose++) {
+                    for(int shape=0;shape<companion.face.sharedMesh.blendShapeCount;shape++) {
+                        string name=companion.face.sharedMesh.GetBlendShapeName(shape);
+                        float amount=name==names[pose]?amounts[pose]:0;
+                        if(extreme&&pose>=5&&name=="Fcl_EYE_Close")amount=100;
+                        companion.face.SetBlendShapeWeight(shape,amount);
+                    }
+                    for(int i=0;i<skins.Length;i++) {
+                        UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                        var mesh=new Mesh();skins[i].BakeMesh(mesh);snapshots[i].sharedMesh=mesh;
+                    }
+                    camera.transform.position=focus+Quaternion.Euler(0,angle*35,0)*V(0,.20f,3);
+                    camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                    frame.ReadPixels(new Rect(0,0,size,size),0,0);frame.Apply();
+                    sheet.SetPixels(pose*size,(1-angle)*size,size,size,frame.GetPixels());
+                }
+                sheet.Apply();
+                File.WriteAllBytes("work/rebuilt-expression"+(extreme?"-extremes":"s")+".png",sheet.EncodeToPNG());
+                UnityEngine.Object.DestroyImmediate(sheet);
+            }
+            camera.targetTexture=oldTarget;RenderTexture.active=null;
+            camera.transform.SetPositionAndRotation(oldPosition,oldRotation);camera.orthographicSize=oldSize;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
+
         static void BuildFace(Author a, int head)
         {
             foreach (int sign in new[] { -1, 1 }) {
@@ -796,9 +864,9 @@ namespace DesktopFish.Editor
                         +new Vector2(0,-.003f*Mathf.Sin(t*Mathf.PI));
                 }).ToArray();
                 a.FaceLine(wing,.0047f,Hex("3B2935"),head,"lash",x,1,.12f);
-                a.FaceLine(new[] { new Vector2(x - .031f, .751f), new Vector2(x, .760f), new Vector2(x + .029f, .754f) }, .0016f, Hex("83666B"), head);
+                a.FaceLine(new[] { new Vector2(x - .031f, .751f), new Vector2(x, .760f), new Vector2(x + .029f, .754f) }, .0016f, Hex("83666B"), head,"brow");
             }
-            a.FaceLine(new[]{new Vector2(-.020f,.628f),new Vector2(-.009f,.625f),new Vector2(.009f,.625f),new Vector2(.020f,.628f)},.0014f,Hex("AE7C7B"),head,"mouth");
+            a.Mouth(head);
             a.Disk(a.face,new Vector2(0,.652f),new Vector2(.0015f,.0018f),Hex("E5B5A6"),head,.0018f,"",16);
         }
 
