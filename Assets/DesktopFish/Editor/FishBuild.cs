@@ -1,0 +1,303 @@
+using System;
+using System.IO;
+using System.Linq;
+using UnityEditor;
+using UnityEditor.Build.Reporting;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.EventSystems;
+using Kirurobo;
+
+namespace DesktopFish.Editor
+{
+    public static class FishBuild
+    {
+        const string ScenePath = "Assets/Scenes/DesktopFish.unity";
+
+        [MenuItem("Desktop Fish/Create Scene")]
+        public static void CreateScene()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            string prefabPath = AssetDatabase.FindAssets("t:Prefab", new[] { "Assets/Mzkagami" })
+                .Select(AssetDatabase.GUIDToAssetPath).Single();
+            var source = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (!source) throw new InvalidOperationException("Model prefab could not be imported.");
+            var pivot = new GameObject("Fish Companion");
+            var model = (GameObject)PrefabUtility.InstantiatePrefab(source);
+            model.transform.SetParent(pivot.transform, false);
+            var animator = model.GetComponent<Animator>();
+            if (animator) animator.enabled = false;
+            FishChibiStyle.Apply(model);
+            foreach (var bone in model.GetComponentsInChildren<Transform>(true))
+            {
+                if (bone.name == "Basin01" || bone.name == "Basin02")
+                    bone.gameObject.SetActive(false);
+                if (bone.name == "J_Bip_L_UpperArm")
+                    bone.localRotation *= Quaternion.Euler(0, 0, 62);
+                if (bone.name == "J_Bip_R_UpperArm")
+                    bone.localRotation *= Quaternion.Euler(0, 0, -62);
+            }
+            var renderers = model.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) throw new InvalidOperationException("No visible model renderers.");
+            Bounds bounds = PosedBounds(renderers);
+            var hitArea = model.AddComponent<CapsuleCollider>();
+            hitArea.center = model.transform.InverseTransformPoint(bounds.center);
+            hitArea.height = bounds.size.y;
+            hitArea.radius = Mathf.Min(bounds.size.x * 0.32f, bounds.size.y * 0.22f);
+            var cameraObject = new GameObject("Main Camera");
+            cameraObject.tag = "MainCamera";
+            var camera = cameraObject.AddComponent<Camera>();
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.clear;
+            camera.orthographic = true;
+            camera.aspect = (float)FishCompanion.NativeWidth / FishCompanion.NativeHeight;
+            camera.orthographicSize = Mathf.Max(bounds.extents.y * 1.26f,
+                bounds.extents.x / (360f / 480f) * 1.26f);
+            camera.nearClipPlane = 0.01f;
+            camera.farClipPlane = 30;
+            camera.allowHDR = false;
+            camera.allowMSAA = true;
+            cameraObject.AddComponent<FishPalette>().paletteShader = AssetDatabase.LoadAssetAtPath<Shader>(
+                "Assets/DesktopFish/Shaders/IllustratedPalette.shader");
+            Vector3 center = bounds.center;
+            camera.transform.position = center + new Vector3(0, 0, 3);
+            camera.transform.LookAt(center);
+            var lightObject = new GameObject("Soft Key Light");
+            var light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = 0.9f;
+            light.color = new Color(1, 0.97f, 0.94f);
+            lightObject.transform.rotation = Quaternion.Euler(35, -25, 0);
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.78f, 0.81f, 0.9f);
+            var companion = pivot.AddComponent<FishCompanion>();
+            companion.model = model.transform;
+            companion.view = camera;
+            companion.face = model.GetComponentsInChildren<SkinnedMeshRenderer>()
+                .OrderByDescending(r => r.sharedMesh ? r.sharedMesh.blendShapeCount : 0).FirstOrDefault();
+            new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            var desktopWindow = new GameObject("Desktop Window").AddComponent<UniWindowController>();
+            desktopWindow.forceWindowed = true;
+            if (!companion.face || !companion.face.sharedMesh)
+                throw new InvalidOperationException("The original skinned mesh is missing.");
+            Debug.Log("Desktop model: " + companion.face.sharedMesh.vertexCount + " vertices, " +
+                companion.face.sharedMesh.blendShapeCount + " blendshapes.");
+            Directory.CreateDirectory("Assets/Scenes");
+            EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
+            EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
+            AssetDatabase.SaveAssets();
+        }
+
+        static Bounds PosedBounds(Renderer[] renderers)
+        {
+            var result = new Bounds();
+            bool initialized = false;
+            foreach (var renderer in renderers)
+            {
+                if (renderer is SkinnedMeshRenderer skin)
+                {
+                    var baked = new Mesh();
+                    skin.BakeMesh(baked);
+                    var vertices = baked.vertices;
+                    foreach (int index in VisibleIndices(skin))
+                    {
+                        Vector3 point = skin.transform.TransformPoint(vertices[index]);
+                        if (!initialized) { result = new Bounds(point, Vector3.zero); initialized = true; }
+                        else result.Encapsulate(point);
+                    }
+                    UnityEngine.Object.DestroyImmediate(baked);
+                }
+                else if (!initialized) { result = renderer.bounds; initialized = true; }
+                else result.Encapsulate(renderer.bounds);
+            }
+            return result;
+        }
+
+        static int[] VisibleIndices(SkinnedMeshRenderer skin)
+        {
+            var mesh = skin.sharedMesh;
+            var indices = new System.Collections.Generic.HashSet<int>();
+            for (int s = 0; s < mesh.subMeshCount; s++)
+            {
+                var material = skin.sharedMaterials[s];
+                // Hidden source panels (alpha=0) must not enlarge the camera frame.
+                if (material.HasProperty("_Color") && material.GetColor("_Color").a <= 0.001f) continue;
+                foreach (int index in mesh.GetTriangles(s)) indices.Add(index);
+            }
+            return indices.ToArray();
+        }
+
+        [MenuItem("Desktop Fish/Build macOS App")]
+        public static void BuildMac()
+        {
+            CreateScene();
+            PlayerSettings.companyName = "LocalCompanions";
+            PlayerSettings.productName = "BigFatBlueFish";
+            PlayerSettings.bundleVersion = "0.1.0";
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.desktop.bigfatbluefish");
+            PlayerSettings.defaultScreenWidth = FishCompanion.NativeWidth;
+            PlayerSettings.defaultScreenHeight = FishCompanion.NativeHeight;
+            PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.resizableWindow = false;
+            PlayerSettings.allowFullscreenSwitch = false;
+            PlayerSettings.runInBackground = true;
+            PlayerSettings.usePlayerLog = true;
+            PlayerSettings.colorSpace = ColorSpace.Linear;
+            PlayerSettings.macRetinaSupport = true;
+            PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+            PlayerSettings.SetArchitecture(BuildTargetGroup.Standalone, 1); // Apple Silicon.
+            QualitySettings.antiAliasing = 4;
+            QualitySettings.vSyncCount = 0;
+            string target = Path.GetFullPath("Builds/BigFatBlueFish.app");
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            var result = BuildPipeline.BuildPlayer(new BuildPlayerOptions {
+                scenes = new[] { ScenePath }, locationPathName = target,
+                target = BuildTarget.StandaloneOSX, options = BuildOptions.None
+            });
+            if (result.summary.result != BuildResult.Succeeded)
+                throw new InvalidOperationException("Build failed: " + result.summary.result);
+            Debug.Log("Desktop Fish built successfully: " + target);
+        }
+
+        [MenuItem("Desktop Fish/Render Preview")]
+        public static void RenderPreview()
+        {
+            CreateScene();
+            var camera = Camera.main;
+            var target = new RenderTexture(720, 960, 24, RenderTextureFormat.ARGB32);
+            var image = new Texture2D(720, 960, TextureFormat.RGBA32, false);
+            var previous = RenderTexture.active;
+            try
+            {
+                camera.targetTexture = target;
+                camera.Render();
+                RenderTexture.active = target;
+                image.ReadPixels(new Rect(0, 0, 720, 960), 0, 0);
+                image.Apply();
+                File.WriteAllBytes(Path.GetFullPath("Preview.png"), image.EncodeToPNG());
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(image);
+            }
+        }
+
+        public static void RenderMotionPreview()
+        {
+            CreateScene();
+            var companion = UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion = new FishMotion(companion.model);
+            var camera = companion.view;
+            var target = new RenderTexture(360, 480, 24, RenderTextureFormat.ARGB32);
+            target.antiAliasing = 4;
+            var frame = new Texture2D(360, 480, TextureFormat.RGBA32, false);
+            var sheet = new Texture2D(360 * 6, 480, TextureFormat.RGBA32, false);
+            var skins = companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
+            var snapshots = new MeshFilter[skins.Length];
+            for (int s = 0; s < skins.Length; s++)
+            {
+                var snapshot = new GameObject("Pose Snapshot");
+                snapshot.transform.SetParent(skins[s].transform, false);
+                snapshots[s] = snapshot.AddComponent<MeshFilter>();
+                snapshot.AddComponent<MeshRenderer>().sharedMaterials = skins[s].sharedMaterials;
+                skins[s].enabled = false;
+            }
+            var previous = RenderTexture.active;
+            try
+            {
+                camera.targetTexture = target;
+                for (int i = 0; i < 6; i++)
+                {
+                    motion.Play((FishMotion.Gesture)i, 0);
+                    motion.Evaluate(i == 5 ? 0.65f : i == 3 ? 3 : 1.5f, 0, 0, "idle", false);
+                    for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
+                    {
+                        string name = companion.face.sharedMesh.GetBlendShapeName(shape);
+                        companion.face.SetBlendShapeWeight(shape, name == "Fcl_EYE_Close" ? motion.ClosedEyes :
+                            name == "Fcl_ALL_Joy" ? motion.Joy : 0);
+                    }
+                    for (int s = 0; s < skins.Length; s++)
+                    {
+                        if (snapshots[s].sharedMesh) UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);
+                        var baked = new Mesh();
+                        skins[s].BakeMesh(baked);
+                        snapshots[s].sharedMesh = baked;
+                    }
+                    camera.Render();
+                    RenderTexture.active = target;
+                    frame.ReadPixels(new Rect(0, 0, 360, 480), 0, 0);
+                    frame.Apply();
+                    if (frame.GetPixel(0, 0).a > 0.001f || frame.GetPixel(359, 479).a > 0.001f)
+                        throw new InvalidOperationException("Palette must preserve transparent corners.");
+                    sheet.SetPixels(i * 360, 0, 360, 480, frame.GetPixels());
+                    if (i == 0) File.WriteAllBytes(Path.GetFullPath("Preview.png"), frame.EncodeToPNG());
+                }
+                sheet.Apply();
+                Directory.CreateDirectory("work");
+                File.WriteAllBytes(Path.GetFullPath("work/motion-preview.png"), sheet.EncodeToPNG());
+                ValidateMotion(companion, motion, skins);
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+                UnityEngine.Object.DestroyImmediate(target);
+                UnityEngine.Object.DestroyImmediate(frame);
+                UnityEngine.Object.DestroyImmediate(sheet);
+                for (int s = 0; s < skins.Length; s++)
+                {
+                    if (snapshots[s].sharedMesh) UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);
+                    UnityEngine.Object.DestroyImmediate(snapshots[s].gameObject);
+                    skins[s].enabled = true;
+                }
+            }
+        }
+
+        internal static void ValidateMotion(FishCompanion companion, FishMotion motion, SkinnedMeshRenderer[] skins)
+        {
+            Vector2 min = Vector2.one, max = Vector2.zero;
+            int poses = 0;
+            var baked = new Mesh();
+            var visible = skins.ToDictionary(s => s, VisibleIndices);
+            try
+            {
+                for (int action = 0; action < 6; action++)
+                    for (int sample = 0; sample <= 24; sample++)
+                    {
+                        motion.Play((FishMotion.Gesture)action, 0);
+                        float time = sample / 24f * (action == 1 ? FishMotion.WaveDuration : action == 3 ? 7 : action == 5 ? 2.4f : 4.2f);
+                        motion.Evaluate(time, sample % 2 == 0 ? -1 : 1, sample % 3 == 0 ? -1 : 1, "idle", false);
+                        foreach (var skin in skins)
+                        {
+                            skin.BakeMesh(baked);
+                            var vertices = baked.vertices;
+                            foreach (int index in visible[skin])
+                            {
+                                Vector3 p = companion.view.WorldToViewportPoint(skin.transform.TransformPoint(vertices[index]));
+                                if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsInfinity(p.x) || float.IsInfinity(p.y))
+                                    throw new InvalidOperationException("Invalid deformed vertex in " + (FishMotion.Gesture)action);
+                                min = Vector2.Min(min, p);
+                                max = Vector2.Max(max, p);
+                            }
+                        }
+                        poses++;
+                    }
+                if (min.x < 0.02f || min.y < 0.02f || max.x > 0.98f || max.y > 0.98f)
+                    throw new InvalidOperationException("Gesture exceeds safe camera bounds: " + min + " / " + max);
+                if (companion.face.sharedMesh.blendShapeCount != 137)
+                    throw new InvalidOperationException("Expected all 137 original blendshapes.");
+                File.WriteAllText("work/motion-validation.json", "{\n  \"sampled_poses\": " + poses +
+                    ",\n  \"blendshapes\": 137,\n  \"viewport_min\": [" + min.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) +
+                    ", " + min.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "],\n  \"viewport_max\": [" +
+                    max.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + ", " +
+                    max.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "],\n  \"passed\": true\n}\n");
+                Debug.Log("Desktop Fish motion validation passed: " + poses + " poses; viewport " + min + " / " + max);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(baked); }
+        }
+    }
+}

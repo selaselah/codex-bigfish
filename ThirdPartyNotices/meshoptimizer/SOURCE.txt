@@ -1,0 +1,4 @@
+https://github.com/zeux/meshoptimizer
+Commit: f0a684f11ead064e176775c9b796f82a55910e92
+MIT license. Unmodified header, simplifier and allocator; offline tool only.
+No simplifier is linked into the pet player.
