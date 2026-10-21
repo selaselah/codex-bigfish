@@ -75,6 +75,7 @@ namespace DesktopFish.Editor
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
+            ReviewFinSections(baked,snapshot.transform);
             ReviewAccessoryComponents(baked,snapshot.transform,camera,bounds,frame,target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
@@ -85,6 +86,27 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
+        static void ReviewFinSections(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var sections=new System.Collections.Generic.List<PartBounds>();
+            foreach(int slot in new[]{22,23,24,25}) {
+                var triangles=baked.GetTriangles(slot);float sign=slot<24?1:-1;
+                foreach(float distance in new[]{.14f,.16f,.18f,.20f,.22f,.24f,.26f,.275f}) {
+                    float x=distance*sign;var cuts=new System.Collections.Generic.List<Vector3>();
+                    for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
+                        Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
+                        if((a.x<=x&&b.x>x)||(b.x<=x&&a.x>x))
+                            cuts.Add(Vector3.Lerp(a,b,(x-a.x)/(b.x-a.x)));
+                    }
+                    if(cuts.Count==0)continue;
+                    var bounds=new Bounds(cuts[0],Vector3.zero);
+                    foreach(var p in cuts)bounds.Encapsulate(p);
+                    sections.Add(new PartBounds{slot=slot,name="x="+x.ToString("F3",System.Globalization.CultureInfo.InvariantCulture),minimum=bounds.min,maximum=bounds.max});
+                }
+            }
+            File.WriteAllText("work/reference-review/fin-sections.json",JsonUtility.ToJson(new AccessoryReport{parts=sections.ToArray()},true));
+        }
+
         // Sparse cross-section bounds are local modelling guides. The isolated
         // previews expose which lock owns a silhouette without exporting a mesh.
         static void ReviewSectionParts(Mesh baked, GameObject snapshot, Camera camera,
@@ -124,6 +146,7 @@ namespace DesktopFish.Editor
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
                 if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
+                if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
             File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
