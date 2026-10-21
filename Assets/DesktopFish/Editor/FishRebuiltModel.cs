@@ -1330,7 +1330,7 @@ namespace DesktopFish.Editor
             Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
             Ruffle(a,hips,.145f,.213f,.130f,.022f,24,Mathf.PI*.65f);
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,2,48);
-            ClothPanel(a,V(0,.470f,.080f),.071f,.074f,.009f,chest);
+            ClothPanel(a,V(0,.458f,.080f),.071f,.096f,.009f,chest);
             Collar(a,chest);
             foreach(int sign in new[]{-1,1}) {
                 // Gathered side lace starts on the bib surface and opens into
@@ -1341,8 +1341,8 @@ namespace DesktopFish.Editor
                     float phase=t*Mathf.PI*12+.25f*Mathf.Sin(t*Mathf.PI*2),fold=Mathf.Cos(phase);
                     float inner=.069f-.008f*Mathf.Pow(Mathf.Abs(t*2-1),6);
                     float endTaper=.70f+.30f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.40f);
-                    float py=.530f-t*.119f,px=sign*(inner+.019f*r*(1+.13f*fold)*endTaper);
-                    float baseDepth=.082f+BibDepth(inner,py-.470f,.071f,.074f,.009f);
+                    float py=.546f-t*.176f,px=sign*(inner+.012f*r*(1+.10f*fold)*endTaper);
+                    float baseDepth=.082f+BibDepth(inner,py-.458f,.071f,.096f,.009f);
                     a.body.Add(V(px,py+.002f*r*Mathf.Sin(phase),
                         baseDepth+.006f*Mathf.Sin(r*Mathf.PI)+.0035f*r*fold),
                         Color.Lerp(White*.91f,White,(fold+1)*.5f),chest);
@@ -1361,8 +1361,8 @@ namespace DesktopFish.Editor
                 SkirtLeaf(a,V(sign*.144f,.256f,0),V(sign*.133f,.263f,0),.0038f,hips);
             }
             for(int i=0;i<3;i++) {
-                float y=.425f+i*.022f;
-                a.Sphere(a.body,V(0,y,.0818f+BibDepth(0,y-.470f,.071f,.074f,.009f)),
+                float y=.390f+i*.035f;
+                a.Sphere(a.body,V(0,y,.0818f+BibDepth(0,y-.458f,.071f,.096f,.009f)),
                     V(.004f,.004f,.002f),Ink,chest,12,6);
             }
             a.Sphere(a.body,V(0,.376f,.083f),V(.006f,.003f,.002f),Gold,hips,12,6);
@@ -1489,8 +1489,8 @@ namespace DesktopFish.Editor
             foreach(int sign in new[]{-1,1}) {
                 var neck=Curve(new[]{V(sign*.004f,.575f,.028f),V(sign*.019f,.576f,.029f),
                     V(sign*.035f,.568f,.012f),V(sign*.032f,.559f,.004f)},12);
-                var edge=Curve(new[]{V(sign*.014f,.547f,.090f),V(sign*.030f,.545f,.083f),
-                    V(sign*.072f,.546f,.054f),V(sign*.074f,.541f,.030f)},12);
+                var edge=Curve(new[]{V(sign*.012f,.542f,.098f),V(sign*.034f,.528f,.090f),
+                    V(sign*.080f,.539f,.061f),V(sign*.083f,.548f,.030f)},12);
                 int first=a.body.p.Count,triangles=a.body.tri.Count;const int cols=4;
                 for(int i=0;i<=12;i++)for(int j=0;j<=cols;j++) {
                     float t=i/12f,r=j/(float)cols;
@@ -1515,7 +1515,7 @@ namespace DesktopFish.Editor
                         float swell=Mathf.Sin(u*Mathf.PI)*(1-v*v);
                         float fold=Mathf.Exp(-Mathf.Pow((Mathf.Abs(v)-.34f)/.18f,2))*Mathf.Sin(u*Mathf.PI);
                         float x=sign*(.005f+.057f*u)*(1-.08f*Mathf.Pow(Mathf.Abs(v),3));
-                        float y=.550f+.002f*u+v*(.006f+.014f*Mathf.Sin(u*Mathf.PI*.55f));
+                        float y=.536f+.004f*u+v*(.006f+.021f*Mathf.Sin(u*Mathf.PI*.55f));
                         float z=.103f-.012f*u+(surface>0?.006f:-.002f)*swell-surface*.0025f*fold;
                         Color color=Color.Lerp(Navy,Hex("4B5B8B"),swell*.24f)*(.93f+.16f*(v+1)*.5f-.18f*fold);color.a=1;
                         a.body.Add(V(x,y,z),color,bone);
@@ -1528,7 +1528,7 @@ namespace DesktopFish.Editor
                 for(int i=0;i<=10;i++)for(int j=0;j<=tailCols;j++) {
                     float t=i/10f,v=j/(float)tailCols*2-1;
                     float x=sign*(.010f+.010f*t+.007f*t*t+v*(.004f+.012f*t));
-                    float y=.548f-.045f*t+.006f*(1-Mathf.Abs(v))*Mathf.Pow(t,10);
+                    float y=.534f-.060f*t+.006f*(1-Mathf.Abs(v))*Mathf.Pow(t,10);
                     float z=.100f+.005f*Mathf.Sin(t*Mathf.PI)-.004f*v*v;
                     Color color=Navy*(.90f+.16f*(1-v*v));color.a=1;
                     a.body.Add(V(x,y,z),color,bone);
@@ -1536,7 +1536,7 @@ namespace DesktopFish.Editor
                 Grid(a.body,tailStart,10,tailCols);
                 if(sign>0)ReverseFaces(a.body,tailTriangles);
             }
-            a.Sphere(a.body,V(0,.552f,.104f),V(.010f,.008f,.006f),Navy,bone,12,8);
+            a.Sphere(a.body,V(0,.538f,.104f),V(.010f,.008f,.006f),Navy,bone,12,8);
         }
 
         static void ClothPanel(Author a,Vector3 center,float rx,float ry,float bulge,int bone) {
@@ -1567,7 +1567,10 @@ namespace DesktopFish.Editor
             float valley=Mathf.Exp(-Mathf.Pow((Mathf.Abs(u)-guide-.15f)/(width*.80f),2));
             float centerClear=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.13f,.30f,Mathf.Abs(u)));
             float fold=(.004f*ridge-.0035f*valley)*(.32f+.68f*gather)*centerClear;
-            return bulge*Mathf.Max(0,1-radius*radius)+fold;
+            // Tuck the lower cloth and its lace behind the existing waist band.
+            // The longer panel must not cover the dark belt or merge into the apron.
+            float waistTuck=.014f*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.28f,h)));
+            return bulge*Mathf.Max(0,1-radius*radius)+fold-waistTuck;
         }
 
         static void Lathe(Author a,int bone,float y0,float y1,Func<float,float> rx,Func<float,float> rz,Color color,int rows,int sides) {
@@ -1794,8 +1797,8 @@ namespace DesktopFish.Editor
                 Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
             }
             ChestRibbon(a,chest);
-            a.Sphere(a.body,V(0,.552f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
-            a.Sphere(a.body,V(0,.553f,.113f),V(.006f,.005f,.002f),Hex("67AACA"),chest,14,8);
+            a.Sphere(a.body,V(0,.538f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
+            a.Sphere(a.body,V(0,.539f,.113f),V(.006f,.005f,.002f),Hex("67AACA"),chest,14,8);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
             int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;
             a.Sweep(a.body,Curve(new[]{V(.02f,.26f,-.095f),V(.19f,.18f,-.12f),V(.22f,.10f,-.12f),V(.31f,.13f,-.065f)},20),
