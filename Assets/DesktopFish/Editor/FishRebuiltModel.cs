@@ -168,10 +168,15 @@ namespace DesktopFish.Editor
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
-                float tipPaintEase = 1) {
+                float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
+                var boundaryA=edgeA==null?null:Curve(edgeA,rows);
+                var boundaryB=edgeB==null?null:Curve(edgeB,rows);
                 Vector3 facing=outward??Vector3.forward;
+                int mid=rows/2;
+                float boundarySign=boundaryA==null?1:Mathf.Sign(Vector3.Dot(boundaryB[mid]-boundaryA[mid],
+                    Vector3.Cross(path[mid+1]-path[mid-1],facing)));
                 if(outward.HasValue)for(int i=0;i<path.Length;i++) {
                     Vector3 p=path[i];
                     if(p.y>.675f&&p.y<.975f) {
@@ -228,7 +233,12 @@ namespace DesktopFish.Editor
                         float edgeTaper=tipBias==0?taper:Mathf.Pow(1-Mathf.SmoothStep(0,1,
                             Mathf.InverseLerp(tipStart+tipBias*u,1,t)),taperPower);
                         float edgeWidth=tipBias==0?w:width*rootWidth*rootBlend*lowerScale*edgeTaper+.00015f;
-                        Vector3 p=path[row]+side*(u*edgeWidth*rootNeck)+thicknessAxis*facet*thickness*rootNeck;
+                        // Frontal locks can use independently shaped silhouette edges.
+                        // This lets the forehead window rise on one side while
+                        // the other edge continues into a long swept point.
+                        Vector3 p=boundaryA==null?path[row]+side*(u*edgeWidth*rootNeck):
+                            Vector3.Lerp(boundaryA[row],boundaryB[row],(u*boundarySign+1)*.5f)+side*(u*.00015f);
+                        p+=thicknessAxis*facet*thickness*rootNeck;
                         if(outward.HasValue&&p.y>.72f) {
                             // Wrap the whole width around the scalp, not just the
                             // centerline. Flat roots otherwise read as raised plates.
@@ -1049,21 +1059,28 @@ namespace DesktopFish.Editor
                 a.HairPanel(new[]{V(sign*.179f,.518f,.145f),V(sign*.13f,.445f,.16f),
                     V(sign*.135f,.414f,.16f),V(sign*.162f,.390f,.15f)},.025f,bone,true,6,
                     sideTurn:sign*18,fullness:1.6f,rootTaper:.22f);
-                // Broad cheek-framing sheets with narrow, swept tips.
-                a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.235f,.94f,.12f),
-                    V(sign*.225f,.67f,.16f),V(sign*.135f,.607f,.14f)},.072f,head,false,1,tipStart:.64f,rootScale:.79f);
+                // Cheek locks end inward above the jaw, leaving the lower
+                // cheeks visible. The broad temple follows the crown contour.
+                a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.215f,.92f,.12f),
+                    V(sign*.212f,.716f,.17f),V(sign*.110f,.640f,.15f)},.060f,head,false,1,tipStart:.61f,rootScale:.79f);
                 a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.245f,.74f,.112f),
-                    V(sign*.19f,.64f,.16f),V(sign*.142f,.625f,.16f)},.022f,head,false,4,rootTaper:.22f,paintStart:.50f);
-                a.HairPanel(new[]{V(sign*.030f,.968f,.060f),V(sign*.115f,.95f,.16f),
-                    V(sign*.115f,.80f,.20f),V(sign*.102f,.747f,.184f)},.056f,head,false,sign,
-                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f);
+                    V(sign*.190f,.640f,.160f),V(sign*.120f,.625f,.160f)},.022f,head,false,4,
+                    rootTaper:.22f,paintStart:.50f);
+                var inner=new[]{V(sign*.010f,.974f,.060f),V(sign*.052f,.93f,.14f),
+                    V(sign*.018f,.77f,.20f),V(sign*.133f,.726f,.184f)};
+                var outer=new[]{V(sign*.065f,.955f,.060f),V(sign*.145f,.93f,.13f),
+                    V(sign*.160f,.79f,.185f),V(sign*.133f,.726f,.184f)};
+                a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,sign,
+                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,edgeA:inner,edgeB:outer);
             }
-            a.HairPanel(new[]{V(-.012f,.978f,.055f),V(-.046f,.91f,.185f),
-                V(.018f,.79f,.205f),V(.016f,.716f,.191f)},.056f,head,false,0,
-                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f,tipPaintEase:.50f);
-            a.HairPanel(new[]{V(.019f,.966f,.06f),V(.064f,.90f,.19f),
-                V(.043f,.79f,.208f),V(.054f,.725f,.194f)},.029f,head,false,2,
-                tipStart:.74f,tipBias:.04f,tipPower:.94f,tipPaintEase:.56f);
+            var mainLeft=new[]{V(.026f,.978f,.055f),V(.050f,.91f,.185f),V(.080f,.755f,.205f),V(-.026f,.713f,.191f)};
+            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.075f,.91f,.185f),V(-.091f,.78f,.208f),V(-.026f,.713f,.191f)};
+            a.HairPanel(mainLeft.Zip(mainRight,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,0,
+                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f,tipPaintEase:.50f,edgeA:mainLeft,edgeB:mainRight);
+            var shortLeft=new[]{V(.030f,.971f,.060f),V(.067f,.90f,.19f),V(.064f,.77f,.208f),V(.030f,.720f,.194f)};
+            var shortRight=new[]{V(.002f,.973f,.060f),V(.016f,.90f,.196f),V(.002f,.77f,.212f),V(.030f,.720f,.194f)};
+            a.HairPanel(shortLeft.Zip(shortRight,(l,r)=>(l+r)*.5f).ToArray(),.029f,head,false,2,
+                tipStart:.74f,tipBias:.04f,tipPower:.94f,tipPaintEase:.56f,edgeA:shortLeft,edgeB:shortRight);
             // A gently rearward arch keeps the crown tuft curved in side view.
             // Its rounded section narrows in both axes into one closed tip.
             int tuftStart=a.body.p.Count;
