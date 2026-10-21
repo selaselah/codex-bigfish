@@ -80,6 +80,7 @@ namespace DesktopFish.Editor
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
             FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
             ReviewHandBounds(reference,baked,skin,snapshot.transform);
+            ReviewCuffSections(baked,skin,snapshot.transform);
             ReviewAccessoryComponents(baked,snapshot.transform,camera,bounds,frame,target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
@@ -90,6 +91,38 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
+        static void ReviewCuffSections(Mesh baked,SkinnedMeshRenderer skin,Transform snapshot) {
+            var elbow=skin.bones.First(t=>t.name=="J_Bip_R_LowerArm").position;
+            var hand=skin.bones.First(t=>t.name=="J_Bip_R_Hand").position;
+            Vector3 axis=(hand-elbow).normalized,up=Vector3.ProjectOnPlane(Vector3.up,axis).normalized;
+            Vector3 across=Vector3.Cross(axis,up).normalized;
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var triangles=baked.GetTriangles(32);
+            var parts=new System.Collections.Generic.List<PartBounds>();float length=Vector3.Distance(hand,elbow);
+            var weights=skin.sharedMesh.boneWeights;
+            int lowerIndex=Array.FindIndex(skin.bones,t=>t.name=="J_Bip_R_LowerArm");
+            Func<int,float> lowerWeight=i=> {
+                var w=weights[i];return (w.boneIndex0==lowerIndex?w.weight0:0)+(w.boneIndex1==lowerIndex?w.weight1:0)+
+                    (w.boneIndex2==lowerIndex?w.weight2:0)+(w.boneIndex3==lowerIndex?w.weight3:0);
+            };
+            foreach(float t in new[]{.50f,.65f,.80f,.95f,1.10f}) {
+                float along=t*length;var cuts=new System.Collections.Generic.List<Vector3>();
+                for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
+                    Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
+                    float qa=Vector3.Dot(a-elbow,axis),qb=Vector3.Dot(b-elbow,axis);
+                    if((qa<=along&&qb>along)||(qb<=along&&qa>along)) {
+                        float fraction=(along-qa)/(qb-qa);
+                        if(Mathf.Lerp(lowerWeight(triangles[i+j]),lowerWeight(triangles[i+(j+1)%3]),fraction)<.5f)continue;
+                        Vector3 p=Vector3.Lerp(a,b,fraction)-elbow;
+                        cuts.Add(new Vector3(Vector3.Dot(p,across),Vector3.Dot(p,up),along));
+                    }
+                }
+                if(cuts.Count==0)continue;var bounds=new Bounds(cuts[0],Vector3.zero);
+                foreach(var p in cuts)bounds.Encapsulate(p);
+                parts.Add(new PartBounds{slot=32,name="forearm-t="+t.ToString("F2",System.Globalization.CultureInfo.InvariantCulture),minimum=bounds.min,maximum=bounds.max});
+            }
+            File.WriteAllText("work/reference-review/cuff-sections.json",JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
+        }
+
         static void ReviewHandBounds(Mesh source,Mesh baked,SkinnedMeshRenderer skin,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var weights=source.boneWeights;
             var parts=new System.Collections.Generic.List<PartBounds>();

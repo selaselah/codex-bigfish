@@ -1027,6 +1027,7 @@ namespace DesktopFish.Editor
         public static void RenderIdle() { RenderAngles(false); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
+        public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
         public static void RenderIdleSkinningAndBuild() { BuildWithSkinningReview(false); }
@@ -1979,6 +1980,13 @@ namespace DesktopFish.Editor
             ReverseFaces(a.body,firstTriangle);
         }
 
+        static Vector3 SleeveSection(float x) {
+            // The compact body map compresses sleeve height; a fuller cuff
+            // opens around the wrist while its depth stays restrained.
+            float opening=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.278f,.290f,x));
+            return V(Mathf.Lerp(1,1.65f,opening),Mathf.Lerp(.95f,1.10f,opening),-.005f*opening);
+        }
+
         static void BuildLimbs(Author a,int hips,int chest)
         {
             foreach(int s in new[]{-1,1}) {
@@ -1989,7 +1997,7 @@ namespace DesktopFish.Editor
                 int hand=a.Bone(prefix+"Hand",elbow,V(s*.34f,.49f,0));
                 // One rounded sleeve bridges shoulder and elbow with continuous
                 // weights; the cuff remains rigid with the forearm.
-                float[] sleeveX={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.317f,.325f};
+                float[] sleeveX={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.326f,.342f};
                 float[] sleeveRadius={.025f,.040f,.045f,.046f,.041f,.035f,.033f,.032f,.032f,.030f,.028f,.0275f,.0275f,.027f};
                 int sleeveStart=a.body.p.Count,sleeveTriangles=a.body.tri.Count;const int sleeveSides=16;
                 for(int row=0;row<sleeveX.Length;row++)for(int j=0;j<=sleeveSides;j++) {
@@ -2001,7 +2009,8 @@ namespace DesktopFish.Editor
                     float blend=x<.18f?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.070f,.180f,x)):
                         Mathf.SmoothStep(0,1,Mathf.InverseLerp(.192f,.278f,x));
                     Color cloth=Navy*(.98f+.025f*fold);cloth.a=1;
-                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,Mathf.Sin(theta)*radius*.95f),
+                    var section=SleeveSection(x);
+                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius*section.x+section.z,Mathf.Sin(theta)*radius*section.y),
                         cloth,primary,null,secondary,blend);
                 }
                 Grid(a.body,sleeveStart,sleeveX.Length-1,sleeveSides);
@@ -2012,7 +2021,7 @@ namespace DesktopFish.Editor
                     int first=sleeveStart+row*(sleeveSides+1);
                     a.body.smoothNormalPairs.Add(new Vector2Int(first,first+sleeveSides));
                 }
-                foreach(float centerX in new[]{.309f,.317f}) {
+                foreach(float centerX in new[]{.321f,.333f}) {
                     // Shallow embroidered bands follow the same elliptical
                     // sleeve profile instead of intersecting it as round tubes.
                     int bandStart=a.body.p.Count,bandTriangles=a.body.tri.Count;
@@ -2024,10 +2033,11 @@ namespace DesktopFish.Editor
                         float radius=Mathf.Lerp(sleeveRadius[section-1],sleeveRadius[section],
                             Mathf.InverseLerp(sleeveX[section-1],sleeveX[section],x));
                         float relief=row==1?.0007f:.00035f;
+                        var cuff=SleeveSection(x);
                         for(int j=0;j<=bandSegments;j++) {
                             float theta=j/(float)bandSegments*Mathf.PI*2;
-                            a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*(radius+relief),
-                                Mathf.Sin(theta)*(radius*.95f+relief)),Gold,elbow);
+                            a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*(radius*cuff.x+relief)+cuff.z,
+                                Mathf.Sin(theta)*(radius*cuff.y+relief)),Gold,elbow);
                         }
                     }
                     Grid(a.body,bandStart,2,bandSegments);
