@@ -588,9 +588,32 @@ namespace DesktopFish.Editor
                 g.Face(a, a + 1, b); g.Face(a + 1, b + 1, b);
             }
         }
+        static readonly float[] JawLevels={.586f,.595f,.605f,.625f,.650f,.675f,.700f};
+        static readonly float[] JawDepths={.130f,.142f,.150f,.158f,.160f,.153f,
+            .166f*Mathf.Sqrt(1-Mathf.Pow((.700f-.773f)/.187f,2))};
+        static readonly float[] JawSlopes={1.4f,.95f,.55f,.25f,0,-.10f,
+            .166f*(.773f-.700f)/(.187f*.187f*Mathf.Sqrt(1-Mathf.Pow((.700f-.773f)/.187f,2)))};
+        static float JawForward(float y) {
+            // The lower face turns forward into the chin rather than rolling
+            // underneath an ellipsoid. Keep the eye band and crown unchanged.
+            if(y>=.700f)return 0;
+            int i=0;while(i<JawLevels.Length-2&&y>JawLevels[i+1])i++;
+            float h=JawLevels[i+1]-JawLevels[i],t=Mathf.Clamp01((y-JawLevels[i])/h),t2=t*t,t3=t2*t;
+            float front=(2*t3-3*t2+1)*JawDepths[i]+(t3-2*t2+t)*h*JawSlopes[i]
+                +(-2*t3+3*t2)*JawDepths[i+1]+(t3-t2)*h*JawSlopes[i+1];
+            float radius=.166f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow((y-.773f)/.187f,2)));
+            return front-radius;
+        }
+        static Vector3 ShapeHeadPoint(Vector3 p) {
+            float radius=.166f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow((p.y-.773f)/.187f,2)));
+            // Retain the rear jaw/neck attachment while moving the chin. Moving
+            // the whole lower ring forward would leave the neck outside it.
+            float forward=radius<.001f?1:Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.5f,.5f,p.z/radius));
+            p.z+=JawForward(p.y)*forward;return p;
+        }
         static Vector3 FacePoint(float x, float y, float offset) {
             float depth = Mathf.Sqrt(Mathf.Max(.05f, 1 - x * x / (.214f * .214f) - (y - .773f) * (y - .773f) / (.187f * .187f)));
-            return V(x, y, .166f * depth + offset);
+            var p=ShapeHeadPoint(V(x,y,.166f*depth));p.z+=offset;return p;
         }
         static Vector3 Bezier(Vector3[] p, float t) => Mathf.Pow(1 - t, 3) * p[0] +
             3 * (1 - t) * (1 - t) * t * p[1] + 3 * (1 - t) * t * t * p[2] + t * t * t * p[3];
@@ -724,11 +747,16 @@ namespace DesktopFish.Editor
             int neck = a.Bone("J_Bip_C_Neck", chest, V(0, .55f, 0));
             int head = a.Bone("J_Bip_C_Head", neck, V(0, .773f, 0));
             a.Sphere(a.body, V(0, .773f, 0), V(.214f, .187f, .166f), Skin, head, 48, 28);
+            for(int row=0;row<=28;row++)a.body.smoothNormalPairs.Add(new Vector2Int(row*49,row*49+48));
             for(int i=0;i<a.body.p.Count;i++) {
                 Vector3 p=a.body.p[i];
+                // Exact coincident pole positions let cleanup remove the
+                // collapsed fan faces after the jaw stretches forward.
+                if(i>=28*49)p=V(0,.773f-.187f,0);
                 float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.125f)/.045f,2)
                     -Mathf.Pow((p.y-.665f)/.026f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
                 a.body.colors[i]=Color.Lerp(Skin,Hex("F1BFC3"),blush*.80f);
+                a.body.p[i]=ShapeHeadPoint(p);
             }
             a.Sphere(a.body, V(0, .555f, 0), V(.028f, .035f, .029f), Skin, neck);
             a.Sphere(a.body, V(0, .460f, 0), V(.120f, .108f, .080f), Navy, chest);
