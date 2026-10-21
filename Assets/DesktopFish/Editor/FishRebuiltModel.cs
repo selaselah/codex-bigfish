@@ -812,7 +812,11 @@ namespace DesktopFish.Editor
 
         public static void ReviewAndBuild() { Review(); Build(); }
 
-        public static void RenderAngles() {
+        [MenuItem("Desktop Fish/Rebuilt Model/Review Default Pose")]
+        public static void RenderIdle() { RenderAngles(false); }
+        public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
+        public static void RenderAngles() { RenderAngles(true); }
+        static void RenderAngles(bool includeMotion) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -839,6 +843,22 @@ namespace DesktopFish.Editor
                 camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
                 frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
                 File.WriteAllBytes("work/rebuilt-angle-"+angle+".png",frame.EncodeToPNG());
+            }
+            camera.transform.position=center+new Vector3(0,.64f,3);
+            camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
+            frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+            File.WriteAllBytes("work/rebuilt-angle-top.png",frame.EncodeToPNG());
+            File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
+            if(!includeMotion) {
+                camera.targetTexture=null;RenderTexture.active=null;
+                UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+                foreach(var snapshot in snapshots) {
+                    UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);
+                    UnityEngine.Object.DestroyImmediate(snapshot.gameObject);
+                }
+                foreach(var skin in skins)skin.enabled=true;
+                Debug.Log("Default-pose review rendered: front, oblique, side, rear and elevated front.");
+                return;
             }
             // Inspect the wrist at both wave extremes and the eyelid surface from
             // an oblique view. The usual front contact sheet hides depth defects.
@@ -1184,6 +1204,7 @@ namespace DesktopFish.Editor
 
         static void BuildDress(Author a, int hips, int chest)
         {
+            int dressStart=a.body.p.Count;
             // Six height intervals retain the gently quadratic skirt drape;
             // the 72 angular samples still describe all twelve broad pleats.
             Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,6,72);
@@ -1291,6 +1312,20 @@ namespace DesktopFish.Editor
                 a.body.p[i]=p;
             }
             ReverseFaces(a.body,whaleTriangles);
+            // Shape the whole hip-bound garment together, including embroidery,
+            // apron artwork and both lace layers. Keep the waist attachment fixed
+            // while giving the hem a deeper, longer bell silhouette.
+            for(int i=dressStart;i<a.body.p.Count;i++)
+                if(a.body.weights[i].boneIndex0==hips)a.body.p[i]=DressVolume(a.body.p[i]);
+        }
+
+        static Vector3 DressVolume(Vector3 p) {
+            float lower=Mathf.InverseLerp(.375f,.173f,p.y);
+            float back=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.025f,-.060f,p.z));
+            float depth=Mathf.Lerp(.9f*lower,1.25f*Mathf.Pow(lower,1.25f),back);
+            p.z*=1+depth;
+            p.y=p.y>=.173f?p.y-.025f*lower:.148f+(p.y-.173f)*.85f;
+            return p;
         }
 
         static float ApronGather(float x,float y) {
