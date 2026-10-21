@@ -55,6 +55,7 @@ namespace DesktopFish.Editor
             light.transform.rotation = Quaternion.Euler(35,-25,0);
             RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = new Color(.78f,.81f,.9f);
             var bounds = snapshot.GetComponent<Renderer>().bounds;
+            WriteLandmarks(reference, baked, skin, snapshot.transform, bounds);
             camera.orthographicSize = Mathf.Max(bounds.extents.y, bounds.extents.x/.75f)*1.17f;
             var target = new RenderTexture(720,960,24) { antiAliasing = 4 };
             var frame = new Texture2D(720,960,TextureFormat.RGBA32,false);
@@ -75,6 +76,28 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
+        // Aggregate measurements only: no reference vertices, triangles, UVs,
+        // weights or expression data leave this local review routine.
+        static void WriteLandmarks(Mesh source, Mesh baked, SkinnedMeshRenderer skin, Transform snapshot, Bounds total) {
+            Directory.CreateDirectory("work/reference-review");
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var parts=Enumerable.Range(0,source.subMeshCount).Select(index=>{
+                int[] used=source.GetTriangles(index).Distinct().ToArray();
+                var bounds=new Bounds(points[used[0]],Vector3.zero);
+                foreach(int vertex in used)bounds.Encapsulate(points[vertex]);
+                return new PartBounds {slot=index,name=skin.sharedMaterials[index].name,
+                    minimum=bounds.min,maximum=bounds.max};
+            }).ToArray();
+            string[] names={"J_Bip_C_Head","J_Bip_C_Neck","J_Bip_C_Hips","J_Adj_L_FaceEye","J_Adj_R_FaceEye",
+                "J_Bip_L_Eye","J_Bip_R_Eye","J_Bip_L_Hand","J_Bip_R_Hand","J_Bip_L_Foot","J_Bip_R_Foot"};
+            var joints=skin.bones.Where(b=>names.Contains(b.name)).Select(b=>new Landmark {name=b.name,position=b.position}).ToArray();
+            File.WriteAllText("work/reference-review/landmarks.json",JsonUtility.ToJson(new LandmarkReport {
+                minimum=total.min,maximum=total.max,parts=parts,joints=joints
+            },true));
+        }
+        [Serializable] sealed class PartBounds {public int slot;public string name;public Vector3 minimum,maximum;}
+        [Serializable] sealed class Landmark {public string name;public Vector3 position;}
+        [Serializable] sealed class LandmarkReport {public Vector3 minimum,maximum;public PartBounds[] parts;public Landmark[] joints;}
         [Serializable] sealed class Stats {public int vertices,totalTriangles,materialSlots,bones,expressions;}
     }
 }

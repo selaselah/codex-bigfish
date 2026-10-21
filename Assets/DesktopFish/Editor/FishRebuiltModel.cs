@@ -484,6 +484,7 @@ namespace DesktopFish.Editor
                     var geo = part == 0 ? body : face;
                     var mesh = geo.Build(part == 0 ? "Authored body" : "Authored expressions", root.transform, bones.ToArray());
                     if (part == 1) Expressions(mesh);
+                    FitProportions(mesh);
                     mesh=CompactMesh(mesh);
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
@@ -524,6 +525,50 @@ namespace DesktopFish.Editor
                 File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
                 return root;
             }
+        }
+
+        // Rounded visual landmarks from the local reference review: align the
+        // main crown and soles, then lower the chin/eyes and shorten the torso.
+        // The generated mesh, rig and morph targets share this monotone height map.
+        // No source mesh data is needed to build the model.
+        static readonly float[] GuideSourceY={.0702f,.190f,.401f,.556f,.586f,.650f,.760f,.980f};
+        static readonly float[] GuideTargetY={.0702f,.180f,.414f,.522f,.547f,.628f,.738f,.980f};
+        static float GuideSlope(int i) {
+            // Keep the eye/lash band rigid in height while lowering its position.
+            if(i==0||i==5||i==6||i==GuideSourceY.Length-1)return 1;
+            float a=GuideSourceY[i]-GuideSourceY[i-1],b=GuideSourceY[i+1]-GuideSourceY[i];
+            float left=(GuideTargetY[i]-GuideTargetY[i-1])/a;
+            float right=(GuideTargetY[i+1]-GuideTargetY[i])/b;
+            float w1=2*b+a,w2=b+2*a;
+            return (w1+w2)/(w1/left+w2/right);
+        }
+        static float FitHeight(float y,out float derivative) {
+            derivative=1;
+            if(y<=GuideSourceY[0]||y>=GuideSourceY[GuideSourceY.Length-1])return y;
+            int i=0;while(i+1<GuideSourceY.Length-1&&y>GuideSourceY[i+1])i++;
+            float h=GuideSourceY[i+1]-GuideSourceY[i],t=(y-GuideSourceY[i])/h,t2=t*t,t3=t2*t;
+            float a=GuideTargetY[i],b=GuideTargetY[i+1],ma=GuideSlope(i),mb=GuideSlope(i+1);
+            derivative=((6*t2-6*t)*a+(-6*t2+6*t)*b)/h+(3*t2-4*t+1)*ma+(3*t2-2*t)*mb;
+            return (2*t3-3*t2+1)*a+(t3-2*t2+t)*h*ma+(-2*t3+3*t2)*b+(t3-t2)*h*mb;
+        }
+        static Vector3 FitPoint(Vector3 p) {float d;p.y=FitHeight(p.y,out d);return p;}
+        static void FitProportions(Mesh mesh) {
+            var source=mesh.vertices;var normals=mesh.normals;
+            var mapped=new Vector3[source.Length];
+            for(int i=0;i<source.Length;i++) {
+                float derivative;mapped[i]=source[i];mapped[i].y=FitHeight(source[i].y,out derivative);
+                normals[i]=V(normals[i].x,normals[i].y/derivative,normals[i].z).normalized;
+            }
+            var frames=new List<Tuple<string,float,Vector3[]>>();
+            for(int shape=0;shape<mesh.blendShapeCount;shape++)for(int frame=0;frame<mesh.GetBlendShapeFrameCount(shape);frame++) {
+                var delta=new Vector3[source.Length];mesh.GetBlendShapeFrameVertices(shape,frame,delta,null,null);
+                for(int i=0;i<delta.Length;i++)delta[i]=FitPoint(source[i]+delta[i])-mapped[i];
+                frames.Add(Tuple.Create(mesh.GetBlendShapeName(shape),mesh.GetBlendShapeFrameWeight(shape,frame),delta));
+            }
+            mesh.ClearBlendShapes();mesh.vertices=mapped;mesh.normals=normals;
+            foreach(var frame in frames)mesh.AddBlendShapeFrame(frame.Item1,frame.Item2,frame.Item3,
+                new Vector3[source.Length],new Vector3[source.Length]);
+            mesh.RecalculateBounds();
         }
 
         static void Grid(Geo g, int start, int rows, int cols) {
@@ -685,7 +730,7 @@ namespace DesktopFish.Editor
             // coordinates stay intact; garment, hair ends and joints share the map.
             Func<Vector3,Vector3> compact=p=>V(p.x,p.y<.585f?.585f-(.585f-p.y)*.88f:p.y,p.z);
             for(int i=0;i<a.body.p.Count;i++)a.body.p[i]=compact(a.body.p[i]);
-            var positions=a.bones.Select(b=>compact(b.position)).ToArray();
+            var positions=a.bones.Select(b=>FitPoint(compact(b.position))).ToArray();
             for(int i=0;i<a.bones.Count;i++)a.bones[i].position=positions[i];
             return a.Finish();
         }
