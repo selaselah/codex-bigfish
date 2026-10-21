@@ -169,7 +169,7 @@ namespace DesktopFish.Editor
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
                 float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
-                float cheekInset = -1, float frontLift = 0, float wrapDepth = 0) {
+                float cheekInset = -1, float frontLift = 0, float wrapDepth = 0, Vector3[] paintGuide = null) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
@@ -321,7 +321,18 @@ namespace DesktopFish.Editor
                         int longPaint=((phase%3)+3)%3;
                         float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
                             paintStrip*.25f+.012f+(u+1)*.113f;
-                        float paintT=paintStart>0?Mathf.InverseLerp(paintStart,1,t):t;
+                        float paintT=t;
+                        if(paintGuide!=null) {
+                            // Preserve the painted highlight height when new
+                            // silhouette edges redistribute longitudinal samples.
+                            float lo=0,hi=1;
+                            for(int k=0;k<14;k++) {
+                                float candidate=(lo+hi)*.5f;
+                                if(Bezier(paintGuide,candidate).y>path[row].y)lo=candidate;else hi=candidate;
+                            }
+                            paintT=(lo+hi)*.5f;
+                        }
+                        paintT=paintStart>0?Mathf.InverseLerp(paintStart,1,paintT):paintT;
                         paintT=Mathf.Lerp(paintOffset,1,paintT);
                         if(tipPaintEase!=1&&paintT>.46f) {
                             float eased=.46f+.54f*Mathf.Pow((paintT-.46f)/.54f,tipPaintEase);
@@ -903,6 +914,7 @@ namespace DesktopFish.Editor
             frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
             File.WriteAllBytes("work/rebuilt-angle-top.png",frame.EncodeToPNG());
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
+            RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
             if(!includeMotion) {
                 if(includeExpressions)RenderExpressionDetails(companion,motion,skins,snapshots,camera);
                 camera.targetTexture=null;RenderTexture.active=null;
@@ -1046,6 +1058,27 @@ namespace DesktopFish.Editor
             }
             camera.targetTexture=oldTarget;RenderTexture.active=null;
             camera.transform.SetPositionAndRotation(oldPosition,oldRotation);camera.orthographicSize=oldSize;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
+
+        public static void RenderHeadStudy(Camera camera,string prefix,float scale,Vector3 offset) {
+            // Identical pitch and world-space framing expose modelling differences
+            // independently of the full-body camera's gesture clearance.
+            var oldPosition=camera.transform.position;var oldRotation=camera.transform.rotation;
+            var oldTarget=camera.targetTexture;float oldSize=camera.orthographicSize,oldAspect=camera.aspect;
+            const int size=720;
+            var target=new RenderTexture(size,size,24){antiAliasing=4};
+            var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
+            Vector3 focus=V(0,.77f,.06f)*scale+offset;
+            camera.targetTexture=target;camera.aspect=1;camera.orthographicSize=.33f*scale;
+            foreach(int angle in new[]{0,35,90}) {
+                camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.24f,3)*scale;
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,size,size),0,0);frame.Apply();
+                File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());
+            }
+            camera.targetTexture=oldTarget;camera.orthographicSize=oldSize;camera.aspect=oldAspect;
+            camera.transform.SetPositionAndRotation(oldPosition,oldRotation);RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 
@@ -1229,28 +1262,49 @@ namespace DesktopFish.Editor
                     V(sign*.177f,.435f,.162f),V(sign*.158f,.40f,.167f),V(sign*.140f,.375f,.168f)};
                 a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
                     samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.45f,paintOffset:.25f,wrapDepth:.010f);
-                // Cheek locks end inward above the jaw, leaving the lower
-                // cheeks visible. The broad temple follows the crown contour.
-                a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.215f,.92f,.12f),
-                    V(sign*.212f,.716f,.17f),V(sign*.110f,.640f,.15f)},.060f,head,false,1,tipStart:.61f,rootScale:.79f,cheekInset:0);
-                a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.245f,.74f,.112f),
-                    V(sign*.190f,.640f,.160f),V(sign*.120f,.625f,.160f)},.022f,head,false,4,
+                // Independently drawn edges keep the temple broad while the
+                // inner edge curls around the cheek into staggered lower tips.
+                var cheekInner=new[]{V(sign*.050f,.970f,.045f),V(sign*.140f,.94f,.14f),
+                    V(sign*.158f,.83f,.185f),V(sign*.149f,.738f,.177f),
+                    V(sign*.145f,.666f,.173f),V(sign*.125f,.640f,.164f),V(sign*.107f,.633f,.162f)};
+                var cheekOuter=new[]{V(sign*.082f,.970f,.045f),V(sign*.250f,.94f,.105f),
+                    V(sign*.280f,.83f,.090f),V(sign*.236f,.738f,.103f),
+                    V(sign*.216f,.654f,.119f),V(sign*.158f,.626f,.150f),V(sign*.107f,.633f,.162f)};
+                a.HairPanel(cheekInner.Zip(cheekOuter,(l,r)=>(l+r)*.5f).ToArray(),.060f,head,false,1,
+                    samples:24,tipStart:.61f,rootScale:.79f,cheekInset:0,edgeA:cheekInner,edgeB:cheekOuter,
+                    paintGuide:new[]{V(0,.96f,0),V(0,.92f,0),V(0,.716f,0),V(0,.640f,0)});
+                a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.285f,.74f,.112f),
+                    V(sign*.210f,.630f,.160f),V(sign*.114f,.618f,.160f)},.022f,head,false,4,
                     rootTaper:.22f,paintStart:.50f,cheekInset:.003f);
-                var inner=new[]{V(sign*.010f,.974f,.060f),V(sign*.052f,.93f,.14f),
-                    V(sign*.018f,.77f,.20f),V(sign*.133f,.726f,.184f)};
-                var outer=new[]{V(sign*.065f,.955f,.060f),V(sign*.145f,.93f,.13f),
-                    V(sign*.160f,.79f,.185f),V(sign*.133f,.726f,.184f)};
+                var inner=new[]{V(sign*.010f,.974f,.060f),V(sign*.030f,.93f,.17f),
+                    V(sign*.004f,.770f,.225f),V(sign*.165f,.700f,.158f)};
+                var outer=new[]{V(sign*.065f,.955f,.060f),V(sign*.170f,.93f,.14f),
+                    V(sign*.205f,.79f,.145f),V(sign*.165f,.700f,.158f)};
                 a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,sign,
                     tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,edgeA:inner,edgeB:outer,frontLift:.015f);
             }
-            var mainLeft=new[]{V(.026f,.978f,.055f),V(.050f,.91f,.185f),V(.080f,.755f,.205f),V(-.026f,.713f,.191f)};
-            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.075f,.91f,.185f),V(-.091f,.78f,.208f),V(-.026f,.713f,.191f)};
-            a.HairPanel(mainLeft.Zip(mainRight,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,0,
-                tipStart:.71f,rootScale:.93f,tipBias:-.07f,tipPower:.91f,tipPaintEase:.50f,edgeA:mainLeft,edgeB:mainRight);
-            var shortLeft=new[]{V(.030f,.971f,.060f),V(.067f,.90f,.19f),V(.064f,.77f,.208f),V(.030f,.720f,.194f)};
-            var shortRight=new[]{V(.002f,.973f,.060f),V(.016f,.90f,.196f),V(.002f,.77f,.212f),V(.030f,.720f,.194f)};
-            a.HairPanel(shortLeft.Zip(shortRight,(l,r)=>(l+r)*.5f).ToArray(),.029f,head,false,2,
-                tipStart:.74f,tipBias:.04f,tipPower:.94f,tipPaintEase:.56f,edgeA:shortLeft,edgeB:shortRight);
+            // Three staggered central tips share a broad crown, rather than
+            // tapering the entire fringe into one symmetrical wedge. The three
+            // sections reuse the previous two sections' total 650 vertices.
+            var mainLeft=new[]{V(.026f,.978f,.055f),V(.052f,.94f,.18f),V(.057f,.845f,.236f),V(.048f,.770f,.232f),
+                V(.045f,.734f,.234f),V(.030f,.724f,.232f),V(.018f,.708f,.229f)};
+            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.051f,.94f,.18f),V(-.078f,.845f,.230f),V(-.060f,.770f,.225f),
+                V(-.060f,.742f,.223f),V(-.055f,.729f,.224f),V(-.045f,.709f,.225f)};
+            var splitA=mainLeft.Zip(mainRight,(l,r)=>Vector3.Lerp(l,r,1f/6)).ToArray();
+            var splitB=mainLeft.Zip(mainRight,(l,r)=>Vector3.Lerp(l,r,5f/6)).ToArray();
+            var leftInner=(Vector3[])splitA.Clone();
+            leftInner[4]=V(.031f,.746f,.237f);leftInner[5]=V(.021f,.728f,.233f);leftInner[6]=mainLeft[6];
+            var rightInner=(Vector3[])splitB.Clone();
+            rightInner[4]=V(-.040f,.746f,.235f);rightInner[5]=V(-.044f,.730f,.230f);rightInner[6]=mainRight[6];
+            splitA[4]=V(.030f,.740f,.240f);splitA[5]=V(.007f,.711f,.234f);splitA[6]=V(-.025f,.698f,.229f);
+            splitB[4]=V(-.047f,.744f,.236f);splitB[5]=V(-.042f,.724f,.232f);splitB[6]=splitA[6];
+            var paintGuide=new[]{V(0,.978f,0),V(0,.91f,0),V(0,.768f,0),V(0,.713f,0)};
+            a.HairPanel(mainLeft.Zip(leftInner,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,2,
+                samples:16,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:mainLeft,edgeB:leftInner,paintGuide:paintGuide);
+            a.HairPanel(splitA.Zip(splitB,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,0,
+                samples:16,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:splitA,edgeB:splitB,paintGuide:paintGuide);
+            a.HairPanel(rightInner.Zip(mainRight,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,1,
+                samples:15,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:rightInner,edgeB:mainRight,paintGuide:paintGuide);
             // A gently rearward arch keeps the crown tuft curved in side view.
             // Its rounded section narrows in both axes into one closed tip.
             int tuftStart=a.body.p.Count;

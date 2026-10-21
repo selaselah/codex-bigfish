@@ -71,6 +71,7 @@ namespace DesktopFish.Editor
             camera.transform.LookAt(bounds.center);camera.Render();RenderTexture.active=target;
             frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
             File.WriteAllBytes("work/reference-review/ref-top.png",frame.EncodeToPNG());
+            FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head",.8f,new Vector3(0,-.056f,0));
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
@@ -91,7 +92,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,3,4,6,10,12,15,16,17,21,22,23,24,25,26,27,28,29,30,32,34,35,37}) {
+            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,32,34,35,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 float[] heights=slot>=26&&slot<=28?new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f,.09f,.10f}:
                     new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f};
@@ -122,6 +123,7 @@ namespace DesktopFish.Editor
                     string label=slot==3?"face":slot<8?"eye-"+slot:slot>=26&&slot<=28?"shoe-"+slot:slot>=29?"cloth-"+slot:slot==12||slot>=22?"accessory-"+slot:"hair-"+slot;
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
+                if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
             File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
@@ -147,7 +149,7 @@ namespace DesktopFish.Editor
             var coverage=new System.Collections.Generic.List<HairSection>();
             var profiles=new System.Collections.Generic.List<Landmark>();
             var chestSections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,4,6,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
+            foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
                 Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
