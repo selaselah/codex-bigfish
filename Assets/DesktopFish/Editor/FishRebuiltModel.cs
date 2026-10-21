@@ -1029,64 +1029,28 @@ namespace DesktopFish.Editor
                 int group=Mathf.Min(i,8-i);
                 float lift=new[]{.008f,.055f,.022f,.085f,.035f}[group];
                 float layer=new[]{.008f,-.006f,.013f,-.010f,.006f}[group];
-                float tipRadius=new[]{.300f,.275f,.320f,.265f,.290f}[group];
                 float lowerWidth=new[]{.77f,.66f,.80f,.70f,.78f}[group];
-                float taperAt=new[]{.64f,.59f,.67f,.58f,.65f}[group];
+                float taperAt=new[]{.68f,.66f,.67f,.65f,.66f}[group];
                 var controls=new[]{radial(.008f,.979f,.006f),radial(.150f,.979f,.118f),
                     radial(.244f,.88f,.192f),radial(.244f,.735f,.192f),
                     radial(.244f,.65f,.205f),radial(.243f+layer*.25f,.56f,.225f+layer*.25f),
                     radial(.265f+layer,.48f+lift*.18f,.248f+layer),
                     radial(.325f+layer,.33f+lift*.60f,.310f+layer),
-                    radial(.220f+layer,.27f+lift,.220f+layer),
-                    radial(.230f+layer,.215f+lift,.215f+layer),radial(.240f+layer,.145f+lift,.225f+layer),
-                    radial(tipRadius-.020f,.145f+lift,.275f+layer),
-                    radial(tipRadius,.172f+lift+(i%3)*.006f,tipRadius-.010f)};
-                // Shorter rear layers turn before the long outer locks. Their
-                // two lower Bezier spans use distinct bends and open flicks.
-                if(group==1) {
-                    taperAt=.66f;
-                    controls[7]=radial(.295f,.405f,.280f);
-                    controls[8]=radial(.240f,.320f,.235f);
-                    controls[9]=radial(.245f,.270f,.230f);
-                    controls[10]=radial(.250f,.220f,.225f);
-                    controls[11]=radial(.305f,.225f,.290f);
-                    controls[12]=radial(.335f,.265f,.325f);
-                } else if(group==3) {
-                    taperAt=.65f;
-                    controls[7]=radial(.295f,.405f,.275f);
-                    controls[8]=radial(.215f,.350f,.225f);
-                    controls[9]=radial(.220f,.300f,.230f);
-                    controls[10]=radial(.225f,.250f,.235f);
-                    controls[11]=radial(.265f,.255f,.290f);
-                    controls[12]=radial(.290f,.295f,.310f);
+                    Vector3.zero,Vector3.zero,Vector3.zero,Vector3.zero,Vector3.zero};
+                // Rounded lower guides set long side tips and shorter inner
+                // layers. Their last span travels down/forward instead of
+                // curling every tip back upward into a repeating ringlet.
+                if(group==1)controls[7]=radial(.295f,.405f,.280f);
+                if(group==3)controls[7]=radial(.295f,.405f,.275f);
+                float edgeBias=group==2?(i<4?.035f:-.035f):i==4?-.035f:0;
+                for(int k=8;k<=12;k++) {
+                    Vector3 guide=RearHemControls[group][k-8];
+                    if(i>4)guide.x=-guide.x;
+                    controls[k]=guide;
                 }
-                // A sideways finish puts each tapered tip on the silhouette
-                // instead of pointing every curl straight into the rear view.
-                Vector3 lateral=V(Mathf.Cos(theta),0,-Mathf.Sin(theta));
-                float edgeBias=0;
-                if(group==2) {
-                    // A broad lower S-bend and an inward finishing tip break up
-                    // the nearly parallel rear locks, below their fixed roots.
-                    float direction=i<4?1:-1;
-                    float[] drift={.010f,.030f,.040f,.010f,-.035f,-.060f};
-                    for(int k=7;k<=12;k++)controls[k]+=lateral*drift[k-7]*direction;
-                    taperAt=.63f;edgeBias=.055f*direction;
-                }
-                if(i==4) {
-                    // The center lock changes direction once through its lower
-                    // body, then follows that curve into an off-center tip.
-                    float[] drift={0,0,0,-.010f,-.020f,-.045f,-.060f};
-                    for(int k=6;k<=12;k++)controls[k]+=lateral*drift[k-6];
-                    taperAt=.62f;edgeBias=-.060f;
-                }
-                float curl=i==4?-.020f:Mathf.Sign(Mathf.Sin(theta)*Mathf.Cos(theta))*
-                    new[]{0f,.012f,.025f,.020f,.020f}[group];
-                controls[9]+=lateral*curl*.10f;
-                controls[10]+=lateral*curl*.25f;
-                controls[11]+=lateral*curl*.65f;
-                controls[12]+=lateral*curl;
                 a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
-                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias);
+                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias,
+                    tipPower:new[]{.75f,.46f,.60f,.48f,.50f}[group]);
             }
             // The rear volume shares one depth profile across the cap, inner
             // mantle and long locks. This keeps their overlap intact as the
@@ -1182,6 +1146,13 @@ namespace DesktopFish.Editor
             float side=Mathf.Clamp01((Mathf.PI-Mathf.Abs(signed))/(Mathf.PI-1.12f));
             return Mathf.Sign(signed)*.75f*side;
         }
+        static readonly Vector3[][] RearHemControls={
+            new[]{V(-0.3456f,0.2887f,0.1205f),V(-0.3375f,0.2363f,0.1263f),V(-0.3360f,0.1836f,0.1249f),V(-0.3204f,0.1559f,0.1299f),V(-0.3045f,0.1361f,0.1353f)},
+            new[]{V(-0.3184f,0.2665f,-0.0250f),V(-0.3135f,0.2146f,-0.0210f),V(-0.3135f,0.1602f,-0.0248f),V(-0.2942f,0.1304f,-0.0092f),V(-0.2776f,0.1087f,0.0022f)},
+            new[]{V(-0.2859f,0.2646f,-0.1831f),V(-0.2817f,0.2127f,-0.1779f),V(-0.2813f,0.1581f,-0.1822f),V(-0.2619f,0.1280f,-0.1548f),V(-0.2435f,0.1062f,-0.1298f)},
+            new[]{V(-0.1778f,0.3035f,-0.2667f),V(-0.1713f,0.2504f,-0.2430f),V(-0.1694f,0.1983f,-0.2436f),V(-0.1573f,0.1715f,-0.2227f),V(-0.1449f,0.1527f,-0.2003f)},
+            new[]{V(0.0110f,0.3106f,-0.3119f),V(0.0090f,0.2570f,-0.2851f),V(0.0070f,0.2050f,-0.2825f),V(-0.0010f,0.1786f,-0.2602f),V(-0.0090f,0.1602f,-0.2370f)},
+        };
         static readonly float[] RearHairHeights={.14f,.26f,.50f,.65f,.78f};
         static readonly float[] RearHairOffsets={.165f,.205f,.145f,.120f,.120f};
         static Vector3 RearHairPoint(Vector3 p) {

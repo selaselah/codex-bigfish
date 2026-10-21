@@ -73,8 +73,11 @@ namespace DesktopFish.Editor
             camera.backgroundColor = Color.clear;
             camera.orthographic = true;
             camera.aspect = (float)FishCompanion.NativeWidth / FishCompanion.NativeHeight;
-            camera.orthographicSize = Mathf.Max(bounds.extents.y * 1.26f,
-                bounds.extents.x / (360f / 480f) * 1.26f);
+            // The rebuilt long side locks swing farther during Cheer. Preserve
+            // the same safe viewport margin with a little more framing space.
+            float framing=UseRebuilt?1.30f:1.26f;
+            camera.orthographicSize = Mathf.Max(bounds.extents.y * framing,
+                bounds.extents.x / (360f / 480f) * framing);
             camera.nearClipPlane = 0.01f;
             camera.farClipPlane = 30;
             camera.allowHDR = false;
@@ -288,6 +291,7 @@ namespace DesktopFish.Editor
         {
             Vector2 min = Vector2.one, max = Vector2.zero;
             int poses = 0;
+            float closestMargin=float.PositiveInfinity;string boundaryContext="";
             var baked = new Mesh();
             var visible = skins.ToDictionary(s => s, VisibleIndices);
             try
@@ -310,6 +314,11 @@ namespace DesktopFish.Editor
                                 Vector3 p = companion.view.WorldToViewportPoint(skin.transform.TransformPoint(vertices[index]));
                                 if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsInfinity(p.x) || float.IsInfinity(p.y))
                                     throw new InvalidOperationException("Invalid deformed vertex in " + (FishMotion.Gesture)action);
+                                float margin=Mathf.Min(p.x,p.y,1-p.x,1-p.y);
+                                if(margin<closestMargin) {
+                                    closestMargin=margin;
+                                    boundaryContext=(FishMotion.Gesture)action+" sample "+sample+" / "+skin.name+" vertex "+index;
+                                }
                                 min = Vector2.Min(min, p);
                                 max = Vector2.Max(max, p);
                             }
@@ -317,7 +326,7 @@ namespace DesktopFish.Editor
                         poses++;
                     }
                 if (min.x < 0.02f || min.y < 0.02f || max.x > 0.98f || max.y > 0.98f)
-                    throw new InvalidOperationException("Gesture exceeds safe camera bounds: " + min + " / " + max);
+                    throw new InvalidOperationException("Gesture exceeds safe camera bounds: " + min + " / " + max + "; nearest edge: " + boundaryContext);
                 int expectedShapes = companion.model.GetComponent<FishRigProfile>() ? 6 : 137;
                 if (companion.face.sharedMesh.blendShapeCount != expectedShapes)
                     throw new InvalidOperationException("Unexpected expression channel count.");

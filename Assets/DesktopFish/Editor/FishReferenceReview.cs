@@ -60,7 +60,7 @@ namespace DesktopFish.Editor
             var target = new RenderTexture(720,960,24) { antiAliasing = 4 };
             var frame = new Texture2D(720,960,TextureFormat.RGBA32,false);
             camera.targetTexture = target; Directory.CreateDirectory("work/reference-review");
-            foreach (int angle in new[] {0,35,90})
+            foreach (int angle in new[] {0,35,90,180})
             {
                 camera.transform.position = bounds.center + Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
                 camera.transform.LookAt(bounds.center); camera.Render(); RenderTexture.active = target;
@@ -68,6 +68,7 @@ namespace DesktopFish.Editor
                 File.WriteAllBytes("work/reference-review/ref-"+angle+".png",frame.EncodeToPNG());
             }
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
+            ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
             ReviewAccessoryComponents(baked,snapshot.transform);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
@@ -108,7 +109,7 @@ namespace DesktopFish.Editor
                 for(int sub=0;sub<isolated.subMeshCount;sub++)
                     if(sub!=slot)isolated.SetTriangles(Array.Empty<int>(),sub,false);
                 filter.sharedMesh=isolated;
-                foreach(int angle in new[]{0,35,90}) {
+                foreach(int angle in new[]{0,35,90,180}) {
                     camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
                     camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
                     frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
@@ -119,6 +120,20 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
                 new HairSectionReport{sections=sections.ToArray()},true));
+        }
+        static void ReviewHairHem(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{15,16}) {
+                var used=baked.GetTriangles(slot).Distinct().Select(i=>points[i]).ToArray();
+                for(int band=-4;band<=4;band++) {
+                    float x=band*.07f;
+                    var lower=used.Where(p=>Mathf.Abs(p.x-x)<.035f&&p.y<.25f&&p.z<-.07f).ToArray();
+                    if(lower.Length==0)continue;
+                    samples.Add(new Landmark{name="slot-"+slot+"-band-"+band,position=lower.OrderBy(p=>p.y).First()});
+                }
+            }
+            File.WriteAllText("work/reference-review/hair-hem.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
         static void ReviewAccessoryComponents(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
