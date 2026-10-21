@@ -1608,13 +1608,16 @@ namespace DesktopFish.Editor
                 // Mount the fin on the side of the hair, with its full surface
                 // turning outward instead of hiding a frontal sheet in the fringe.
                 Quaternion turn=Quaternion.Euler(0,s*55,0);
-                Vector3 root=V(s*.280f,.795f,.075f);
-                Func<float,float,float,Vector3> ear=(x,y,z)=>root+turn*V(s*x,y,z);
+                Vector3 root=V(s*.235f,.795f,.075f);
+                // Embed the root in the side hair while keeping the original
+                // outer tip, so the visible fin is not shortened by its new mount.
+                Func<float,float,float,Vector3> ear=(x,y,z)=>root+turn*V(s*x,y,z)+
+                    V(s*.045f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.120f,x)),0,0);
                 FinBlade(a,
                     new[]{ear(0,0,0),ear(.015f,-.018f,0),ear(.060f,-.063f,.005f),ear(.120f,-.070f,0)},
                     new[]{ear(-.028f,-.042f,.005f),ear(-.005f,-.095f,.010f),ear(.080f,-.115f,.025f),ear(.120f,-.070f,0)},
                     head,Hex("283C72"),Hex("394E84"),true,.006f,turn*Vector3.forward);
-                Bow(a,V(s*.281f,.835f,.070f),head,.034f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
+                Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
             }
             ChestRibbon(a,chest);
             a.Sphere(a.body,V(0,.552f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);

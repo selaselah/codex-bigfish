@@ -69,6 +69,7 @@ namespace DesktopFish.Editor
             }
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewFaceSections(baked,snapshot.transform);
+            ReviewAccessoryComponents(baked,snapshot.transform);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
                 totalTriangles=Enumerable.Range(0,reference.subMeshCount).Sum(s=>(int)reference.GetIndexCount(s)/3),
@@ -85,7 +86,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{3,10,17,21}) {
+            foreach(int slot in new[]{3,10,12,17,21,22,23,24,25}) {
                 int[] triangles=baked.GetTriangles(slot);
                 foreach(float y in new[]{.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f}) {
                     var cuts=new System.Collections.Generic.List<Vector3>();
@@ -110,13 +111,38 @@ namespace DesktopFish.Editor
                     camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
                     camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
                     frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
-                    string label=slot==3?"face":"hair-"+slot;
+                    string label=slot==3?"face":slot==12||slot>=22?"accessory-"+slot:"hair-"+slot;
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
             File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
                 new HairSectionReport{sections=sections.ToArray()},true));
+        }
+        static void ReviewAccessoryComponents(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var parts=new System.Collections.Generic.List<PartBounds>();
+            foreach(int slot in new[]{12,22,23,24,25}) {
+                var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
+                var parents=Enumerable.Range(0,points.Length).ToArray();
+                Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+                for(int i=0;i<triangles.Length;i+=3) {
+                    parents[root(triangles[i+1])]=root(triangles[i]);
+                    parents[root(triangles[i+2])]=root(triangles[i]);
+                }
+                // Join duplicate seam positions for aggregate component bounds.
+                foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))) {
+                    int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);
+                }
+                int index=0;
+                foreach(var group in used.GroupBy(i=>root(i)).OrderByDescending(g=>g.Count())) {
+                    var bounds=new Bounds(points[group.First()],Vector3.zero);
+                    foreach(int i in group)bounds.Encapsulate(points[i]);
+                    parts.Add(new PartBounds{slot=slot,name="component-"+(index++),minimum=bounds.min,maximum=bounds.max});
+                }
+            }
+            File.WriteAllText("work/reference-review/accessory-components.json",
+                JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
@@ -159,6 +185,7 @@ namespace DesktopFish.Editor
                 minimum=total.min,maximum=total.max,parts=parts,joints=joints
             },true));
         }
+        [Serializable] sealed class AccessoryReport {public PartBounds[] parts;}
         [Serializable] sealed class PartBounds {public int slot;public string name;public Vector3 minimum,maximum;}
         [Serializable] sealed class HairSection {public int slot;public float height;public Vector3 minimum,maximum,inner,outer;}
         [Serializable] sealed class HairSectionReport {public HairSection[] sections;}
