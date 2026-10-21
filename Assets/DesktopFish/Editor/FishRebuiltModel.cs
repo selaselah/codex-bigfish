@@ -168,7 +168,8 @@ namespace DesktopFish.Editor
                 Vector3? outward = null, int sides = 12, int samples = 0, float tipStart = .58f,
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
-                float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0) {
+                float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
+                float cheekInset = -1, float frontLift = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
@@ -267,6 +268,22 @@ namespace DesktopFish.Editor
                             float skin=1-Mathf.Pow(p.x/.214f,2)-Mathf.Pow((p.y-.773f)/.187f,2);
                             if(skin>0)p.z=Mathf.Max(p.z,.166f*Mathf.Sqrt(skin)+.0045f+front*.002f);
                         }
+                        // A cheek lock wraps from its forward face-framing edge
+                        // into the temple. The width/height silhouette stays authored;
+                        // its rear edge opens in depth instead of remaining a flat card.
+                        if(cheekInset>=0) {
+                            float y=p.y;
+                            float center=y<.70f?Mathf.Lerp(.202f,.223f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.625f,.70f,y))):
+                                y<.78f?Mathf.Lerp(.223f,.222f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.78f,y))):
+                                Mathf.Lerp(.222f,.175f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.78f,.94f,y)));
+                            float depth=center-2.2f*p.x*p.x-cheekInset+
+                                thicknessAxis.z*facet*thickness*rootNeck;
+                            float wrap=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.82f,.92f,y));
+                            p.z=Mathf.Lerp(p.z,depth,wrap);
+                        }
+                        // Lift the overlying fringe as a complete thin section so
+                        // its junction cannot cut through the wrapped cheek surface.
+                        p.z+=frontLift*Mathf.Max(0,Mathf.Sin(t*Mathf.PI));
                         // Sweep the complete section rearward below the crown.
                         // Deforming the frame with the vertices retains its width
                         // and curled tips while leaving the shared roots in place.
@@ -1103,16 +1120,16 @@ namespace DesktopFish.Editor
                 // Cheek locks end inward above the jaw, leaving the lower
                 // cheeks visible. The broad temple follows the crown contour.
                 a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.215f,.92f,.12f),
-                    V(sign*.212f,.716f,.17f),V(sign*.110f,.640f,.15f)},.060f,head,false,1,tipStart:.61f,rootScale:.79f);
+                    V(sign*.212f,.716f,.17f),V(sign*.110f,.640f,.15f)},.060f,head,false,1,tipStart:.61f,rootScale:.79f,cheekInset:0);
                 a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.245f,.74f,.112f),
                     V(sign*.190f,.640f,.160f),V(sign*.120f,.625f,.160f)},.022f,head,false,4,
-                    rootTaper:.22f,paintStart:.50f);
+                    rootTaper:.22f,paintStart:.50f,cheekInset:.003f);
                 var inner=new[]{V(sign*.010f,.974f,.060f),V(sign*.052f,.93f,.14f),
                     V(sign*.018f,.77f,.20f),V(sign*.133f,.726f,.184f)};
                 var outer=new[]{V(sign*.065f,.955f,.060f),V(sign*.145f,.93f,.13f),
                     V(sign*.160f,.79f,.185f),V(sign*.133f,.726f,.184f)};
                 a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,sign,
-                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,edgeA:inner,edgeB:outer);
+                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,edgeA:inner,edgeB:outer,frontLift:.015f);
             }
             var mainLeft=new[]{V(.026f,.978f,.055f),V(.050f,.91f,.185f),V(.080f,.755f,.205f),V(-.026f,.713f,.191f)};
             var mainRight=new[]{V(-.018f,.978f,.055f),V(-.075f,.91f,.185f),V(-.091f,.78f,.208f),V(-.026f,.713f,.191f)};
