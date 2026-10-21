@@ -142,7 +142,8 @@ namespace DesktopFish.Editor
         static void ReviewAccessoryComponents(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var parts=new System.Collections.Generic.List<PartBounds>();
-            foreach(int slot in new[]{1,4,6,12,22,23,24,25}) {
+            var coverage=new System.Collections.Generic.List<HairSection>();
+            foreach(int slot in new[]{1,4,6,12,15,16,22,23,24,25}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
                 Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
@@ -155,12 +156,36 @@ namespace DesktopFish.Editor
                     int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);
                 }
                 int index=0;
+                var rearVertices=new System.Collections.Generic.HashSet<int>();
                 foreach(var group in used.GroupBy(i=>root(i)).OrderByDescending(g=>g.Count())) {
                     var bounds=new Bounds(points[group.First()],Vector3.zero);
                     foreach(int i in group)bounds.Encapsulate(points[i]);
                     parts.Add(new PartBounds{slot=slot,name="component-"+(index++),minimum=bounds.min,maximum=bounds.max});
+                    if((slot==15||slot==16)&&bounds.min.z<-.1f&&bounds.min.y<.2f)
+                        foreach(int i in group)rearVertices.Add(i);
+                }
+                // The outer-hair material also contains front chest locks.
+                // Measure only connected rear components, so their positive-Z
+                // chest tips cannot masquerade as the rear curtain's front edge.
+                foreach(float y in new[]{.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f}) {
+                    var cuts=new System.Collections.Generic.List<Vector3>();
+                    for(int i=0;i<triangles.Length;i+=3) {
+                        if(!rearVertices.Contains(triangles[i]))continue;
+                        for(int j=0;j<3;j++) {
+                            Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
+                            if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)) {
+                                Vector3 p=Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y));if(p.x>=0)cuts.Add(p);
+                            }
+                        }
+                    }
+                    if(cuts.Count==0)continue;
+                    var bounds=new Bounds(cuts[0],Vector3.zero);foreach(var point in cuts)bounds.Encapsulate(point);
+                    coverage.Add(new HairSection{slot=slot,height=y,minimum=bounds.min,maximum=bounds.max,
+                        inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First(),
+                        front=cuts.OrderByDescending(p=>p.z).First(),rear=cuts.OrderBy(p=>p.z).First()});
                 }
             }
+            File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }

@@ -324,8 +324,9 @@ namespace DesktopFish.Editor
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
                         float t=row/(float)rows,theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
+                        float side=Mathf.Abs(theta-Mathf.PI)/(Mathf.PI-1.10f);
                         float y=.978f-.490f*t-.130f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,1,t))
-                            -.120f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1,t));
+                            -Mathf.Lerp(.205f,.240f,side*side)*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1,t));
                         float scalp=Mathf.Sqrt(Mathf.Max(.01f,1-Mathf.Pow((y-.765f)/.215f,2)));
                         float lower=Mathf.InverseLerp(.765f,.488f,y);
                         float rx=y>.765f?.232f*scalp+.002f:.234f-.030f*Mathf.SmoothStep(0,1,lower);
@@ -336,7 +337,7 @@ namespace DesktopFish.Editor
                         rx*=1-undercut;rz*=1-undercut;
                         float fold=Mathf.Cos(theta*12+t*.6f),thickness=layer*.005f;
                         rx-=thickness;rz-=thickness;
-                        float tip=Mathf.Pow(t,12)*(.018f+.040f*(.5f+.5f*Mathf.Cos(theta*11)));
+                        float tip=Mathf.Pow(t,12)*(.018f+Mathf.Lerp(.014f,.040f,side*side)*(.5f+.5f*Mathf.Cos(theta*11)));
                         Vector3 p=V(Mathf.Sin(theta)*(rx+.007f*fold*t),y+tip,
                             Mathf.Cos(theta)*(rz+.006f*fold*t));
                         Color color=Color.Lerp(Hair,Hex("3D619C"),t*.35f);
@@ -1101,6 +1102,7 @@ namespace DesktopFish.Editor
             Vector3 sectionCenter=Vector3.zero;
             for(int i=rearStart;i<a.body.p.Count;i++) {
                 Vector3 p=a.body.p[i];float dy,dz;
+                Vector3 coverageSlope=Vector3.zero;
                 Vector3 shaped=ShapeRearHair(p,out dy,out dz);
                 if(i>=radialStart) {
                     if((i-radialStart)%9==0) {
@@ -1112,10 +1114,18 @@ namespace DesktopFish.Editor
                     Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
                     float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.78f,sectionCenter.y));
                     shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
+                    int lockIndex=(i-radialStart)/405,group=Mathf.Min(lockIndex,8-lockIndex);
+                    float side=1-group/4f;
+                    Vector3 coverage=SideHairCoverage(sectionCenter.y);
+                    Vector3 scale=V(Mathf.Sign(p.x)*Mathf.Pow(side,1.2f),0,Mathf.Pow(side,1.6f));
+                    shaped+=Vector3.Scale(coverage,scale);
+                    coverageSlope=Vector3.Scale((SideHairCoverage(sectionCenter.y+.0001f)-
+                        SideHairCoverage(sectionCenter.y-.0001f))/.0002f,scale);
                 }
                 a.body.p[i]=shaped;
                 if(a.body.normalBlends.TryGetValue(i,out var blend)) {
-                    Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz).normalized;
+                    Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz);
+                    n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;n.Normalize();
                     a.body.normalBlends[i]=new Vector4(n.x,n.y,n.z,blend.w);
                 }
             }
@@ -1189,6 +1199,23 @@ namespace DesktopFish.Editor
             float side=Mathf.Clamp01((Mathf.PI-Mathf.Abs(signed))/(Mathf.PI-1.12f));
             return Mathf.Sign(signed)*.75f*side;
         }
+        // Rounded section guides for the front edge of the rear curtain.
+        // Side locks move back above the shoulder and forward at the waist,
+        // so their profile falls continuously instead of opening a large arch.
+        static readonly float[] SideCoverageY={.13f,.215f,.274f,.338f,.422f,.530f,.605f,.655f,.717f,.779f,.836f,.906f};
+        static readonly float[] SideCoverageX={0,.030f,.025f,0,-.010f,.005f,.030f,.060f,.065f,.050f,.025f,0};
+        static readonly float[] SideCoverageZ={0,.040f,.050f,.065f,.045f,-.060f,-.130f,-.160f,-.170f,-.150f,-.080f,0};
+        static Vector3 SideHairCoverage(float y) {
+            if(y<=SideCoverageY[0]||y>=SideCoverageY[SideCoverageY.Length-1])return Vector3.zero;
+            int i=0;while(y>SideCoverageY[i+1])i++;
+            float h=SideCoverageY[i+1]-SideCoverageY[i],t=(y-SideCoverageY[i])/h,t2=t*t,t3=t2*t;
+            Func<int,Vector3> value=k=>V(SideCoverageX[k],0,SideCoverageZ[k]);
+            Func<int,Vector3> slope=k=>k==0||k==SideCoverageY.Length-1?Vector3.zero:
+                (value(k+1)-value(k-1))/(SideCoverageY[k+1]-SideCoverageY[k-1]);
+            return (2*t3-3*t2+1)*value(i)+(t3-2*t2+t)*h*slope(i)+
+                (-2*t3+3*t2)*value(i+1)+(t3-t2)*h*slope(i+1);
+        }
+
         static readonly Vector3[][] RearHemControls={
             new[]{V(-0.3456f,0.2887f,0.1205f),V(-0.3375f,0.2363f,0.1263f),V(-0.3360f,0.1836f,0.1249f),V(-0.3204f,0.1559f,0.1299f),V(-0.3045f,0.1361f,0.1353f)},
             new[]{V(-0.3184f,0.2665f,-0.0250f),V(-0.3135f,0.2146f,-0.0210f),V(-0.3135f,0.1602f,-0.0248f),V(-0.2942f,0.1304f,-0.0092f),V(-0.2776f,0.1087f,0.0022f)},
