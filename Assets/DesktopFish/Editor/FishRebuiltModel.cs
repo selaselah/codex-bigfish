@@ -795,6 +795,7 @@ namespace DesktopFish.Editor
                 float t=Mathf.Clamp01((ay-.02f)/.94f);
                 float edge=Mathf.Pow(Mathf.Abs(u*2-1),8);
                 Color baseColor=Color.Lerp(Hex("2B4588"),Hex("4165A1"),Mathf.Sin(t*Mathf.PI)*.50f);
+                if(!cyan)baseColor=Color.Lerp(Hex("1E3888"),Hex("486FB3"),Mathf.Sin(t*Mathf.PI)*.65f);
                 float ends=cyan?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.95f,t))*.90f:
                     Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,t));
                 if(cyan) {
@@ -810,7 +811,7 @@ namespace DesktopFish.Editor
                     }
                     ends=Mathf.Max(ends,brush*.90f);
                 }
-                baseColor=Color.Lerp(baseColor,cyan?Hex("59BED8"):Hex("94A8CF"),ends);
+                baseColor=Color.Lerp(baseColor,cyan?Hex("59BED8"):Hex("8C8CB7"),ends);
                 if(cyan) {
                     // A few blue tongues extend into the cyan, separating broad
                     // painted masses without outlining every individual strand.
@@ -836,38 +837,39 @@ namespace DesktopFish.Editor
                 // strand detail without a uniform comb of vertical stripes.
                 float strand=Mathf.Sin(u*43+t*3+Mathf.Sin(t*7+u*5))*.006f+
                     Mathf.Sin(u*19-t*2)*.012f;
-                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.18f;
+                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.06f;
                 baseColor*=1-edge*edgeContrast+strand;
+                if(!cyan)baseColor*=1-.15f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.93f,1,Mathf.Abs(u*2-1)));
                 float glints=0;
                 if(!cyan) {
-                    // A connected main brush and a smaller satellite read at pet
-                    // scale, while three layouts avoid an even dotted highlight.
+                    // Unequal slanted brushes and short joined pools describe
+                    // the curved fringe without repeating round dot clusters.
                     if(strip==0) {
-                        glints=Mathf.Max(PaintSpot(u,t,.29f,.34f,.067f,.067f,.25f),
-                            PaintSpot(u,t,.43f,.36f,.145f,.041f,-.16f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.66f,.345f,.034f,.029f,.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.29f,.44f,.26f,.035f,-.2f),
+                            PaintSpot(u,t,.52f,.455f,.15f,.042f,-.15f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.76f,.44f,.025f,.03f,.2f));
                     } else if(strip==1) {
-                        glints=Mathf.Max(PaintSpot(u,t,.31f,.35f,.074f,.091f,.30f),
-                            PaintSpot(u,t,.42f,.39f,.073f,.039f,-.2f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.70f,.36f,.029f,.024f,.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.26f,.41f,.045f,.10f,.8f),
+                            PaintSpot(u,t,.42f,.44f,.07f,.05f,.50f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.56f,.43f,.033f,.03f,.3f));
                     } else {
-                        glints=Mathf.Max(PaintSpot(u,t,.38f,.365f,.145f,.048f,.05f),
-                            PaintSpot(u,t,.56f,.35f,.082f,.039f,.1f));
-                        glints=Mathf.Max(glints,PaintSpot(u,t,.76f,.37f,.029f,.032f,-.1f));
+                        glints=Mathf.Max(PaintSpot(u,t,.29f,.43f,.055f,.065f,.8f),
+                            PaintSpot(u,t,.43f,.46f,.06f,.045f,.6f));
+                        glints=Mathf.Max(glints,PaintSpot(u,t,.65f,.44f,.026f,.034f,.3f));
                     }
                 }
                 float fineTip=Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*64+t*4)),14)*
                     Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.94f,t))*(1-ends*.5f);
                 if(!cyan) {
-                    // A few uneven, curved strokes keep the enlarged pale tips
-                    // from becoming a comb of identical parallel filaments.
-                    float stroke=PaintBrush(u,t,.17f+.025f*strip,.67f,.028f,.035f);
-                    stroke=Mathf.Max(stroke,.72f*PaintBrush(u,t,.43f-.020f*strip,.76f,.020f,-.025f));
-                    stroke=Mathf.Max(stroke,.84f*PaintBrush(u,t,.78f-.015f*strip,.71f,.026f,-.020f));
+                    // Short blue-violet strokes retain painted tip separation
+                    // without silver threads running far up every lock.
+                    float stroke=PaintBrush(u,t,.17f+.025f*strip,.77f,.043f,.035f);
+                    stroke=Mathf.Max(stroke,.72f*PaintBrush(u,t,.43f-.020f*strip,.84f,.028f,-.025f));
+                    stroke=Mathf.Max(stroke,.84f*PaintBrush(u,t,.78f-.015f*strip,.80f,.039f,-.020f));
                     fineTip=stroke*(1-ends*.5f);
                 }
                 baseColor=Color.Lerp(baseColor,Hex("8BA6D5"),glints*.60f);
-                baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("CBD5E8"),fineTip*(cyan?.035f:.12f));
+                baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("7989BB"),fineTip*(cyan?.035f:.10f));
                 baseColor.a=1;
                 pixels[y*size+x]=(ax>.98f&&ay>.98f)?Color.white:baseColor;
             }
