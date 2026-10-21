@@ -432,7 +432,7 @@ namespace DesktopFish.Editor
                         float sine=Mathf.Sin(angle);
                         // A flatter upper contour keeps the white inside the
                         // upper eyelid while the lower eye stays rounded.
-                        if(feature=="eye" && sine>0) sine=.90f*Mathf.Pow(sine,.72f);
+                        if(feature=="eye" && sine>0) sine=.85f*Mathf.Pow(sine,.55f);
                         Vector2 xy = center + Vector2.Scale(size, new Vector2(Mathf.Cos(angle), sine)) * r;
                         Color surfaceColor=color;
                         if(feature=="eye") {
@@ -479,17 +479,17 @@ namespace DesktopFish.Editor
                 // vertices. Thirty-two sides retain the desktop eye contour.
                 for(int row=0;row<=rows;row++)for(int j=0;j<(row==0?1:cols);j++) {
                     float r=row/(float)rows,t=j/(float)cols*Mathf.PI*2;
-                    float px=x+Mathf.Cos(t)*.0313f*r,py=.6954f+Mathf.Sin(t)*.0344f*r;
+                    float px=x+Mathf.Cos(t)*.0313f*r,py=.6905f+Mathf.Sin(t)*.0325f*r;
                     // Broad curved color fields read at pet size. Keep a dark
                     // upper iris, blue middle and pale cyan lower crescent.
                     float u=Mathf.Cos(t)*r,v=Mathf.Sin(t)*r,arc=v+.34f*u*u;
                     Color color=Hex("2B396C");
                     color=Color.Lerp(color,Hex("3A5393"),1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.55f,arc)));
-                    color=Color.Lerp(color,Hex("5B94DB"),1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.12f,.05f,arc)));
-                    color=Color.Lerp(color,Hex("80D7F1"),1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.58f,-.40f,arc)));
+                    color=Color.Lerp(color,Hex("659AF4"),1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.02f,.18f,arc)));
+                    color=Color.Lerp(color,Hex("7BD9FF"),1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.47f,-.27f,arc)));
                     color=Color.Lerp(color,Hex("243162"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.94f,1,r))*.85f);
                     int index=face.Add(FacePoint(px,py,.0027f),color,bone);
-                    features.Add(Tuple.Create(index,V(x,.6954f,.0027f),"iris"));
+                    features.Add(Tuple.Create(index,V(x,.6905f,.0027f),"iris"));
                 }
                 for(int j=0;j<cols;j++) {
                     int next=(j+1)%cols;
@@ -504,22 +504,38 @@ namespace DesktopFish.Editor
             public void IrisReflection(float x,int bone) {
                 int start=face.p.Count;const int rows=2,cols=24;
                 for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
-                    float u=i/(float)cols,r=row/(float)rows,angle=Mathf.Lerp(205,335,u)*Mathf.Deg2Rad;
-                    float width=Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*Mathf.PI)),.55f);
-                    float px=x+Mathf.Cos(angle)*(.027f-r*.014f*width);
-                    float py=.6954f+Mathf.Sin(angle)*(.032f-r*.008f*width);
-                    Color color=Color.Lerp(Hex("79D1ED"),Hex("E3FCFF"),width*(.75f+.25f*r));
+                    float u=i/(float)cols,r=row/(float)rows;
+                    float width=Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(2*u-1,2)));
+                    // A rounded lower light pool keeps the small eye readable;
+                    // the former bent ribbon produced two pointed bright horns.
+                    float px=x+(2*u-1)*.0165f;
+                    float py=.6905f-.026f+Mathf.Lerp(-.004f,.007f,r)*width;
+                    Color color=Color.Lerp(Hex("83DCFA"),Hex("F2FFFF"),width*(1-.65f*r));
                     int index=face.Add(FacePoint(px,py,.0042f),color,bone);
-                    features.Add(Tuple.Create(index,V(x,.6954f,.0042f),"shine"));
+                    features.Add(Tuple.Create(index,V(x,.6905f,.0042f),"shine"));
                 }
                 Grid(face,start,rows,cols);
+            }
+            public void LowerEyeGlint(float x,int bone) {
+                const int sides=16;
+                int start=face.p.Count;
+                Vector3 center=V(x-.022f,.6695f,.0045f);
+                // One center plus a ring is enough for this tiny catchlight.
+                // Register every vertex so both eye-closing morphs include it.
+                for(int i=0;i<=sides;i++) {
+                    float angle=(i-1)*Mathf.PI*2/sides,r=i==0?0:.0024f;
+                    int index=face.Add(FacePoint(center.x+Mathf.Cos(angle)*r,
+                        center.y+Mathf.Sin(angle)*r,center.z),Color.white,bone);
+                    features.Add(Tuple.Create(index,center,"shine"));
+                }
+                for(int i=0;i<sides;i++)face.Face(start,start+1+i,start+1+(i+1)%sides);
             }
             public void Mouth(int bone) {
                 int start=face.p.Count;const int rows=2,cols=32;
                 for(int row=0;row<=rows;row++)for(int j=0;j<(row==0?1:cols);j++) {
                     float radius=row/(float)rows,angle=j/(float)cols*Mathf.PI*2;
                     float u=Mathf.Cos(angle)*radius,v=Mathf.Sin(angle)*radius;
-                    int index=face.Add(FacePoint(.020f*u,.625f+.003f*u*u+.0013f*v,.0035f),Hex("AE7C7B"),bone);
+                    int index=face.Add(FacePoint(.020f*u,.6195f+.0008f*u*u+.0009f*v,.0035f),Hex("AE7C7B"),bone);
                     features.Add(Tuple.Create(index,V(u,v,0),"mouth"));
                 }
                 for(int j=0;j<cols;j++)face.Face(start,start+1+j,start+1+(j+1)%cols);
@@ -548,7 +564,7 @@ namespace DesktopFish.Editor
                             if (kind == "lash") target = name=="Fcl_EYE_Joy" ? smilingLashes[i] : closedLashes[i];
                         }
                         if(kind=="mouth"&&name.StartsWith("Fcl_ALL_")) {
-                            float u=c.x,v=c.y,x=.020f*u,y=.625f+.003f*u*u+.0013f*v;
+                            float u=c.x,v=c.y,x=.020f*u,y=.6195f+.0008f*u*u+.0009f*v;
                             if(name=="Fcl_ALL_Joy") {x=.027f*u;y=.625f+.010f*u*u+.0075f*v;}
                             if(name=="Fcl_ALL_Fun") {x=.021f*u;y=.625f+.004f*u*u+.0012f*v+.002f*u;}
                             if(name=="Fcl_ALL_Sorrow") {x=.018f*u;y=.630f-.006f*u*u+.0012f*v;}
@@ -1122,26 +1138,27 @@ namespace DesktopFish.Editor
         {
             foreach (int sign in new[] { -1, 1 }) {
                 float x = sign * .085f;
-                a.Disk(a.face, new Vector2(x, .700f), new Vector2(.046f, .038f), Hex("FFFCFA"), head, .0015f, "eye");
+                a.Disk(a.face, new Vector2(x, .696f), new Vector2(.046f, .0347f), Hex("FFFCFA"), head, .0015f, "eye");
                 a.Iris(x,head);
-                a.Disk(a.face, new Vector2(x, .6954f), new Vector2(.0095f, .0125f), Hex("283464"), head, .0036f, "pupil",32);
-                a.Disk(a.face, new Vector2(x - .0101f, .7177f), new Vector2(.0074f, .0074f), Color.white, head, .0045f, "shine",24);
-                a.Disk(a.face, new Vector2(x + .0083f, .7233f), new Vector2(.0028f, .0028f), Color.white, head, .0045f, "shine",16);
+                a.Disk(a.face, new Vector2(x, .6905f), new Vector2(.0095f, .0125f), Hex("283464"), head, .0036f, "pupil",32);
+                a.Disk(a.face, new Vector2(x + .0101f, .7097f), new Vector2(.0074f, .0074f), Color.white, head, .0045f, "shine",24);
+                a.Disk(a.face, new Vector2(x - .0048f, .7123f), new Vector2(.0028f, .0028f), Color.white, head, .0045f, "shine",16);
                 a.IrisReflection(x,head);
+                a.LowerEyeGlint(x,head);
                 var lash = new Vector2[25];
                 for (int i = 0; i < lash.Length; i++) {
                     float t = Mathf.Lerp(.90f,.13f,i/24f)*Mathf.PI;
                     lash[i] = new Vector2(x + sign*Mathf.Cos(t)*.047f,
-                        .701f+.034f*Mathf.Pow(Mathf.Sin(t),.72f));
+                        .695f+.0315f*Mathf.Pow(Mathf.Sin(t),.50f));
                 }
-                a.FaceLine(lash, .0072f, Hex("3B2935"), head, "lash",x,.45f,1);
+                a.FaceLine(lash, .0080f, Hex("211D27"), head, "lash",x,.45f,1);
                 var wing=Enumerable.Range(0,7).Select(i=>{
                     float t=i/6f;
-                    return Vector2.Lerp(lash[24],new Vector2(x+sign*.060f,.729f),t)
+                    return Vector2.Lerp(lash[24],new Vector2(x+sign*.060f,.721f),t)
                         +new Vector2(0,-.003f*Mathf.Sin(t*Mathf.PI));
                 }).ToArray();
-                a.FaceLine(wing,.0072f,Hex("3B2935"),head,"lash",x,1,.12f);
-                a.FaceLine(new[] { new Vector2(x - .031f, .751f), new Vector2(x, .760f), new Vector2(x + .029f, .754f) }, .0016f, Hex("83666B"), head,"brow");
+                a.FaceLine(wing,.0080f,Hex("211D27"),head,"lash",x,1,.12f);
+                a.FaceLine(new[] { new Vector2(x - .031f, .742f), new Vector2(x, .748f), new Vector2(x + .029f, .742f) }, .0016f, Hex("83666B"), head,"brow");
             }
             a.Mouth(head);
             a.Disk(a.face,new Vector2(0,.652f),new Vector2(.0015f,.0018f),Hex("E5B5A6"),head,.0018f,"",16);
