@@ -1074,6 +1074,7 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/rebuilt-angle-top.png",frame.EncodeToPNG());
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
             RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
+            RenderBodyStudy(camera,"work/rebuilt-aligned",1,Vector3.zero);
             var defaultHand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_R_Hand");
             RenderDefaultHandStudy(camera,"work/rebuilt-hand-default",defaultHand.position+V(0,-.014f,.015f),1);
             // Inspect the skin separately from fringe occlusion. Head skin is
@@ -1287,6 +1288,28 @@ namespace DesktopFish.Editor
             }
             camera.targetTexture=oldTarget;RenderTexture.active=null;
             camera.transform.SetPositionAndRotation(oldPosition,oldRotation);camera.orthographicSize=oldSize;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
+
+        public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset) {
+            // Use the same approximate crown/sole calibration as head studies.
+            // Fixed framing prevents different auto-fit margins from hiding
+            // overall proportion differences between reference and rebuild.
+            var position=camera.transform.position;var rotation=camera.transform.rotation;
+            var oldTarget=camera.targetTexture;float size=camera.orthographicSize,aspect=camera.aspect;
+            var target=new RenderTexture(720,960,24){antiAliasing=4};
+            var frame=new Texture2D(720,960,TextureFormat.RGBA32,false);
+            Vector3 focus=V(0,.56f,-.05f)*scale+offset;
+            camera.targetTexture=target;camera.aspect=.75f;camera.orthographicSize=.64f*scale;
+            foreach(int angle in new[]{0,35,90,180,360}) {
+                Vector3 direction=angle==360?V(0,.64f,3):Quaternion.Euler(0,angle,0)*V(0,.24f,3);
+                camera.transform.position=focus+direction*scale;camera.transform.LookAt(focus);
+                camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                File.WriteAllBytes(prefix+"-"+(angle==360?"top":angle.ToString())+".png",frame.EncodeToPNG());
+            }
+            camera.targetTexture=oldTarget;camera.orthographicSize=size;camera.aspect=aspect;
+            camera.transform.SetPositionAndRotation(position,rotation);RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 

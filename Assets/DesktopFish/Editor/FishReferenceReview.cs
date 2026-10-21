@@ -72,6 +72,7 @@ namespace DesktopFish.Editor
             frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
             File.WriteAllBytes("work/reference-review/ref-top.png",frame.EncodeToPNG());
             FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
