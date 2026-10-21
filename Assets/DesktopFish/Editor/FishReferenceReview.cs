@@ -91,7 +91,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{3,10,12,15,16,17,21,22,23,24,25,34,35,37}) {
+            foreach(int slot in new[]{1,3,4,6,10,12,15,16,17,21,22,23,24,25,34,35,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 foreach(float y in new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f}) {
                     var cuts=new System.Collections.Generic.List<Vector3>();
@@ -117,7 +117,7 @@ namespace DesktopFish.Editor
                     camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
                     camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
                     frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
-                    string label=slot==3?"face":slot>=29?"cloth-"+slot:slot==12||slot>=22?"accessory-"+slot:"hair-"+slot;
+                    string label=slot==3?"face":slot<8?"eye-"+slot:slot>=29?"cloth-"+slot:slot==12||slot>=22?"accessory-"+slot:"hair-"+slot;
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
@@ -142,7 +142,7 @@ namespace DesktopFish.Editor
         static void ReviewAccessoryComponents(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var parts=new System.Collections.Generic.List<PartBounds>();
-            foreach(int slot in new[]{12,22,23,24,25}) {
+            foreach(int slot in new[]{1,4,6,12,22,23,24,25}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
                 Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
