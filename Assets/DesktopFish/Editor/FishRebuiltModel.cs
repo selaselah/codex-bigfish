@@ -240,6 +240,27 @@ namespace DesktopFish.Editor
                         Vector3 p=boundaryA==null?path[row]+side*(u*edgeWidth*rootNeck):
                             Vector3.Lerp(boundaryA[row],boundaryB[row],(u*boundarySign+1)*.5f)+side*(u*.00015f);
                         p+=thicknessAxis*facet*thickness*rootNeck;
+                        // Keep attachment weights and crown paint on their
+                        // original guide while reshaping the visible cross-section.
+                        float attachmentHeight=p.y;
+                        if(outward.HasValue&&attachmentHeight>.72f) {
+                            float height=Mathf.Clamp((path[row].y-.765f)/.215f,-1,1);
+                            float lift=.0045f+front*.002f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.18f,t));
+                            attachmentHeight=Mathf.Lerp(attachmentHeight,.765f+(.215f+lift)*height,
+                                Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.86f,attachmentHeight)));
+                        }
+                        if(outward.HasValue&&path[row].y>.550f) {
+                            // Neighboring upper locks share angular section edges.
+                            // Curving each complete section avoids nine flat plates
+                            // while retaining the existing longitudinal guides.
+                            float centerAngle=Mathf.Atan2(facing.x,facing.z);
+                            float rx=Mathf.Abs(Mathf.Sin(centerAngle))>.1f?path[row].x/Mathf.Sin(centerAngle):.244f;
+                            float rz=Mathf.Abs(Mathf.Cos(centerAngle))>.1f?path[row].z/Mathf.Cos(centerAngle):.192f;
+                            float theta=centerAngle-u*(Mathf.PI*2-2*1.12f)/16;
+                            Vector3 rounded=V(Mathf.Sin(theta)*(rx+front*.0025f),path[row].y,
+                                Mathf.Cos(theta)*(rz+front*.0025f));
+                            p=Vector3.Lerp(p,rounded,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,path[row].y)));
+                        }
                         if(outward.HasValue&&p.y>.72f) {
                             // Wrap the whole width around the scalp, not just the
                             // centerline. Flat roots otherwise read as raised plates.
@@ -289,10 +310,10 @@ namespace DesktopFish.Editor
                         // and curled tips while leaving the shared roots in place.
                         p=SweepHairSection(p,backSweep);
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
-                        float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,p.y)):0;
+                        float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,attachmentHeight)):0;
                         ridge=Mathf.Lerp(ridge,.97f,crown*.85f);
                         Color shade=Color.white*ridge; shade.a=1;
-                        float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
+                        float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,outward.HasValue?attachmentHeight:p.y));
                         int paintStrip=cyan?3:((phase%3)+3)%3;
                         int longPaint=((phase%3)+3)%3;
                         float paintU=cyan?.75f+longPaint/12f+.004f+(u+1)*.0375f:
@@ -710,23 +731,23 @@ namespace DesktopFish.Editor
                     baseColor=Color.Lerp(baseColor,Hex("385B99"),blue*.70f);
                 }
                 if(cyan) {
-                    // Broad off-center blue reflections describe the long locks'
-                    // middle volume; leave their crown join and cyan tips intact.
+                    // Wide curved reflection bands describe the joined upper
+                    // mass; the lower brush shapes still separate individual tips.
                     float center=reflectionCenters[longPaint];
                     float height=reflectionHeights[longPaint];
                     float bend=reflectionBends[longPaint];
-                    float du=(u-center-bend*Mathf.Sin((t-.14f)*Mathf.PI*2))/.36f;
-                    float dt=(t-height)/.24f;
+                    float du=(u-center-bend*Mathf.Sin((t-.14f)*Mathf.PI*2))/.85f;
+                    float dt=(t-height-.035f*Mathf.Cos((u-.5f)*Mathf.PI))/.16f;
                     float envelope=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.10f,.18f,t))*
                         (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.58f,t)));
                     float reflection=Mathf.Exp(-du*du*1.4f-dt*dt)*envelope;
-                    baseColor=Color.Lerp(baseColor,Hex("668CC5"),reflection*.34f);
+                    baseColor=Color.Lerp(baseColor,Hex("668CC5"),reflection*.24f);
                 }
                 // Slightly wandering broad streaks and finer tip strokes retain
                 // strand detail without a uniform comb of vertical stripes.
                 float strand=Mathf.Sin(u*43+t*3+Mathf.Sin(t*7+u*5))*.006f+
                     Mathf.Sin(u*19-t*2)*.012f;
-                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.36f,t))):.18f;
+                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.18f;
                 baseColor*=1-edge*edgeContrast+strand;
                 float glints=0;
                 if(!cyan) {
@@ -1112,10 +1133,13 @@ namespace DesktopFish.Editor
                     // Translate each lower section as a whole; independently
                     // stretching its front and rear edges produces a broad paddle.
                     Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
-                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.78f,sectionCenter.y));
+                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,sectionCenter.y));
                     shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
                     int lockIndex=(i-radialStart)/405,group=Mathf.Min(lockIndex,8-lockIndex);
                     float side=1-group/4f;
+                    float theta=Mathf.Atan2(p.x,p.z);
+                    float angularSide=Mathf.Clamp01((Mathf.PI-Mathf.Abs(theta))/(Mathf.PI-1.12f));
+                    side=Mathf.Lerp(side,angularSide,crown);
                     Vector3 coverage=SideHairCoverage(sectionCenter.y);
                     Vector3 scale=V(Mathf.Sign(p.x)*Mathf.Pow(side,1.2f),0,Mathf.Pow(side,1.6f));
                     shaped+=Vector3.Scale(coverage,scale);
@@ -1129,6 +1153,30 @@ namespace DesktopFish.Editor
                     a.body.normalBlends[i]=new Vector4(n.x,n.y,n.z,blend.w);
                 }
             }
+            // Join the visible upper surfaces across lock boundaries. Closed
+            // panel edges include inner faces, so their ordinary averaged mesh
+            // normals make dark channels even when neighboring edges coincide.
+            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=1;row<44;row++)
+                for(int j=0;j<=4;j++) {
+                    int index=radialStart+lockIndex*405+row*9+j;
+                    Vector3 p=a.body.p[index];
+                    float join=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,p.y))*
+                        (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.820f,.900f,p.y)));
+                    if(join<=0)continue;
+                    Vector3 along=a.body.p[index+9]-a.body.p[index-9];
+                    Vector3 minus=j>0?a.body.p[index-1]:lockIndex<8?a.body.p[index+405+3]:p;
+                    Vector3 plus=j<4?a.body.p[index+1]:lockIndex>0?a.body.p[index-405-3]:p;
+                    Vector3 normal=Vector3.Cross(along,plus-minus).normalized;
+                    if(normal.sqrMagnitude<.1f)continue;
+                    float weight=join;
+                    if(a.body.normalBlends.TryGetValue(index,out var old)) {
+                        weight=old.w*(1-join)+join;
+                        normal=(V(old.x,old.y,old.z)*old.w*(1-join)+normal*join).normalized;
+                    }
+                    var target=new Vector4(normal.x,normal.y,normal.z,weight);
+                    a.body.normalBlends[index]=target;
+                    if(j==0)a.body.normalBlends[index+8]=target;
+                }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
                 // Separate long S-shaped locks leave negative space at the hem.

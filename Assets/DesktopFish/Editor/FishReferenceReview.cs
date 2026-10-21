@@ -143,6 +143,7 @@ namespace DesktopFish.Editor
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var parts=new System.Collections.Generic.List<PartBounds>();
             var coverage=new System.Collections.Generic.List<HairSection>();
+            var profiles=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,12,15,16,22,23,24,25}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -184,7 +185,26 @@ namespace DesktopFish.Editor
                         inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First(),
                         front=cuts.OrderByDescending(p=>p.z).First(),rear=cuts.OrderBy(p=>p.z).First()});
                 }
+                if(slot==15)foreach(float y in new[]{.35f,.40f,.45f,.50f,.55f,.60f,.65f})
+                    foreach(float x in new[]{0,.04f,.08f,.12f,.16f,.20f,.24f}) {
+                        float rear=float.PositiveInfinity;
+                        for(int i=0;i<triangles.Length;i+=3) {
+                            if(!rearVertices.Contains(triangles[i]))continue;
+                            var cuts=new System.Collections.Generic.List<Vector3>();
+                            for(int j=0;j<3;j++) {
+                                Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
+                                if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cuts.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));
+                            }
+                            if(cuts.Count!=2)continue;
+                            Vector3 u=cuts[0],v=cuts[1];
+                            if((u.x<=x&&x<v.x)||(v.x<=x&&x<u.x)) {
+                                float z=Mathf.Lerp(u.z,v.z,(x-u.x)/(v.x-u.x));if(z<0)rear=Mathf.Min(rear,z);
+                            }
+                        }
+                        if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
+                    }
             }
+            File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
