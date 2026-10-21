@@ -1739,9 +1739,23 @@ namespace DesktopFish.Editor
                 int knee=a.Bone(prefix+"LowerLeg",thigh,V(s*.065f,.16f,0));
                 int foot=a.Bone(prefix+"Foot",knee,V(s*.065f,.062f,0));
                 a.Sphere(a.body,V(s*.065f,.208f,0),V(.036f,.062f,.038f),Skin,thigh);
+                int sockStart=a.body.p.Count;
                 a.Sphere(a.body,V(s*.065f,.112f,.003f),V(.032f,.055f,.033f),White,knee);
-                a.Sphere(a.body,V(s*.065f,.045f,.022f),V(.048f,.031f,.068f),Navy,foot,20,10);
-                a.Sphere(a.body,V(s*.065f,.020f,.023f),V(.049f,.009f,.069f),Ink,foot,16,6);
+                for(int i=sockStart;i<a.body.p.Count;i++) {
+                    Vector3 p=a.body.p[i];
+                    float lower=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.140f,.167f,p.y));
+                    float angle=Mathf.Atan2((p.z-.003f)/.033f,(p.x-s*.065f)/.032f);
+                    float cuff=Mathf.Exp(-Mathf.Pow((p.y-.120f)/.016f,2));
+                    float fold=.002f*Mathf.Cos(angle*8)*cuff;
+                    p.x+=s*.002f*lower+(p.x-s*.065f)*.25f*lower+Mathf.Cos(angle)*fold;
+                    p.z+=(p.z-.003f)*.35f*lower-.012f*lower+Mathf.Sin(angle)*fold;
+                    p.y+=fold*.45f;
+                    a.body.p[i]=p;
+                }
+                ShoeUpper(a,s,foot);
+                int soleStart=a.body.p.Count;
+                a.Sphere(a.body,V(s*.065f,.020f,.023f),V(.047f,.009f,.066f),Hex("19213C"),foot,16,6);
+                int soleEnd=a.body.p.Count;
                 a.Tube(a.body,new[]{V(s*.065f-.027f,.066f,.059f),V(s*.065f,.073f,.067f),V(s*.065f+.027f,.066f,.059f)},.006f,White,foot);
                 Func<float,float,Vector3> shoeSurface=(x,y)=>V(x,y,.022f+.068f*Mathf.Sqrt(Mathf.Max(.01f,
                     1-Mathf.Pow((x-s*.065f)/.048f,2)-Mathf.Pow((y-.045f)/.031f,2)))+.0018f);
@@ -1752,7 +1766,45 @@ namespace DesktopFish.Editor
                     new Vector2(-.008f,-.0025f)};
                 a.Tube(a.body,buckle.Select(p=>shoeSurface(buckleX+p.x,.059f+p.y)).ToArray(),.0014f,Gold,foot,6);
                 a.Tube(a.body,new[]{shoeSurface(buckleX,.055f),shoeSurface(buckleX,.063f)},.0011f,Gold,foot,4);
+                // The same authored volume map carries the strap and buckle.
+                // Keep the sole shallow while giving the upper a taller heel and toe.
+                for(int i=soleStart;i<a.body.p.Count;i++) {
+                    Vector3 p=a.body.p[i];
+                    float heel=.018f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.040f,-.025f,p.z))*
+                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.025f,.060f,p.y));
+                    float toe=.026f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.015f,.065f,p.z))*
+                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.035f,.065f,p.y));
+                    float y=i>=soleStart&&i<soleEnd?.002f+(p.y-.011f)*.78f:
+                        .002f+(p.y-.011f)*1.45f+heel-toe;
+                    a.body.p[i]=V(s*.067f+(p.x-s*.065f)*1.04f,y,.0235f+(p.z-.023f)*1.55f);
+                }
             }
+        }
+
+        static void ShoeUpper(Author a,int sign,int bone) {
+            // An open ankle ring flows into a broad low toe and a shallow sole.
+            // Eleven authored sections reuse the old ellipsoid's sampling budget.
+            // The white sock remains a separate surface inside the opening.
+            float[] height={.085f,.074f,.056f,.040f,.027f,.015f,.010f,.008f,.007f,.007f,.007f};
+            float[] width={.037f,.043f,.049f,.049f,.047f,.046f,.045f,.038f,.028f,.015f,0};
+            float[] depth={.047f,.059f,.090f,.106f,.104f,.101f,.099f,.085f,.063f,.034f,0};
+            float[] center={-.015f,-.009f,.010f,.019f,.020f,.020f,.020f,.020f,.020f,.020f,.020f};
+            int start=a.body.p.Count;const int sides=20;
+            for(int row=0;row<height.Length;row++) {
+                for(int i=0;i<=sides;i++) {
+                    float angle=(i%sides)*Mathf.PI*2/sides,front=Mathf.Sin(angle);
+                    float slope=row<=2?Mathf.Lerp(.008f,.006f,row/2f):0;
+                    float y=height[row]-front*slope;
+                    float broad=Mathf.Pow(Mathf.Max(0,front),3)*Mathf.Exp(-Mathf.Pow((row-2.5f)/1.5f,2));
+                    Color color=Navy*Mathf.Lerp(.85f,1.23f,broad);color.a=1;
+                    float glint=Mathf.Exp(-Mathf.Pow(Mathf.DeltaAngle(angle*Mathf.Rad2Deg,sign>0?108:72)/10,2))*
+                        Mathf.Exp(-Mathf.Pow((row-3)/.55f,2));
+                    color=Color.Lerp(color,Hex("C8D5EC"),glint*.32f);
+                    a.body.Add(V(sign*.067f+Mathf.Cos(angle)*width[row],y,center[row]+front*depth[row]),color,bone);
+                }
+                a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+            }
+            Grid(a.body,start,height.Length-1,sides);
         }
 
         static void BuildAccessories(Author a,int head,int chest,int hips)
