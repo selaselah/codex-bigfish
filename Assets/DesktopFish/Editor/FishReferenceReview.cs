@@ -67,6 +67,7 @@ namespace DesktopFish.Editor
                 frame.ReadPixels(new Rect(0,0,720,960),0,0); frame.Apply();
                 File.WriteAllBytes("work/reference-review/ref-"+angle+".png",frame.EncodeToPNG());
             }
+            ReviewHairSections(baked, snapshot, camera, bounds, frame, target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
                 totalTriangles=Enumerable.Range(0,reference.subMeshCount).Sum(s=>(int)reference.GetIndexCount(s)/3),
@@ -75,6 +76,45 @@ namespace DesktopFish.Editor
             RenderTexture.active = null; camera.targetTexture = null;
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
+        }
+        // Sparse cross-section bounds are local modelling guides. The isolated
+        // previews expose which lock owns a silhouette without exporting a mesh.
+        static void ReviewHairSections(Mesh baked, GameObject snapshot, Camera camera,
+            Bounds total, Texture2D frame, RenderTexture target) {
+            var filter=snapshot.GetComponent<MeshFilter>();
+            var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
+            var sections=new System.Collections.Generic.List<HairSection>();
+            foreach(int slot in new[]{10,17,21}) {
+                int[] triangles=baked.GetTriangles(slot);
+                foreach(float y in new[]{.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f}) {
+                    var cuts=new System.Collections.Generic.List<Vector3>();
+                    for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
+                        Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
+                        if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)) {
+                            Vector3 p=Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y));
+                            if(p.x>0)cuts.Add(p);
+                        }
+                    }
+                    if(cuts.Count==0)continue;
+                    var bounds=new Bounds(cuts[0],Vector3.zero);
+                    foreach(var point in cuts)bounds.Encapsulate(point);
+                    sections.Add(new HairSection{slot=slot,height=y,minimum=bounds.min,maximum=bounds.max,
+                        inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First()});
+                }
+                var isolated=UnityEngine.Object.Instantiate(baked);
+                for(int sub=0;sub<isolated.subMeshCount;sub++)
+                    if(sub!=slot)isolated.SetTriangles(Array.Empty<int>(),sub,false);
+                filter.sharedMesh=isolated;
+                foreach(int angle in new[]{0,35,90}) {
+                    camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
+                    camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
+                    frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                    File.WriteAllBytes("work/reference-review/hair-"+slot+"-"+angle+".png",frame.EncodeToPNG());
+                }
+                filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
+            }
+            File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
+                new HairSectionReport{sections=sections.ToArray()},true));
         }
         // Aggregate measurements only: no reference vertices, triangles, UVs,
         // weights or expression data leave this local review routine.
@@ -96,6 +136,8 @@ namespace DesktopFish.Editor
             },true));
         }
         [Serializable] sealed class PartBounds {public int slot;public string name;public Vector3 minimum,maximum;}
+        [Serializable] sealed class HairSection {public int slot;public float height;public Vector3 minimum,maximum,inner,outer;}
+        [Serializable] sealed class HairSectionReport {public HairSection[] sections;}
         [Serializable] sealed class Landmark {public string name;public Vector3 position;}
         [Serializable] sealed class LandmarkReport {public Vector3 minimum,maximum;public PartBounds[] parts;public Landmark[] joints;}
         [Serializable] sealed class Stats {public int vertices,totalTriangles,materialSlots,bones,expressions;}
