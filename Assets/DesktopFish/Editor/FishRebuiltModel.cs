@@ -178,7 +178,7 @@ namespace DesktopFish.Editor
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
                 float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
                 float cheekInset = -1, float frontLift = 0, float wrapDepth = 0, Vector3[] paintGuide = null,
-                bool surfaceThickness = false) {
+                bool surfaceThickness = false, float rootTurn = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
@@ -207,7 +207,7 @@ namespace DesktopFish.Editor
                     Vector3 tangent=(path[Mathf.Min(row+1,rows)]-path[Mathf.Max(row-1,0)]).normalized;
                     // Independent locks can turn their broad surface toward the
                     // side without invoking the radial scalp-root construction.
-                    float turn=sideTurn*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.38f,t));
+                    float turn=Mathf.Lerp(rootTurn,sideTurn,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.38f,t)));
                     Vector3 sectionFacing=Quaternion.Euler(0,turn,0)*facing;
                     Vector3 side=Vector3.Cross(tangent,sectionFacing);
                     float facingCross=side.magnitude;
@@ -1357,19 +1357,28 @@ namespace DesktopFish.Editor
                 }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
-                // Separate long S-shaped locks leave negative space at the hem.
-                a.HairPanel(new[]{V(sign*.17f,.90f,-.045f),V(sign*.27f,.73f,-.025f),
-                    V(sign*.22f,.59f,.005f),V(sign*.245f,.45f,.02f),
-                    V(sign*.28f,.31f,.035f),V(sign*.17f,.21f,.055f),V(sign*.29f,.17f,.06f)},.063f,bone,true,2,
-                    rootScale:.50f,backSweep:sign*.20f,sideTurn:sign*32,fullness:1.8f);
-                a.HairPanel(new[]{V(sign*.21f,.79f,-.04f),V(sign*.28f,.64f,-.005f),
-                    V(sign*.28f,.47f,.025f),V(sign*.31f,.36f,.025f),
-                    V(sign*.39f,.22f,.035f),V(sign*.22f,.28f,.055f),V(sign*.22f,.16f,.06f)},.035f,bone,true,3,
-                    rootScale:.50f,backSweep:sign*.12f,sideTurn:sign*46,fullness:2.2f);
-                a.HairPanel(new[]{V(sign*.218f,.71f,.006f),V(sign*.255f,.62f,.014f),
-                    V(sign*.29f,.48f,.01f),V(sign*.27f,.47f,.025f),
-                    V(sign*.24f,.46f,.025f),V(sign*.27f,.44f,.03f),V(sign*.30f,.43f,.03f)},.014f,bone,false,4,
-                    backSweep:sign*.12f,sideTurn:sign*42,fullness:1.5f,rootTaper:.18f);
+                // An outer lower curl and a higher folded ribbon describe
+                // different silhouettes. Their depth follows the back curtain,
+                // instead of putting three parallel wisps in front of the shoulder.
+                a.HairPanel(new[]{V(sign*.180f,.90f,-.055f),V(sign*.230f,.86f,-.075f),
+                    V(sign*.240f,.73f,-.075f),V(sign*.240f,.655f,-.075f),
+                    V(sign*.240f,.58f,-.080f),V(sign*.240f,.50f,-.090f),V(sign*.290f,.410f,-.135f),
+                    V(sign*.310f,.350f,-.145f),V(sign*.374f,.253f,-.215f),V(sign*.350f,.220f,-.230f),
+                    V(sign*.326f,.187f,-.245f),V(sign*.280f,.185f,-.225f),V(sign*.255f,.175f,-.215f)},
+                    .028f,bone,true,2,rootScale:1.30f,sideTurn:sign*50,rootTurn:sign*55,fullness:.85f,
+                    tipStart:.78f,tipPower:.65f,paintStart:.25f,surfaceThickness:true);
+                a.HairPanel(new[]{V(sign*.170f,.90f,-.033f),V(sign*.230f,.84f,-.040f),
+                    V(sign*.235f,.73f,-.045f),V(sign*.260f,.655f,-.060f),
+                    V(sign*.275f,.590f,-.080f),V(sign*.330f,.560f,-.110f),V(sign*.340f,.525f,-.130f),
+                    V(sign*.350f,.490f,-.150f),V(sign*.290f,.470f,-.180f),V(sign*.270f,.380f,-.240f),
+                    V(sign*.220f,.310f,-.285f),V(sign*.270f,.265f,-.272f),V(sign*.280f,.214f,-.255f)},
+                    .025f,bone,true,3,rootScale:1.20f,sideTurn:sign*44,rootTurn:sign*35,fullness:.85f,
+                    tipStart:.72f,tipPower:.85f,paintStart:.24f,surfaceThickness:true);
+                a.HairPanel(new[]{V(sign*.235f,.700f,-.040f),V(sign*.280f,.610f,-.060f),
+                    V(sign*.350f,.560f,-.100f),V(sign*.345f,.520f,-.130f),
+                    V(sign*.330f,.490f,-.160f),V(sign*.270f,.430f,-.230f),V(sign*.270f,.380f,-.250f)},
+                    .010f,bone,true,4,sideTurn:sign*45,fullness:.70f,rootTaper:.24f,
+                    paintStart:.20f,surfaceThickness:true);
                 // The front drape starts behind the temple, turns forward at
                 // the collar, and opens into a flat S-shaped tip. Independent
                 // edges keep that turn from twisting the lock into a tube.

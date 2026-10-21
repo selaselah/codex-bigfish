@@ -175,6 +175,7 @@ namespace DesktopFish.Editor
             var chestSections=new System.Collections.Generic.List<HairSection>();
             var fringeProfiles=new System.Collections.Generic.List<Landmark>();
             var chestTips=new System.Collections.Generic.List<Landmark>();
+            var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -220,6 +221,36 @@ namespace DesktopFish.Editor
                             FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/fringe-component-"+component,.8f,new Vector3(0,-.056f,0));
                             filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                         }
+                    }
+                    if(slot==15&&(index-1==11||index-1==14||index-1==16)) {
+                        int component=index-1;
+                        var membership=new System.Collections.Generic.HashSet<int>(group);
+                        var selected=new System.Collections.Generic.List<int>();
+                        for(int i=0;i<triangles.Length;i+=3)if(membership.Contains(triangles[i]))
+                            selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                        foreach(float y in new[]{.12f,.15f,.18f,.21f,.24f,.27f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f}) {
+                            var cuts=new System.Collections.Generic.List<Vector3>();
+                            for(int i=0;i<selected.Count;i+=3)for(int j=0;j<3;j++) {
+                                Vector3 a=points[selected[i+j]],b=points[selected[i+(j+1)%3]];
+                                if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cuts.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));
+                            }
+                            if(cuts.Count==0)continue;
+                            string prefix="component-"+component;
+                            sideCurlSections.Add(new Landmark{name=prefix+"-inner",position=cuts.OrderBy(p=>p.x).First()});
+                            sideCurlSections.Add(new Landmark{name=prefix+"-outer",position=cuts.OrderByDescending(p=>p.x).First()});
+                            sideCurlSections.Add(new Landmark{name=prefix+"-front",position=cuts.OrderByDescending(p=>p.z).First()});
+                            sideCurlSections.Add(new Landmark{name=prefix+"-rear",position=cuts.OrderBy(p=>p.z).First()});
+                        }
+                        var isolated=UnityEngine.Object.Instantiate(baked);
+                        for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
+                        var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+                        foreach(int angle in new[]{0,90,180}) {
+                            camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
+                            camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
+                            frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                            File.WriteAllBytes("work/reference-review/side-curl-"+component+"-"+angle+".png",frame.EncodeToPNG());
+                        }
+                        filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
                     if((slot==15||slot==16)&&bounds.min.z<-.1f&&bounds.min.y<.2f)
                         foreach(int i in group)rearVertices.Add(i);
@@ -303,6 +334,7 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
+            File.WriteAllText("work/reference-review/side-curl-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=sideCurlSections.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-tips.json",JsonUtility.ToJson(new FaceSectionReport{samples=chestTips.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=chestSections.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
