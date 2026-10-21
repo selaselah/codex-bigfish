@@ -324,7 +324,8 @@ namespace DesktopFish.Editor
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
                         float t=row/(float)rows,theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
-                        float y=.978f-.490f*t-.130f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,1,t));
+                        float y=.978f-.490f*t-.130f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,1,t))
+                            -.120f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1,t));
                         float scalp=Mathf.Sqrt(Mathf.Max(.01f,1-Mathf.Pow((y-.765f)/.215f,2)));
                         float lower=Mathf.InverseLerp(.765f,.488f,y);
                         float rx=y>.765f?.232f*scalp+.002f:.234f-.030f*Mathf.SmoothStep(0,1,lower);
@@ -339,7 +340,8 @@ namespace DesktopFish.Editor
                         Vector3 p=V(Mathf.Sin(theta)*(rx+.007f*fold*t),y+tip,
                             Mathf.Cos(theta)*(rz+.006f*fold*t));
                         Color color=Color.Lerp(Hair,Hex("3D619C"),t*.35f);
-                        color*=1-.18f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.4f,t))*(.5f-.5f*fold);color.a=1;
+                        color*=1-.18f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.4f,t))*(.5f-.5f*fold);
+                        color=Color.Lerp(color,Hex("4D94B3"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.85f,.99f,t)));color.a=1;
                         body.Add(SweepHairSection(p,HairSweepAtAngle(theta)*1.25f),color,head);
                     }
                     Grid(body,layerStart,rows,cols);
@@ -1003,6 +1005,7 @@ namespace DesktopFish.Editor
 
         static void BuildHair(Author a, int head)
         {
+            int rearStart=a.body.p.Count;
             a.HairMantle(head);
             int start=a.body.p.Count; const int rings=14,sides=40;
             for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
@@ -1018,6 +1021,7 @@ namespace DesktopFish.Editor
             }
             // Radial locks wrap the back of the head. Each has its own transverse
             // direction, so it retains width in a side view and curls at the hem.
+            int radialStart=a.body.p.Count;
             for(int i=0;i<9;i++) {
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
                 Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
@@ -1083,6 +1087,30 @@ namespace DesktopFish.Editor
                 controls[12]+=lateral*curl;
                 a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
                     tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias);
+            }
+            // The rear volume shares one depth profile across the cap, inner
+            // mantle and long locks. This keeps their overlap intact as the
+            // shoulder-to-hem silhouette opens behind the head.
+            Vector3 sectionCenter=Vector3.zero;
+            for(int i=rearStart;i<a.body.p.Count;i++) {
+                Vector3 p=a.body.p[i];float dy,dz;
+                Vector3 shaped=ShapeRearHair(p,out dy,out dz);
+                if(i>=radialStart) {
+                    if((i-radialStart)%9==0) {
+                        sectionCenter=Vector3.zero;
+                        for(int j=0;j<8;j++)sectionCenter+=a.body.p[i+j]/8;
+                    }
+                    // Translate each lower section as a whole; independently
+                    // stretching its front and rear edges produces a broad paddle.
+                    Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
+                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.78f,sectionCenter.y));
+                    shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
+                }
+                a.body.p[i]=shaped;
+                if(a.body.normalBlends.TryGetValue(i,out var blend)) {
+                    Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz).normalized;
+                    a.body.normalBlends[i]=new Vector4(n.x,n.y,n.z,blend.w);
+                }
             }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
@@ -1154,6 +1182,29 @@ namespace DesktopFish.Editor
             float side=Mathf.Clamp01((Mathf.PI-Mathf.Abs(signed))/(Mathf.PI-1.12f));
             return Mathf.Sign(signed)*.75f*side;
         }
+        static readonly float[] RearHairHeights={.14f,.26f,.50f,.65f,.78f};
+        static readonly float[] RearHairOffsets={.165f,.205f,.145f,.120f,.120f};
+        static Vector3 RearHairPoint(Vector3 p) {
+            int k=0;while(k<RearHairHeights.Length-2&&p.y>RearHairHeights[k+1])k++;
+            float h=RearHairHeights[k+1]-RearHairHeights[k];
+            float t=Mathf.Clamp01((p.y-RearHairHeights[k])/h);
+            float offset=Mathf.Lerp(RearHairOffsets[k],RearHairOffsets[k+1],t*t*(3-2*t));
+            // Scaling the rounded upper shell in depth retains its crown arc;
+            // a height-only displacement would flatten the upper silhouette.
+            float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.78f,p.y));
+            float upper=Mathf.Clamp(.55f+1.6f*(p.y-.68f),.55f,1.05f)*Mathf.Max(0,-p.z);
+            offset=Mathf.Lerp(offset,upper,crown);
+            float rear=Mathf.Clamp01((.04f-p.z)/Mathf.Lerp(.24f,.16f,crown));
+            float gate=rear*rear*(3-2*rear);
+            return V(p.x,p.y,p.z-offset*gate);
+        }
+        static Vector3 ShapeRearHair(Vector3 p,out float dy,out float dz) {
+            const float e=.0001f;
+            dy=(RearHairPoint(p+V(0,e,0)).z-RearHairPoint(p-V(0,e,0)).z)/(2*e);
+            dz=(RearHairPoint(p+V(0,0,e)).z-RearHairPoint(p-V(0,0,e)).z)/(2*e);
+            return RearHairPoint(p);
+        }
+
         static Vector3 SweepHairSection(Vector3 p,float amount) {
             float sweep=amount*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.74f,.42f,p.y));
             float c=Mathf.Cos(sweep),s=Mathf.Sin(sweep);

@@ -86,9 +86,9 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{3,10,12,17,21,22,23,24,25}) {
+            foreach(int slot in new[]{3,10,12,15,16,17,21,22,23,24,25}) {
                 int[] triangles=baked.GetTriangles(slot);
-                foreach(float y in new[]{.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f}) {
+                foreach(float y in new[]{.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f}) {
                     var cuts=new System.Collections.Generic.List<Vector3>();
                     for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
                         Vector3 a=points[triangles[i+j]],b=points[triangles[i+(j+1)%3]];
@@ -101,7 +101,8 @@ namespace DesktopFish.Editor
                     var bounds=new Bounds(cuts[0],Vector3.zero);
                     foreach(var point in cuts)bounds.Encapsulate(point);
                     sections.Add(new HairSection{slot=slot,height=y,minimum=bounds.min,maximum=bounds.max,
-                        inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First()});
+                        inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First(),
+                        front=cuts.OrderByDescending(p=>p.z).First(),rear=cuts.OrderBy(p=>p.z).First()});
                 }
                 var isolated=UnityEngine.Object.Instantiate(baked);
                 for(int sub=0;sub<isolated.subMeshCount;sub++)
@@ -187,7 +188,7 @@ namespace DesktopFish.Editor
         }
         [Serializable] sealed class AccessoryReport {public PartBounds[] parts;}
         [Serializable] sealed class PartBounds {public int slot;public string name;public Vector3 minimum,maximum;}
-        [Serializable] sealed class HairSection {public int slot;public float height;public Vector3 minimum,maximum,inner,outer;}
+        [Serializable] sealed class HairSection {public int slot;public float height;public Vector3 minimum,maximum,inner,outer,front,rear;}
         [Serializable] sealed class HairSectionReport {public HairSection[] sections;}
         [Serializable] sealed class FaceSectionReport {public Landmark[] samples;}
         [Serializable] sealed class Landmark {public string name;public Vector3 position;}
