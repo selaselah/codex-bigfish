@@ -1691,13 +1691,13 @@ namespace DesktopFish.Editor
                 }
                 Grid(a.body,start,rows,sides);
             }
-            // A flat waist edge opens into a rounded rectangular cloth panel.
-            // Its surface drapes along the skirt; the lace follows only the U edge.
+            // A flat waist edge opens into a fuller oval cloth panel, with a
+            // curved lower outline. The gathered lace follows that same edge.
             var apronControls=new[]{V(-.078f,.374f,0),V(-.030f,.374f,0),V(.030f,.374f,0),V(.078f,.374f,0),
-                V(.090f,.350f,0),V(.104f,.296f,0),V(.098f,.262f,0),
-                V(.092f,.220f,0),V(.070f,.207f,0),V(0,.207f,0),
-                V(-.070f,.207f,0),V(-.092f,.220f,0),V(-.098f,.262f,0),
-                V(-.104f,.296f,0),V(-.090f,.350f,0),V(-.078f,.374f,0)};
+                V(.108f,.350f,0),V(.120f,.296f,0),V(.106f,.262f,0),
+                V(.092f,.226f,0),V(.052f,.207f,0),V(0,.207f,0),
+                V(-.052f,.207f,0),V(-.092f,.226f,0),V(-.106f,.262f,0),
+                V(-.120f,.296f,0),V(-.108f,.350f,0),V(-.078f,.374f,0)};
             var outline=Curve(apronControls,80);
             int apronStart=a.body.p.Count;const int apronRings=8;
             for(int row=0;row<=apronRings;row++)for(int i=0;i<outline.Length;i++) {
@@ -1754,6 +1754,12 @@ namespace DesktopFish.Editor
             float back=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.025f,-.060f,p.z));
             float depth=Mathf.Lerp(.9f*lower,1.25f*Mathf.Pow(lower,1.25f),back);
             p.z*=1+depth;
+            // A full middle section softens the straight cone into a bell.
+            // The waist and hem stay fixed, and all surface decoration travels
+            // with the same continuous map, including the large whale.
+            float fullness=Mathf.Sin(lower*Mathf.PI);
+            p.x*=1+.055f*fullness;
+            p.z*=1+Mathf.Lerp(.19f,.13f,back)*fullness;
             p.y=p.y>=.173f?p.y-.025f*lower:.148f+(p.y-.173f)*.85f;
             return p;
         }
