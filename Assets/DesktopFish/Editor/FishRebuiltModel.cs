@@ -1370,28 +1370,36 @@ namespace DesktopFish.Editor
                 a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.285f,.74f,.112f),
                     V(sign*.210f,.630f,.160f),V(sign*.114f,.618f,.160f)},.022f,head,false,4,
                     rootTaper:.22f,paintStart:.50f,cheekInset:.003f);
-                var inner=new[]{V(sign*.010f,.974f,.060f),V(sign*.030f,.93f,.17f),
-                    V(sign*.004f,.770f,.225f),V(sign*.165f,.700f,.158f)};
-                var outer=new[]{V(sign*.065f,.955f,.060f),V(sign*.170f,.93f,.14f),
-                    V(sign*.205f,.79f,.145f),V(sign*.165f,.700f,.158f)};
+                // The opening edge descends diagonally toward an outward,
+                // receding point; a broad round leaf obscures the brow instead.
+                var inner=new[]{V(sign*.010f,.970f,.090f),V(sign*.015f,.91f,.180f),
+                    V(sign*.035f,.87f,.207f),V(sign*.065f,.815f,.192f),
+                    V(sign*.085f,.775f,.195f),V(sign*.105f,.724f,.173f),V(sign*.178f,.706f,.111f)};
+                var outer=new[]{V(sign*.065f,.955f,.090f),V(sign*.150f,.91f,.100f),
+                    V(sign*.182f,.86f,.114f),V(sign*.183f,.815f,.113f),
+                    V(sign*.186f,.775f,.110f),V(sign*.184f,.724f,.110f),V(sign*.178f,.706f,.111f)};
+                var sidePaintGuide=new[]{V(0,.9645f,0),V(0,.93f,0),V(0,.780f,0),V(0,.700f,0)};
                 a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,sign,
-                    tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,edgeA:inner,edgeB:outer,frontLift:.015f);
+                    samples:24,fullness:.65f,tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,
+                    edgeA:inner,edgeB:outer,frontLift:.006f,paintGuide:sidePaintGuide);
             }
             // Three staggered central tips share a broad crown, rather than
             // tapering the entire fringe into one symmetrical wedge. The three
             // sections reuse the previous two sections' total 650 vertices.
-            var mainLeft=new[]{V(.026f,.978f,.055f),V(.052f,.94f,.18f),V(.057f,.845f,.236f),V(.048f,.770f,.232f),
-                V(.045f,.734f,.234f),V(.030f,.724f,.232f),V(.018f,.708f,.229f)};
-            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.051f,.94f,.18f),V(-.078f,.845f,.230f),V(-.060f,.770f,.225f),
-                V(-.060f,.742f,.223f),V(-.055f,.729f,.224f),V(-.045f,.709f,.225f)};
-            var splitA=mainLeft.Zip(mainRight,(l,r)=>Vector3.Lerp(l,r,1f/6)).ToArray();
-            var splitB=mainLeft.Zip(mainRight,(l,r)=>Vector3.Lerp(l,r,5f/6)).ToArray();
-            var leftInner=(Vector3[])splitA.Clone();
-            leftInner[4]=V(.031f,.746f,.237f);leftInner[5]=V(.021f,.728f,.233f);leftInner[6]=mainLeft[6];
-            var rightInner=(Vector3[])splitB.Clone();
-            rightInner[4]=V(-.040f,.746f,.235f);rightInner[5]=V(-.044f,.730f,.230f);rightInner[6]=mainRight[6];
-            splitA[4]=V(.030f,.740f,.240f);splitA[5]=V(.007f,.711f,.234f);splitA[6]=V(-.025f,.698f,.229f);
-            splitB[4]=V(-.047f,.744f,.236f);splitB[5]=V(-.042f,.724f,.232f);splitB[6]=splitA[6];
+            var mainLeft=new[]{V(.026f,.978f,.055f),V(.060f,.94f,.18f),V(.074f,.845f,.225f),V(.063f,.770f,.220f),
+                V(.058f,.734f,.218f),V(.043f,.724f,.214f),V(.032f,.710f,.211f)};
+            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.051f,.94f,.18f),V(-.085f,.845f,.221f),V(-.068f,.770f,.219f),
+                V(-.060f,.742f,.217f),V(-.048f,.729f,.215f),V(-.037f,.711f,.214f)};
+            // Offset overlapping edges give the middle brush its own sweep;
+            // equal-width partitions made three repeated dangling lobes.
+            var leftInner=new[]{V(.018f,.978f,.055f),V(.040f,.94f,.18f),V(.042f,.845f,.222f),V(.043f,.770f,.221f),
+                V(.029f,.746f,.222f),V(.030f,.728f,.215f),mainLeft[6]};
+            var splitA=new[]{V(.018f,.978f,.055f),V(.035f,.94f,.18f),V(.050f,.845f,.231f),V(.048f,.770f,.229f),
+                V(.037f,.740f,.226f),V(.004f,.714f,.221f),V(-.025f,.701f,.216f)};
+            var splitB=new[]{V(0,.978f,.055f),V(.005f,.94f,.18f),V(.004f,.845f,.231f),V(-.002f,.770f,.229f),
+                V(-.009f,.744f,.226f),V(-.014f,.724f,.222f),splitA[6]};
+            var rightInner=new[]{V(.005f,.978f,.055f),V(.012f,.94f,.18f),V(.010f,.845f,.228f),V(.006f,.770f,.226f),
+                V(.002f,.746f,.226f),V(-.005f,.730f,.218f),mainRight[6]};
             var paintGuide=new[]{V(0,.978f,0),V(0,.91f,0),V(0,.768f,0),V(0,.713f,0)};
             a.HairPanel(mainLeft.Zip(leftInner,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,2,
                 samples:16,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:mainLeft,edgeB:leftInner,paintGuide:paintGuide);
