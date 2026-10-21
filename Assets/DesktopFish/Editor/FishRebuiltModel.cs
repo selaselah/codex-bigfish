@@ -1029,15 +1029,17 @@ namespace DesktopFish.Editor
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
-        public static void RenderIdleSkinningAndBuild() {
+        public static void RenderIdleSkinningAndBuild() { BuildWithSkinningReview(false); }
+        public static void RenderIdleHandSkinningAndBuild() { BuildWithSkinningReview(true); }
+        static void BuildWithSkinningReview(bool includeHands) {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
             FishBuild.ValidateMotion(companion,motion,companion.model.GetComponentsInChildren<SkinnedMeshRenderer>());
-            RenderIdle();Build();
+            RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1071,6 +1073,8 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/rebuilt-angle-top.png",frame.EncodeToPNG());
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
             RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
+            var defaultHand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_R_Hand");
+            RenderDefaultHandStudy(camera,"work/rebuilt-hand-default",defaultHand.position+V(0,-.014f,.015f),1);
             // Inspect the skin separately from fringe occlusion. Head skin is
             // the first contiguous bone group in the authored body mesh.
             var bodySnapshot=snapshots[0];var completeBody=bodySnapshot.sharedMesh;
@@ -1088,6 +1092,10 @@ namespace DesktopFish.Editor
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(headOnly);
             if(includeSurfaceStudy)RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
             if(!includeMotion) {
+                if(includeHandReview) {
+                    RenderHandDetails(companion,motion,skins,snapshots,camera,"R");
+                    RenderHandDetails(companion,motion,skins,snapshots,camera,"L");
+                }
                 if(includeExpressions)RenderExpressionDetails(companion,motion,skins,snapshots,camera);
                 camera.targetTexture=null;RenderTexture.active=null;
                 UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
@@ -1181,6 +1189,23 @@ namespace DesktopFish.Editor
                     snapshots[i].sharedMesh=originalMeshes[i];snapshots[i].GetComponent<Renderer>().sharedMaterial=originalMaterials[i];
                 }
             }
+        }
+
+        public static void RenderDefaultHandStudy(Camera camera,string prefix,Vector3 focus,float scale) {
+            var position=camera.transform.position;var rotation=camera.transform.rotation;
+            float size=camera.orthographicSize,aspect=camera.aspect;var oldTarget=camera.targetTexture;
+            var target=new RenderTexture(512,512,24){antiAliasing=4};
+            var frame=new Texture2D(512,512,TextureFormat.RGBA32,false);
+            camera.targetTexture=target;camera.aspect=1;camera.orthographicSize=.064f*scale;
+            foreach(int angle in new[]{0,35,90}) {
+                camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.045f,.40f)*scale;
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,512,512),0,0);frame.Apply();
+                File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());
+            }
+            camera.targetTexture=oldTarget;RenderTexture.active=null;camera.aspect=aspect;camera.orthographicSize=size;
+            camera.transform.SetPositionAndRotation(position,rotation);
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 
         static void RenderHandDetails(FishCompanion companion,FishMotion motion,
@@ -2016,11 +2041,14 @@ namespace DesktopFish.Editor
                     float t=row/(float)palmRings,theta=j/(float)palmSides*Mathf.PI*2;
                     // Keep the wrist and its skinning transition fixed while
                     // shortening only the distal palm under the finger roots.
-                    float x=.319f+.062f*t-.003f*
+                    float x=.319f+.062f*t-.006f*
                         Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,t));
                     float cap=row==palmRings?0:
                         Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.72f)/.28f),2)));
-                    float ry=.018f*(1+.08f*Mathf.Sin(t*Mathf.PI))*cap;
+                    // A broad, soft metacarpal volume tapers into the knuckle
+                    // roots instead of ending as a thick oval over the fingers.
+                    float distal=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.36f,.82f,t));
+                    float ry=.018f*(1+.08f*Mathf.Sin(t*Mathf.PI))*cap*(1-.32f*distal);
                     float rz=(.019f+.007f*Mathf.Sin(t*Mathf.PI))*cap;
                     float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.326f,.350f,x));
                     a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*ry,Mathf.Sin(theta)*rz),

@@ -77,6 +77,9 @@ namespace DesktopFish.Editor
             ReviewFaceSections(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
+            var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
+            FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
+            ReviewHandBounds(reference,baked,skin,snapshot.transform);
             ReviewAccessoryComponents(baked,snapshot.transform,camera,bounds,frame,target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
@@ -87,6 +90,22 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
+        static void ReviewHandBounds(Mesh source,Mesh baked,SkinnedMeshRenderer skin,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var weights=source.boneWeights;
+            var parts=new System.Collections.Generic.List<PartBounds>();
+            foreach(string name in new[]{"Hand","Thumb","Index","Middle","Ring","Little"}) {
+                var selected=Enumerable.Range(0,skin.bones.Length).Where(i=>skin.bones[i].name.StartsWith("J_Bip_R_"+name)).ToArray();
+                var ids=source.GetTriangles(18).Distinct().Where(i=> {
+                    var w=weights[i];return (selected.Contains(w.boneIndex0)?w.weight0:0)+(selected.Contains(w.boneIndex1)?w.weight1:0)+
+                        (selected.Contains(w.boneIndex2)?w.weight2:0)+(selected.Contains(w.boneIndex3)?w.weight3:0)>.5f;
+                }).ToArray();
+                if(ids.Length==0)continue;var bounds=new Bounds(points[ids[0]],Vector3.zero);
+                foreach(int i in ids)bounds.Encapsulate(points[i]);
+                parts.Add(new PartBounds{slot=18,name=name,minimum=bounds.min,maximum=bounds.max});
+            }
+            File.WriteAllText("work/reference-review/hand-bounds.json",JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
+        }
+
         static void ReviewTorsoSections(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var samples=new System.Collections.Generic.List<Landmark>();
