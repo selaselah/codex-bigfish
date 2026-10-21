@@ -176,6 +176,7 @@ namespace DesktopFish.Editor
             var fringeProfiles=new System.Collections.Generic.List<Landmark>();
             var chestTips=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
+            var innerTips=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -249,6 +250,35 @@ namespace DesktopFish.Editor
                             camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
                             frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
                             File.WriteAllBytes("work/reference-review/side-curl-"+component+"-"+angle+".png",frame.EncodeToPNG());
+                        }
+                        filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
+                    }
+                    if(slot==16) {
+                        int component=index-1;string prefix="component-"+component;
+                        innerTips.Add(new Landmark{name=prefix+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
+                        var membership=new System.Collections.Generic.HashSet<int>(group);
+                        var selected=new System.Collections.Generic.List<int>();
+                        for(int i=0;i<triangles.Length;i+=3)if(membership.Contains(triangles[i]))
+                            selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                        foreach(float y in new[]{.075f,.10f,.13f,.18f,.24f,.30f,.40f}) {
+                            var cuts=new System.Collections.Generic.List<Vector3>();
+                            for(int i=0;i<selected.Count;i+=3)for(int j=0;j<3;j++) {
+                                Vector3 a=points[selected[i+j]],b=points[selected[i+(j+1)%3]];
+                                if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cuts.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));
+                            }
+                            if(cuts.Count==0)continue;
+                            innerTips.Add(new Landmark{name=prefix+"-left",position=cuts.OrderBy(p=>p.x).First()});
+                            innerTips.Add(new Landmark{name=prefix+"-right",position=cuts.OrderByDescending(p=>p.x).First()});
+                            innerTips.Add(new Landmark{name=prefix+"-rear",position=cuts.OrderBy(p=>p.z).First()});
+                        }
+                        var isolated=UnityEngine.Object.Instantiate(baked);
+                        for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
+                        var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+                        foreach(int angle in new[]{90,180}) {
+                            camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
+                            camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
+                            frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                            File.WriteAllBytes("work/reference-review/inner-lock-"+component+"-"+angle+".png",frame.EncodeToPNG());
                         }
                         filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
@@ -332,6 +362,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
+            File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
             File.WriteAllText("work/reference-review/side-curl-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=sideCurlSections.ToArray()},true));

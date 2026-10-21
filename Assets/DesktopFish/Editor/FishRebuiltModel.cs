@@ -415,6 +415,8 @@ namespace DesktopFish.Editor
             }
             public void HairMantle(int head) {
                 const int rows=16,cols=40;
+                int[] breaks={0,8,15,20,25,32,40};
+                float[] tips={.125f,.098f,.090f,.088f,.100f,.130f};
                 for(int layer=0;layer<1;layer++) {
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
@@ -435,10 +437,32 @@ namespace DesktopFish.Editor
                         float tip=Mathf.Pow(t,12)*(.018f+Mathf.Lerp(.014f,.040f,side*side)*(.5f+.5f*Mathf.Cos(theta*11)));
                         Vector3 p=V(Mathf.Sin(theta)*(rx+.007f*fold*t),y+tip,
                             Mathf.Cos(theta)*(rz+.006f*fold*t));
-                        Color color=Color.Lerp(Hair,Hex("3D619C"),t*.35f);
-                        color*=1-.18f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.12f,.4f,t))*(.5f-.5f*fold);
-                        color=Color.Lerp(color,Hex("4D94B3"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.85f,.99f,t)));color.a=1;
-                        body.Add(SweepHairSection(p,HairSweepAtAngle(theta)*1.25f),color,head);
+                        // The backing curtain has broad, longer lobes below the
+                        // shorter outer locks. Reuse its grid rather than stack
+                        // more narrow strips on top of the existing hair.
+                        int lobe=0;while(lobe<5&&i>breaks[lobe+1])lobe++;
+                        float across=Mathf.InverseLerp(breaks[lobe],breaks[lobe+1],i);
+                        float peak=lobe==2?.60f:lobe==3?.40f:.50f;
+                        float tipDistance=across<peak?across/peak:(1-across)/(1-peak);
+                        float rounded=Mathf.Pow(Mathf.Max(0,Mathf.Sin(tipDistance*Mathf.PI*.5f)),1.10f);
+                        float hem=Mathf.Lerp(.195f-.045f*side,tips[lobe],rounded);
+                        float extension=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,1,t));
+                        p=SweepHairSection(p,HairSweepAtAngle(theta)*1.25f);
+                        p.y+=extension*(hem-(.978f-.490f-.130f-Mathf.Lerp(.205f,.240f,side*side)+
+                            .018f+Mathf.Lerp(.014f,.040f,side*side)*(.5f+.5f*Mathf.Cos(theta*11))));
+                        float fullness=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.67f,.88f,t));
+                        // A fixed lower angular frame keeps the side curtain
+                        // behind the shoulder without twisting across uneven tips.
+                        float lowerAngle=theta+Mathf.Sign(Mathf.Sin(theta))*.85f*
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.10f,1,side));
+                        Vector3 lowerSection=V(Mathf.Sin(lowerAngle)*(.265f+.025f*side-.014f*extension),
+                            .40f,Mathf.Cos(lowerAngle)*(.250f-.014f*extension));
+                        p.x=Mathf.Lerp(p.x,lowerSection.x,fullness);
+                        p.z=Mathf.Lerp(p.z,lowerSection.z,fullness);
+                        float paintT=Mathf.InverseLerp(.98f,.09f,p.y);
+                        Color color=Color.white*(.96f-.025f*(1-rounded));color.a=1;
+                        body.Add(p,color,head,
+                            new Vector2(.75f+1/12f+.004f+across*.075f,.02f+.94f*paintT));
                     }
                     Grid(body,layerStart,rows,cols);
                 }
