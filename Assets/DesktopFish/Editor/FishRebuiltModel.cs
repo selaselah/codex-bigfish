@@ -169,14 +169,16 @@ namespace DesktopFish.Editor
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
                 float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
-                float cheekInset = -1, float frontLift = 0, float wrapDepth = 0, Vector3[] paintGuide = null) {
+                float cheekInset = -1, float frontLift = 0, float wrapDepth = 0, Vector3[] paintGuide = null,
+                bool surfaceThickness = false) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
                 var boundaryB=edgeB==null?null:Curve(edgeB,rows);
                 Vector3 facing=outward??Vector3.forward;
                 bool frontalSection=bone==ids["J_Bip_C_Head"]&&!outward.HasValue&&boundaryA!=null;
-                var frontalDepth=frontalSection?new float[(rows+1)*(sides+1)]:null;
+                bool normalSection=frontalSection||surfaceThickness;
+                var frontalDepth=normalSection?new float[(rows+1)*(sides+1)]:null;
                 int mid=rows/2;
                 float boundarySign=boundaryA==null?1:Mathf.Sign(Vector3.Dot(boundaryB[mid]-boundaryA[mid],
                     Vector3.Cross(path[mid+1]-path[mid-1],facing)));
@@ -241,7 +243,7 @@ namespace DesktopFish.Editor
                         // the other edge continues into a long swept point.
                         Vector3 p=boundaryA==null?path[row]+side*(u*edgeWidth*rootNeck):
                             Vector3.Lerp(boundaryA[row],boundaryB[row],(u*boundarySign+1)*.5f)+side*(u*.00015f);
-                        if(!frontalSection)p+=thicknessAxis*facet*thickness*rootNeck;
+                        if(!normalSection)p+=thicknessAxis*facet*thickness*rootNeck;
                         // Keep attachment weights and crown paint on their
                         // original guide while reshaping the visible cross-section.
                         float attachmentHeight=p.y;
@@ -317,7 +319,7 @@ namespace DesktopFish.Editor
                         // Deform the shared front/back mid-surface first. Applying
                         // thickness before the scalp clamp can fold the inner face
                         // back through the outer face around the narrow crown root.
-                        if(frontalSection)frontalDepth[row*(sides+1)+j]=facet*thickness*rootNeck;
+                        if(normalSection)frontalDepth[row*(sides+1)+j]=facet*thickness*rootNeck;
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,attachmentHeight)):0;
                         ridge=Mathf.Lerp(ridge,.97f,crown*.85f);
@@ -355,7 +357,7 @@ namespace DesktopFish.Editor
                         }
                     }
                 }
-                if(frontalSection) {
+                if(normalSection) {
                     var surface=body.p.Skip(start).ToArray();int half=sides/2;
                     for(int row=0;row<=rows;row++)for(int j=0;j<=sides;j++) {
                         int column=Mathf.Min(j,sides-j),index=row*(sides+1)+j;
@@ -1332,30 +1334,30 @@ namespace DesktopFish.Editor
                 // The front drape starts behind the temple, turns forward at
                 // the collar, and opens into a flat S-shaped tip. Independent
                 // edges keep that turn from twisting the lock into a tube.
-                var drapeInner=new[]{V(sign*.18f,.90f,.035f),V(sign*.19f,.84f,.052f),
-                    V(sign*.18f,.74f,.050f),V(sign*.155f,.655f,.055f),
-                    V(sign*.140f,.615f,.085f),V(sign*.130f,.57f,.100f),V(sign*.110f,.53f,.115f),
-                    V(sign*.105f,.51f,.130f),V(sign*.125f,.485f,.145f),V(sign*.140f,.46f,.145f),
-                    V(sign*.150f,.435f,.140f),V(sign*.148f,.400f,.138f),V(sign*.135f,.385f,.135f)};
-                var drapeOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.245f,.84f,.015f),
-                    V(sign*.242f,.74f,.012f),V(sign*.212f,.655f,-.015f),
-                    V(sign*.195f,.615f,.000f),V(sign*.170f,.57f,.015f),V(sign*.175f,.53f,.045f),
-                    V(sign*.190f,.51f,.070f),V(sign*.202f,.485f,.110f),V(sign*.190f,.46f,.130f),
-                    V(sign*.175f,.435f,.130f),V(sign*.148f,.400f,.133f),V(sign*.135f,.385f,.135f)};
+                var drapeInner=new[]{V(sign*.18f,.90f,.035f),V(sign*.19f,.84f,.045f),
+                    V(sign*.18f,.74f,.041f),V(sign*.160f,.655f,.042f),
+                    V(sign*.140f,.615f,.075f),V(sign*.130f,.57f,.110f),V(sign*.110f,.53f,.125f),
+                    V(sign*.105f,.51f,.150f),V(sign*.125f,.485f,.158f),V(sign*.145f,.46f,.146f),
+                    V(sign*.150f,.435f,.145f),V(sign*.148f,.400f,.147f),V(sign*.141f,.385f,.144f)};
+                var drapeOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.245f,.84f,-.030f),
+                    V(sign*.242f,.74f,-.034f),V(sign*.212f,.655f,-.022f),
+                    V(sign*.195f,.615f,-.005f),V(sign*.170f,.57f,.020f),V(sign*.175f,.53f,.048f),
+                    V(sign*.190f,.51f,.078f),V(sign*.202f,.485f,.110f),V(sign*.190f,.46f,.128f),
+                    V(sign*.175f,.435f,.137f),V(sign*.150f,.400f,.145f),V(sign*.141f,.385f,.144f)};
                 a.HairPanel(drapeInner.Zip(drapeOuter,(l,r)=>(l+r)*.5f).ToArray(),.030f,bone,true,5,
-                    fullness:.65f,tipPaintEase:.32f,edgeA:drapeInner,edgeB:drapeOuter,paintOffset:.25f,wrapDepth:.040f);
+                    fullness:.65f,tipPaintEase:.85f,edgeA:drapeInner,edgeB:drapeOuter,paintOffset:.08f,wrapDepth:.032f,surfaceThickness:true);
                 var layerInner=new[]{V(sign*.180f,.90f,.035f),V(sign*.180f,.84f,.052f),
-                    V(sign*.170f,.74f,.059f),V(sign*.166f,.655f,.085f),
-                    V(sign*.150f,.615f,.125f),V(sign*.147f,.57f,.142f),V(sign*.155f,.53f,.154f),
-                    V(sign*.165f,.51f,.165f),V(sign*.175f,.485f,.172f),V(sign*.172f,.46f,.171f),
-                    V(sign*.163f,.435f,.169f),V(sign*.150f,.40f,.168f),V(sign*.140f,.375f,.168f)};
+                    V(sign*.170f,.74f,.059f),V(sign*.166f,.655f,.080f),
+                    V(sign*.150f,.615f,.130f),V(sign*.147f,.57f,.151f),V(sign*.160f,.53f,.158f),
+                    V(sign*.170f,.51f,.165f),V(sign*.177f,.485f,.172f),V(sign*.177f,.46f,.171f),
+                    V(sign*.175f,.435f,.170f),V(sign*.157f,.40f,.172f),V(sign*.148f,.375f,.171f)};
                 var layerOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.225f,.84f,.015f),
                     V(sign*.215f,.74f,.012f),V(sign*.201f,.655f,.024f),
                     V(sign*.187f,.615f,.043f),V(sign*.185f,.57f,.057f),V(sign*.191f,.53f,.086f),
-                    V(sign*.210f,.51f,.119f),V(sign*.210f,.485f,.140f),V(sign*.200f,.46f,.155f),
-                    V(sign*.177f,.435f,.162f),V(sign*.158f,.40f,.167f),V(sign*.140f,.375f,.168f)};
+                    V(sign*.218f,.51f,.110f),V(sign*.224f,.485f,.118f),V(sign*.210f,.46f,.135f),
+                    V(sign*.189f,.435f,.152f),V(sign*.160f,.40f,.169f),V(sign*.148f,.375f,.171f)};
                 a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
-                    samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.45f,paintOffset:.25f,wrapDepth:.010f);
+                    samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.92f,paintOffset:.08f,wrapDepth:.010f,surfaceThickness:true);
                 // Independently drawn edges keep the temple broad while the
                 // inner edge curls around the cheek into staggered lower tips.
                 var cheekInner=new[]{V(sign*.050f,.970f,.045f),V(sign*.140f,.94f,.14f),
