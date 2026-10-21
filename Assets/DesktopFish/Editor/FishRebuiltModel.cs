@@ -1319,6 +1319,7 @@ namespace DesktopFish.Editor
         {
             int rearStart=a.body.p.Count;
             a.HairMantle(head);
+            int mantleEnd=a.body.p.Count;
             int start=a.body.p.Count; const int rings=14,sides=40;
             for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
                 float theta=x*Mathf.PI*2/sides,front=(Mathf.Cos(theta)+1)*.5f;
@@ -1395,6 +1396,7 @@ namespace DesktopFish.Editor
                 }
                 Vector3 massSlope=RearMassSlope(shaped);
                 a.body.p[i]=RoundRearMass(shaped);
+                if(i<mantleEnd)a.body.p[i]=InnerEdgePoint(a.body.p[i]);
                 if(a.body.normalBlends.TryGetValue(i,out var blend)) {
                     Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz);
                     n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;
@@ -1567,6 +1569,18 @@ namespace DesktopFish.Editor
                     samples:12,fullness:.50f,tipStart:.45f,edgeA:inner,edgeB:outer,rootTaper:.35f,
                     paintOffset:.57f,tipPaintEase:.92f,surfaceThickness:true);
             }
+        }
+
+        // Height-based shaping keeps the uneven inner hem in one consistent
+        // frame: the side edge opens at the waist and returns at the tip.
+        static Vector3 InnerEdgePoint(Vector3 p) {
+            float edge=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.11f,.24f,Mathf.Abs(p.x)));
+            float tip=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.26f,.145f,p.y));
+            float waist=.12f*Mathf.Exp(-Mathf.Pow((p.y-.35f)/.065f,2));
+            p.x*=1-edge*(waist+.14f*tip);
+            float shoulder=.085f*Mathf.Exp(-Mathf.Pow((p.y-.60f)/.13f,2));
+            p.z-=edge*(.085f*tip+shoulder);
+            return p;
         }
 
         static float HairSweepAtAngle(float angle) {
