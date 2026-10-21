@@ -983,6 +983,18 @@ namespace DesktopFish.Editor
             BuildLimbs(a, hips, chest);
             BuildAccessories(a, head, chest, hips);
             BuildChestForks(a);
+            // Shape the default upper garment as one volume. The chest share
+            // of the sleeve roots follows it; bone/skin attachment data stays fixed.
+            for(int i=0;i<a.body.p.Count;i++) {
+                var w=a.body.weights[i];var p=a.body.p[i];
+                float chestShare=(w.boneIndex0==chest?w.weight0:0)+(w.boneIndex1==chest?w.weight1:0);
+                if(chestShare>0)p=Vector3.Lerp(p,ChestVolumePoint(p),chestShare);
+                if(w.boneIndex0==neck) {
+                    float t=Mathf.InverseLerp(.520f,.590f,p.y);
+                    p.z-=.025f*Mathf.Sin(t*Mathf.PI);
+                }
+                a.body.p[i]=p;
+            }
             // Compress the body continuously below the neck. Head and facial morph
             // coordinates stay intact; garment, hair ends and joints share the map.
             Func<Vector3,Vector3> compact=p=>V(p.x,p.y<.585f?.585f-(.585f-p.y)*.88f:p.y,p.z);
@@ -1747,6 +1759,15 @@ namespace DesktopFish.Editor
             // while giving the hem a deeper, longer bell silhouette.
             for(int i=dressStart;i<a.body.p.Count;i++)
                 if(a.body.weights[i].boneIndex0==hips)a.body.p[i]=DressVolume(a.body.p[i]);
+        }
+
+        static Vector3 ChestVolumePoint(Vector3 p) {
+            float t=Mathf.InverseLerp(.375f,.576f,p.y);
+            float front=Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.070f,.070f,p.z));
+            float offset=.022f*Mathf.Sin(t*Mathf.PI)-.052f*
+                Mathf.SmoothStep(0,1,Mathf.InverseLerp(.38f,.90f,t));
+            p.z+=offset*front;
+            return p;
         }
 
         static Vector3 DressVolume(Vector3 p) {

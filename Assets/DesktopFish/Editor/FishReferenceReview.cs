@@ -76,6 +76,7 @@ namespace DesktopFish.Editor
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
+            ReviewTorsoSections(baked,snapshot.transform);
             ReviewAccessoryComponents(baked,snapshot.transform,camera,bounds,frame,target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
@@ -86,6 +87,26 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
+        static void ReviewTorsoSections(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            var triangles=baked.GetTriangles(37);
+            foreach(float y in new[]{.26f,.28f,.30f,.32f,.34f,.36f,.38f}) {
+                var cuts=new System.Collections.Generic.List<Vector3>();
+                for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
+                    var a=points[triangles[i+j]];var b=points[triangles[i+(j+1)%3]];
+                    if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)) {
+                        var p=Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y));
+                        if(Mathf.Abs(p.x)<.055f)cuts.Add(p);
+                    }
+                }
+                if(cuts.Count==0)continue;
+                samples.Add(new Landmark{name="center-front",position=cuts.OrderByDescending(p=>p.z).First()});
+                samples.Add(new Landmark{name="center-rear",position=cuts.OrderBy(p=>p.z).First()});
+            }
+            File.WriteAllText("work/reference-review/torso-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
         static void ReviewFinSections(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<PartBounds>();
