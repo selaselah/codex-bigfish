@@ -169,7 +169,7 @@ namespace DesktopFish.Editor
                 float rootScale = 1, float backSweep = 0, float sideTurn = 0, float fullness = 1,
                 float lowerWidth = 1, float tipBias = 0, float tipPower = 0, float rootTaper = 0, float paintStart = 0,
                 float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
-                float cheekInset = -1, float frontLift = 0) {
+                float cheekInset = -1, float frontLift = 0, float wrapDepth = 0) {
                 int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
@@ -305,6 +305,9 @@ namespace DesktopFish.Editor
                         // Lift the overlying fringe as a complete thin section so
                         // its junction cannot cut through the wrapped cheek surface.
                         p.z+=frontLift*Mathf.Max(0,Mathf.Sin(t*Mathf.PI));
+                        if(wrapDepth>0)p.z+=wrapDepth*(1-u*u)*
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.405f,.530f,p.y))*
+                            (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.650f,.740f,p.y)));
                         // Sweep the complete section rearward below the crown.
                         // Deforming the frame with the vertices retains its width
                         // and curled tips while leaving the shared roots in place.
@@ -859,6 +862,13 @@ namespace DesktopFish.Editor
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
+        public static void RenderIdleSkinningAndBuild() {
+            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion=new FishMotion(companion.model){randomActions=false};
+            FishBuild.ValidateMotion(companion,motion,companion.model.GetComponentsInChildren<SkinnedMeshRenderer>());
+            RenderIdle();Build();
+        }
         public static void RenderAngles() { RenderAngles(true); }
         static void RenderAngles(bool includeMotion,bool includeExpressions=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
@@ -1196,20 +1206,29 @@ namespace DesktopFish.Editor
                 // the collar, and opens into a flat S-shaped tip. Independent
                 // edges keep that turn from twisting the lock into a tube.
                 var drapeInner=new[]{V(sign*.18f,.90f,.035f),V(sign*.19f,.84f,.052f),
-                    V(sign*.18f,.74f,.050f),V(sign*.140f,.655f,.075f),
-                    V(sign*.120f,.615f,.065f),V(sign*.140f,.57f,.090f),V(sign*.125f,.53f,.115f),
-                    V(sign*.115f,.51f,.140f),V(sign*.145f,.485f,.15f),V(sign*.15f,.46f,.15f),
-                    V(sign*.155f,.435f,.15f),V(sign*.145f,.4f,.15f),V(sign*.12f,.385f,.15f)};
+                    V(sign*.18f,.74f,.050f),V(sign*.155f,.655f,.055f),
+                    V(sign*.140f,.615f,.085f),V(sign*.130f,.57f,.100f),V(sign*.110f,.53f,.115f),
+                    V(sign*.105f,.51f,.130f),V(sign*.125f,.485f,.145f),V(sign*.140f,.46f,.145f),
+                    V(sign*.150f,.435f,.140f),V(sign*.148f,.400f,.138f),V(sign*.135f,.385f,.135f)};
                 var drapeOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.245f,.84f,.015f),
-                    V(sign*.242f,.74f,.012f),V(sign*.212f,.655f,.020f),
-                    V(sign*.195f,.615f,.015f),V(sign*.165f,.57f,.100f),V(sign*.175f,.53f,.120f),
-                    V(sign*.180f,.51f,.140f),V(sign*.207f,.49f,.14f),V(sign*.195f,.46f,.14f),
-                    V(sign*.180f,.435f,.14f),V(sign*.153f,.4f,.148f),V(sign*.12f,.385f,.15f)};
+                    V(sign*.242f,.74f,.012f),V(sign*.212f,.655f,-.015f),
+                    V(sign*.195f,.615f,.000f),V(sign*.170f,.57f,.015f),V(sign*.175f,.53f,.045f),
+                    V(sign*.190f,.51f,.070f),V(sign*.202f,.485f,.110f),V(sign*.190f,.46f,.130f),
+                    V(sign*.175f,.435f,.130f),V(sign*.148f,.400f,.133f),V(sign*.135f,.385f,.135f)};
                 a.HairPanel(drapeInner.Zip(drapeOuter,(l,r)=>(l+r)*.5f).ToArray(),.030f,bone,true,5,
-                    fullness:.65f,tipPaintEase:.32f,edgeA:drapeInner,edgeB:drapeOuter,paintOffset:.25f);
-                a.HairPanel(new[]{V(sign*.155f,.555f,.100f),V(sign*.150f,.530f,.130f),
-                    V(sign*.180f,.510f,.145f),V(sign*.205f,.485f,.140f)},.014f,bone,true,6,
-                    sideTurn:sign*12,fullness:.65f,rootTaper:.50f,tipStart:.52f,tipPaintEase:.65f,paintOffset:.62f);
+                    fullness:.65f,tipPaintEase:.32f,edgeA:drapeInner,edgeB:drapeOuter,paintOffset:.25f,wrapDepth:.040f);
+                var layerInner=new[]{V(sign*.180f,.90f,.035f),V(sign*.180f,.84f,.052f),
+                    V(sign*.170f,.74f,.059f),V(sign*.166f,.655f,.085f),
+                    V(sign*.150f,.615f,.125f),V(sign*.147f,.57f,.142f),V(sign*.155f,.53f,.154f),
+                    V(sign*.165f,.51f,.165f),V(sign*.175f,.485f,.172f),V(sign*.172f,.46f,.171f),
+                    V(sign*.163f,.435f,.169f),V(sign*.150f,.40f,.168f),V(sign*.140f,.375f,.168f)};
+                var layerOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.225f,.84f,.015f),
+                    V(sign*.215f,.74f,.012f),V(sign*.201f,.655f,.024f),
+                    V(sign*.187f,.615f,.043f),V(sign*.185f,.57f,.057f),V(sign*.191f,.53f,.086f),
+                    V(sign*.210f,.51f,.119f),V(sign*.210f,.485f,.140f),V(sign*.200f,.46f,.155f),
+                    V(sign*.177f,.435f,.162f),V(sign*.158f,.40f,.167f),V(sign*.140f,.375f,.168f)};
+                a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
+                    samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.45f,paintOffset:.25f,wrapDepth:.010f);
                 // Cheek locks end inward above the jaw, leaving the lower
                 // cheeks visible. The broad temple follows the crown contour.
                 a.HairPanel(new[]{V(sign*.075f,.96f,.045f),V(sign*.215f,.92f,.12f),

@@ -74,7 +74,7 @@ namespace DesktopFish.Editor
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
-            ReviewAccessoryComponents(baked,snapshot.transform);
+            ReviewAccessoryComponents(baked,snapshot.transform,camera,bounds,frame,target);
             File.WriteAllText("work/reference-review/stats.json", JsonUtility.ToJson(new Stats {
                 vertices=reference.vertexCount,
                 totalTriangles=Enumerable.Range(0,reference.subMeshCount).Sum(s=>(int)reference.GetIndexCount(s)/3),
@@ -139,11 +139,12 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/hair-hem.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
-        static void ReviewAccessoryComponents(Mesh baked,Transform snapshot) {
+        static void ReviewAccessoryComponents(Mesh baked,Transform snapshot,Camera camera,Bounds total,Texture2D frame,RenderTexture target) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var parts=new System.Collections.Generic.List<PartBounds>();
             var coverage=new System.Collections.Generic.List<HairSection>();
             var profiles=new System.Collections.Generic.List<Landmark>();
+            var chestSections=new System.Collections.Generic.List<HairSection>();
             foreach(int slot in new[]{1,4,6,12,15,16,22,23,24,25}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -158,12 +159,43 @@ namespace DesktopFish.Editor
                 }
                 int index=0;
                 var rearVertices=new System.Collections.Generic.HashSet<int>();
+                var chestVertices=new System.Collections.Generic.HashSet<int>();
                 foreach(var group in used.GroupBy(i=>root(i)).OrderByDescending(g=>g.Count())) {
                     var bounds=new Bounds(points[group.First()],Vector3.zero);
                     foreach(int i in group)bounds.Encapsulate(points[i]);
                     parts.Add(new PartBounds{slot=slot,name="component-"+(index++),minimum=bounds.min,maximum=bounds.max});
                     if((slot==15||slot==16)&&bounds.min.z<-.1f&&bounds.min.y<.2f)
                         foreach(int i in group)rearVertices.Add(i);
+                    if(slot==15&&bounds.min.z>0)foreach(int i in group)chestVertices.Add(i);
+                }
+                if(slot==15) {
+                    var selected=new System.Collections.Generic.List<int>();
+                    for(int i=0;i<triangles.Length;i+=3)if(chestVertices.Contains(triangles[i]))
+                        selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                    foreach(float y in new[]{.25f,.275f,.30f,.325f,.35f,.375f,.40f,.45f,.50f,.55f}) {
+                        var cuts=new System.Collections.Generic.List<Vector3>();
+                        for(int i=0;i<selected.Count;i+=3)for(int j=0;j<3;j++) {
+                            Vector3 a=points[selected[i+j]],b=points[selected[i+(j+1)%3]];
+                            if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)) {
+                                Vector3 p=Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y));if(p.x>=0)cuts.Add(p);
+                            }
+                        }
+                        if(cuts.Count==0)continue;
+                        var bounds=new Bounds(cuts[0],Vector3.zero);foreach(var p in cuts)bounds.Encapsulate(p);
+                        chestSections.Add(new HairSection{slot=slot,height=y,minimum=bounds.min,maximum=bounds.max,
+                            inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First(),
+                            front=cuts.OrderByDescending(p=>p.z).First(),rear=cuts.OrderBy(p=>p.z).First()});
+                    }
+                    var isolated=UnityEngine.Object.Instantiate(baked);
+                    for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
+                    var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+                    foreach(int angle in new[]{0,35,90}) {
+                        camera.transform.position=total.center+Quaternion.Euler(0,angle,0)*new Vector3(0,.24f,3);
+                        camera.transform.LookAt(total.center);camera.Render();RenderTexture.active=target;
+                        frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                        File.WriteAllBytes("work/reference-review/chest-15-"+angle+".png",frame.EncodeToPNG());
+                    }
+                    filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                 }
                 // The outer-hair material also contains front chest locks.
                 // Measure only connected rear components, so their positive-Z
@@ -205,6 +237,7 @@ namespace DesktopFish.Editor
                     }
             }
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
+            File.WriteAllText("work/reference-review/chest-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=chestSections.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
