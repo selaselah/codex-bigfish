@@ -830,10 +830,10 @@ namespace DesktopFish.Editor
             const int size=1024;
             var texture=new Texture2D(size,size,TextureFormat.RGBA32,false);
             var pixels=new Color[size*size];
-            float[] brushCenters={.10f,.46f,.85f};
-            float[] brushStarts={.59f,.71f,.64f};
-            float[] brushWidths={.29f,.23f,.27f};
-            float[] reflectionCenters={.37f,.61f,.44f},reflectionHeights={.32f,.39f,.35f},reflectionBends={.18f,-.15f,.10f};
+            float[] brushCenters={.08f,.48f,.88f};
+            float[] brushStarts={.56f,.68f,.61f};
+            float[] brushWidths={.43f,.35f,.40f};
+            float[] reflectionCenters={.48f,.52f,.46f},reflectionHeights={.33f,.35f,.34f},reflectionBends={.08f,-.06f,.05f};
             for(int y=0;y<size;y++)for(int x=0;x<size;x++) {
                 float ax=x/(float)(size-1),ay=y/(float)(size-1);
                 int strip=Mathf.Min(3,(int)(ax*4));bool cyan=strip==3;
@@ -842,9 +842,9 @@ namespace DesktopFish.Editor
                 if(cyan)u=Mathf.Clamp01((ax-.75f-longPaint/12f-.004f)/.075f);
                 float t=Mathf.Clamp01((ay-.02f)/.94f);
                 float edge=Mathf.Pow(Mathf.Abs(u*2-1),8);
-                Color baseColor=Color.Lerp(Hex("2B4588"),Hex("4165A1"),Mathf.Sin(t*Mathf.PI)*.50f);
+                Color baseColor=Color.Lerp(Hex("2B4B9E"),Hex("365DB6"),Mathf.Sin(t*Mathf.PI)*.50f);
                 if(!cyan)baseColor=Color.Lerp(Hex("1E3888"),Hex("486FB3"),Mathf.Sin(t*Mathf.PI)*.65f);
-                float ends=cyan?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.95f,t))*.90f:
+                float ends=cyan?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.56f,.85f,t))*.96f:
                     Mathf.SmoothStep(0,1,Mathf.InverseLerp(.76f,1,t));
                 if(cyan) {
                     // Broad, tapered brush shapes grow upward from the tips.
@@ -857,16 +857,16 @@ namespace DesktopFish.Editor
                         brush=Mathf.Max(brush,PaintBrush(u,t,brushCenters[k]+shift,top,
                             brushWidths[k],.045f*Mathf.Sin(k*1.7f+longPaint)));
                     }
-                    ends=Mathf.Max(ends,brush*.90f);
+                    ends=Mathf.Max(ends,brush*.94f);
                 }
-                baseColor=Color.Lerp(baseColor,cyan?Hex("59BED8"):Hex("8C8CB7"),ends);
+                baseColor=Color.Lerp(baseColor,cyan?Hex("67C0F0"):Hex("8C8CB7"),ends);
                 if(cyan) {
                     // A few blue tongues extend into the cyan, separating broad
                     // painted masses without outlining every individual strand.
                     float blue=PaintBrush(u,1-t,.24f+longPaint*.065f,.045f,.072f,-.035f);
                     blue=Mathf.Max(blue,PaintBrush(u,1-t,.72f-longPaint*.055f,.10f,.047f,.025f));
                     blue*=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.59f,.75f,t));
-                    baseColor=Color.Lerp(baseColor,Hex("385B99"),blue*.70f);
+                    baseColor=Color.Lerp(baseColor,Hex("345391"),blue*.38f);
                 }
                 if(cyan) {
                     // Wide curved reflection bands describe the joined upper
@@ -874,19 +874,19 @@ namespace DesktopFish.Editor
                     float center=reflectionCenters[longPaint];
                     float height=reflectionHeights[longPaint];
                     float bend=reflectionBends[longPaint];
-                    float du=(u-center-bend*Mathf.Sin((t-.14f)*Mathf.PI*2))/.85f;
+                    float du=(u-center-bend*Mathf.Sin((t-.14f)*Mathf.PI*2))/1.7f;
                     float dt=(t-height-.035f*Mathf.Cos((u-.5f)*Mathf.PI))/.16f;
                     float envelope=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.10f,.18f,t))*
                         (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.58f,t)));
                     float reflection=Mathf.Exp(-du*du*1.4f-dt*dt)*envelope;
-                    baseColor=Color.Lerp(baseColor,Hex("668CC5"),reflection*.24f);
+                    baseColor=Color.Lerp(baseColor,Hex("5475BC"),reflection*.40f);
                 }
                 // Slightly wandering broad streaks and finer tip strokes retain
                 // strand detail without a uniform comb of vertical stripes.
                 float strand=Mathf.Sin(u*43+t*3+Mathf.Sin(t*7+u*5))*.006f+
                     Mathf.Sin(u*19-t*2)*.012f;
-                float edgeContrast=cyan?Mathf.Lerp(.02f,.18f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.06f;
-                baseColor*=1-edge*edgeContrast+strand;
+                float edgeContrast=cyan?Mathf.Lerp(.008f,.055f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.06f;
+                baseColor*=1-edge*edgeContrast+strand*(cyan?.40f:1);
                 if(!cyan)baseColor*=1-.15f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.93f,1,Mathf.Abs(u*2-1)));
                 float glints=0;
                 if(!cyan) {
