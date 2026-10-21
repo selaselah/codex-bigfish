@@ -44,6 +44,7 @@ namespace DesktopFish.Editor
             public readonly List<int> tri = new List<int>();
             public readonly Dictionary<int,Vector4> normalBlends = new Dictionary<int,Vector4>();
             public readonly List<Vector2Int> smoothNormalPairs = new List<Vector2Int>();
+            public readonly Dictionary<int,List<int>> splitNormalCorners = new Dictionary<int,List<int>>();
             public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
                 p.Add(v); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
                 weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
@@ -52,6 +53,13 @@ namespace DesktopFish.Editor
             }
             public void Face(int a, int b, int c) { tri.Add(a); tri.Add(b); tri.Add(c); }
             public Mesh Build(string name, Transform root, Transform[] bones) {
+                // Duplicate only a shared normal boundary, after all parts have
+                // been authored, so existing vertex indices and skinning stay stable.
+                foreach(var edge in splitNormalCorners.OrderBy(e=>e.Key)) {
+                    int source=edge.Key,target=p.Count;
+                    p.Add(p[source]);colors.Add(colors[source]);uv.Add(uv[source]);weights.Add(weights[source]);
+                    foreach(int corner in edge.Value)tri[corner]=target;
+                }
                 if (p.Any(v => float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
                     float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z)))
                     throw new InvalidOperationException("Non-finite authored mesh vertex: " + name);
@@ -253,7 +261,7 @@ namespace DesktopFish.Editor
                             attachmentHeight=Mathf.Lerp(attachmentHeight,.765f+(.215f+lift)*height,
                                 Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.86f,attachmentHeight)));
                         }
-                        if(outward.HasValue&&path[row].y>.550f) {
+                        if(outward.HasValue&&path[row].y>.480f) {
                             // Neighboring upper locks share angular section edges.
                             // Curving each complete section avoids nine flat plates
                             // while retaining the existing longitudinal guides.
@@ -263,7 +271,7 @@ namespace DesktopFish.Editor
                             float theta=centerAngle-u*(Mathf.PI*2-2*1.12f)/16;
                             Vector3 rounded=V(Mathf.Sin(theta)*(rx+front*.0025f),path[row].y,
                                 Mathf.Cos(theta)*(rz+front*.0025f));
-                            p=Vector3.Lerp(p,rounded,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,path[row].y)));
+                            p=Vector3.Lerp(p,rounded,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,path[row].y)));
                         }
                         if(outward.HasValue&&p.y>.72f) {
                             // Wrap the whole width around the scalp, not just the
@@ -348,7 +356,7 @@ namespace DesktopFish.Editor
                         }
                         int vertex=body.Add(p,shade,bone,new Vector2(paintU,
                             .02f+.94f*Mathf.Clamp01(paintT+.021f*Mathf.Sin(phase))),head,anchored);
-                        if(crown>0&&front>=-.001f) {
+                        if(crown>0&&front>=-.001f&&j<sides) {
                             // A shared scalp normal joins the exposed root faces;
                             // the closed inner surface and lower locks retain their own normals.
                             Vector3 normal=V(p.x/(.2365f*.2365f),(p.y-.765f)/(.2195f*.2195f),
@@ -390,6 +398,20 @@ namespace DesktopFish.Editor
                 int firstTriangle=body.tri.Count;
                 Grid(body,start,rows,sides);
                 ReverseFaces(body,firstTriangle);
+                if(outward.HasValue) {
+                    // Column zero and the closing column already have distinct
+                    // vertices. Split the other shared edge for the inward half,
+                    // keeping joined exterior normals off the hidden inner faces.
+                    for(int k=firstTriangle;k<body.tri.Count;k+=3) {
+                        if(Enumerable.Range(k,3).Any(c=>(body.tri[c]-start)%(sides+1)<sides/2))continue;
+                        for(int c=k;c<k+3;c++) {
+                            int vertex=body.tri[c];
+                            if((vertex-start)%(sides+1)!=sides/2)continue;
+                            if(!body.splitNormalCorners.ContainsKey(vertex))body.splitNormalCorners[vertex]=new List<int>();
+                            body.splitNormalCorners[vertex].Add(c);
+                        }
+                    }
+                }
             }
             public void HairMantle(int head) {
                 const int rows=16,cols=40;
@@ -1235,7 +1257,7 @@ namespace DesktopFish.Editor
                 float lift=new[]{.008f,.055f,.022f,.085f,.035f}[group];
                 float layer=new[]{.008f,-.006f,.013f,-.010f,.006f}[group];
                 float lowerWidth=new[]{.77f,.66f,.80f,.70f,.78f}[group];
-                float taperAt=new[]{.68f,.66f,.67f,.65f,.66f}[group];
+                float taperAt=new[]{.74f,.73f,.75f,.72f,.73f}[group];
                 var controls=new[]{radial(.008f,.979f,.006f),radial(.150f,.979f,.118f),
                     radial(.244f,.88f,.192f),radial(.244f,.735f,.192f),
                     radial(.244f,.65f,.205f),radial(.243f+layer*.25f,.56f,.225f+layer*.25f),
@@ -1255,7 +1277,7 @@ namespace DesktopFish.Editor
                 }
                 a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
                     tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias,
-                    tipPower:new[]{.75f,.46f,.60f,.48f,.50f}[group]);
+                    tipPower:new[]{.60f,.38f,.47f,.38f,.40f}[group]);
             }
             // The rear volume shares one depth profile across the cap, inner
             // mantle and long locks. This keeps their overlap intact as the
@@ -1273,7 +1295,7 @@ namespace DesktopFish.Editor
                     // Translate each lower section as a whole; independently
                     // stretching its front and rear edges produces a broad paddle.
                     Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
-                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,sectionCenter.y));
+                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,sectionCenter.y));
                     shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
                     int lockIndex=(i-radialStart)/405,group=Mathf.Min(lockIndex,8-lockIndex);
                     float side=1-group/4f;
@@ -1286,10 +1308,13 @@ namespace DesktopFish.Editor
                     coverageSlope=Vector3.Scale((SideHairCoverage(sectionCenter.y+.0001f)-
                         SideHairCoverage(sectionCenter.y-.0001f))/.0002f,scale);
                 }
-                a.body.p[i]=shaped;
+                Vector3 massSlope=RearMassSlope(shaped);
+                a.body.p[i]=RoundRearMass(shaped);
                 if(a.body.normalBlends.TryGetValue(i,out var blend)) {
                     Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz);
-                    n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;n.Normalize();
+                    n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;
+                    n=V(n.x-massSlope.x*n.z/(1+massSlope.z),
+                        n.y-massSlope.y*n.z/(1+massSlope.z),n.z/(1+massSlope.z)).normalized;
                     a.body.normalBlends[i]=new Vector4(n.x,n.y,n.z,blend.w);
                 }
             }
@@ -1300,7 +1325,7 @@ namespace DesktopFish.Editor
                 for(int j=0;j<=4;j++) {
                     int index=radialStart+lockIndex*405+row*9+j;
                     Vector3 p=a.body.p[index];
-                    float join=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.550f,.680f,p.y))*
+                    float join=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,p.y))*
                         (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.820f,.900f,p.y)));
                     if(join<=0)continue;
                     Vector3 along=a.body.p[index+9]-a.body.p[index-9];
@@ -1315,7 +1340,20 @@ namespace DesktopFish.Editor
                     }
                     var target=new Vector4(normal.x,normal.y,normal.z,weight);
                     a.body.normalBlends[index]=target;
-                    if(j==0)a.body.normalBlends[index+8]=target;
+                    // The closing column belongs only to the inward half.
+                }
+            // Tiny closed ends need a section derivative rather than the
+            // area average of the thin closing faces. Preserve a rounded tip
+            // without letting its inward face darken the visible outer edge.
+            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=37;row<=44;row++)
+                for(int j=0;j<=8;j++) {
+                    int root=radialStart+lockIndex*405,index=root+row*9+j;
+                    Vector3 along=a.body.p[root+Mathf.Min(44,row+1)*9+j]-
+                        a.body.p[root+Mathf.Max(0,row-1)*9+j];
+                    Vector3 across=a.body.p[root+row*9+(j+1)%8]-a.body.p[root+row*9+(j+7)%8];
+                    Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
+                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(37,40,row));
+                    a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
@@ -1448,6 +1486,23 @@ namespace DesktopFish.Editor
         static readonly float[] SideCoverageY={.13f,.215f,.274f,.338f,.422f,.530f,.605f,.655f,.717f,.779f,.836f,.906f};
         static readonly float[] SideCoverageX={0,.030f,.025f,0,-.010f,.005f,.030f,.060f,.065f,.050f,.025f,0};
         static readonly float[] SideCoverageZ={0,.040f,.050f,.065f,.045f,-.060f,-.130f,-.160f,-.170f,-.150f,-.080f,0};
+        // Keep the rear center depth while rounding the shoulder of each
+        // horizontal section. The old broad, almost flat back over-inflated
+        // the sides; all rear layers share the same continuous correction.
+        static float RearMassOffset(Vector3 p) {
+            float band=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.340f,.530f,p.y))*
+                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.800f,.925f,p.y)));
+            float rear=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.180f,.025f,p.z));
+            return Mathf.Min(.115f,1.5f*p.x*p.x)*band*rear;
+        }
+        static Vector3 RoundRearMass(Vector3 p) => p+V(0,0,RearMassOffset(p));
+        static Vector3 RearMassSlope(Vector3 p) {
+            const float e=.0001f;
+            return V((RearMassOffset(p+V(e,0,0))-RearMassOffset(p-V(e,0,0)))/(2*e),
+                (RearMassOffset(p+V(0,e,0))-RearMassOffset(p-V(0,e,0)))/(2*e),
+                (RearMassOffset(p+V(0,0,e))-RearMassOffset(p-V(0,0,e)))/(2*e));
+        }
+
         static Vector3 SideHairCoverage(float y) {
             if(y<=SideCoverageY[0]||y>=SideCoverageY[SideCoverageY.Length-1])return Vector3.zero;
             int i=0;while(y>SideCoverageY[i+1])i++;
