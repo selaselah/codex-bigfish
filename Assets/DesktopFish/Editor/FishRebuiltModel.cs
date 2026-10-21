@@ -175,6 +175,8 @@ namespace DesktopFish.Editor
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
                 var boundaryB=edgeB==null?null:Curve(edgeB,rows);
                 Vector3 facing=outward??Vector3.forward;
+                bool frontalSection=bone==ids["J_Bip_C_Head"]&&!outward.HasValue&&boundaryA!=null;
+                var frontalDepth=frontalSection?new float[(rows+1)*(sides+1)]:null;
                 int mid=rows/2;
                 float boundarySign=boundaryA==null?1:Mathf.Sign(Vector3.Dot(boundaryB[mid]-boundaryA[mid],
                     Vector3.Cross(path[mid+1]-path[mid-1],facing)));
@@ -239,7 +241,7 @@ namespace DesktopFish.Editor
                         // the other edge continues into a long swept point.
                         Vector3 p=boundaryA==null?path[row]+side*(u*edgeWidth*rootNeck):
                             Vector3.Lerp(boundaryA[row],boundaryB[row],(u*boundarySign+1)*.5f)+side*(u*.00015f);
-                        p+=thicknessAxis*facet*thickness*rootNeck;
+                        if(!frontalSection)p+=thicknessAxis*facet*thickness*rootNeck;
                         // Keep attachment weights and crown paint on their
                         // original guide while reshaping the visible cross-section.
                         float attachmentHeight=p.y;
@@ -287,7 +289,7 @@ namespace DesktopFish.Editor
                             // The inner edge of a broad cheek lock can cross the
                             // forehead even while its centerline remains outside.
                             float skin=1-Mathf.Pow(p.x/.214f,2)-Mathf.Pow((p.y-.773f)/.187f,2);
-                            if(skin>0)p.z=Mathf.Max(p.z,.166f*Mathf.Sqrt(skin)+.0045f+front*.002f);
+                            if(skin>0)p.z=Mathf.Max(p.z,.166f*Mathf.Sqrt(skin)+.0045f+(frontalSection?0:front*.002f));
                         }
                         // A cheek lock wraps from its forward face-framing edge
                         // into the temple. The width/height silhouette stays authored;
@@ -298,7 +300,7 @@ namespace DesktopFish.Editor
                                 y<.78f?Mathf.Lerp(.223f,.222f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.78f,y))):
                                 Mathf.Lerp(.222f,.175f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.78f,.94f,y)));
                             float depth=center-2.2f*p.x*p.x-cheekInset+
-                                thicknessAxis.z*facet*thickness*rootNeck;
+                                (frontalSection?0:thicknessAxis.z*facet*thickness*rootNeck);
                             float wrap=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.82f,.92f,y));
                             p.z=Mathf.Lerp(p.z,depth,wrap);
                         }
@@ -312,6 +314,10 @@ namespace DesktopFish.Editor
                         // Deforming the frame with the vertices retains its width
                         // and curled tips while leaving the shared roots in place.
                         p=SweepHairSection(p,backSweep);
+                        // Deform the shared front/back mid-surface first. Applying
+                        // thickness before the scalp clamp can fold the inner face
+                        // back through the outer face around the narrow crown root.
+                        if(frontalSection)frontalDepth[row*(sides+1)+j]=facet*thickness*rootNeck;
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,attachmentHeight)):0;
                         ridge=Mathf.Lerp(ridge,.97f,crown*.85f);
@@ -348,6 +354,36 @@ namespace DesktopFish.Editor
                             body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,crown);
                         }
                     }
+                }
+                if(frontalSection) {
+                    var surface=body.p.Skip(start).ToArray();int half=sides/2;
+                    for(int row=0;row<=rows;row++)for(int j=0;j<=sides;j++) {
+                        int column=Mathf.Min(j,sides-j),index=row*(sides+1)+j;
+                        Vector3 along=surface[Mathf.Min(rows,row+1)*(sides+1)+column]-
+                            surface[Mathf.Max(0,row-1)*(sides+1)+column];
+                        Vector3 across=surface[row*(sides+1)+Mathf.Min(half,column+1)]-
+                            surface[row*(sides+1)+Mathf.Max(0,column-1)];
+                        Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
+                        int center=half/2;
+                        Vector3 tipAlong=surface[Mathf.Min(rows,row+1)*(sides+1)+center]-
+                            surface[Mathf.Max(0,row-1)*(sides+1)+center];
+                        Vector3 tipAcross=surface[row*(sides+1)+center+1]-surface[row*(sides+1)+center-1];
+                        Vector3 tipNormal=Vector3.Cross(tipAlong.normalized,tipAcross.normalized).normalized;
+                        normal=Vector3.Slerp(normal,tipNormal,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,1,row/(float)rows)));
+                        body.p[start+index]+=normal*frontalDepth[index];
+                    }
+                    for(int row=0;row<=rows;row++)for(int j=0;j<=sides;j++) {
+                        float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.88f,row/(float)rows));
+                        if(blend<=0)continue;
+                        Vector3 along=body.p[start+Mathf.Min(rows,row+1)*(sides+1)+j]-
+                            body.p[start+Mathf.Max(0,row-1)*(sides+1)+j];
+                        Vector3 across=body.p[start+row*(sides+1)+(j+1)%sides]-
+                            body.p[start+row*(sides+1)+(j+sides-1)%sides];
+                        Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
+                        body.normalBlends[start+row*(sides+1)+j]=new Vector4(normal.x,normal.y,normal.z,blend);
+                    }
+                    for(int row=0;row<=rows;row++)body.smoothNormalPairs.Add(new Vector2Int(
+                        start+row*(sides+1),start+row*(sides+1)+sides));
                 }
                 int firstTriangle=body.tri.Count;
                 Grid(body,start,rows,sides);
