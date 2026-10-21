@@ -720,6 +720,26 @@ namespace DesktopFish.Editor
             .166f*Mathf.Sqrt(1-Mathf.Pow((.700f-.773f)/.187f,2))};
         static readonly float[] JawSlopes={1.4f,.95f,.55f,.25f,0,-.10f,
             .166f*(.773f-.700f)/(.187f*.187f*Mathf.Sqrt(1-Mathf.Pow((.700f-.773f)/.187f,2)))};
+        // Width changes are concentrated in the exposed face. Retain a fuller
+        // lower cheek while narrowing the eye-side contour and small chin.
+        static readonly float[] FaceWidthY={.547f,.5575f,.570f,.595f,.620f,.645f,.670f,.695f,.740f,.820f};
+        static readonly float[] FaceWidth={.88f,.89f,1.01f,1.04f,.98f,.92f,.89f,.89f,.91f,1};
+        static float FaceWidthSlope(int i) {
+            if(i==0||i==FaceWidth.Length-1)return 0;
+            float a=FaceWidthY[i]-FaceWidthY[i-1],b=FaceWidthY[i+1]-FaceWidthY[i];
+            float l=(FaceWidth[i]-FaceWidth[i-1])/a,r=(FaceWidth[i+1]-FaceWidth[i])/b;
+            if(l*r<=0)return 0;
+            return 3*(a+b)/((2*b+a)/l+(b+2*a)/r);
+        }
+        static float FaceWidthScale(float authorY) {
+            float derivative,y=FitHeight(authorY,out derivative);
+            if(y<=FaceWidthY[0])return FaceWidth[0];
+            if(y>=FaceWidthY[FaceWidthY.Length-1])return 1;
+            int i=0;while(y>FaceWidthY[i+1])i++;
+            float h=FaceWidthY[i+1]-FaceWidthY[i],t=(y-FaceWidthY[i])/h,t2=t*t,t3=t2*t;
+            return (2*t3-3*t2+1)*FaceWidth[i]+(t3-2*t2+t)*h*FaceWidthSlope(i)+
+                (-2*t3+3*t2)*FaceWidth[i+1]+(t3-t2)*h*FaceWidthSlope(i+1);
+        }
         static float JawForward(float y) {
             // The lower face turns forward into the chin rather than rolling
             // underneath an ellipsoid. Keep the eye band and crown unchanged.
@@ -736,11 +756,14 @@ namespace DesktopFish.Editor
             // Retain the rear jaw/neck attachment while moving the chin. Moving
             // the whole lower ring forward would leave the neck outside it.
             float forward=radius<.001f?1:Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.5f,.5f,p.z/radius));
-            p.z+=JawForward(p.y)*forward;return p;
+            p.z+=JawForward(p.y)*forward;p.x*=FaceWidthScale(p.y);return p;
         }
         static Vector3 FacePoint(float x, float y, float offset) {
-            float depth = Mathf.Sqrt(Mathf.Max(.05f, 1 - x * x / (.214f * .214f) - (y - .773f) * (y - .773f) / (.187f * .187f)));
-            var p=ShapeHeadPoint(V(x,y,.166f*depth));p.z+=offset;return p;
+            // Facial marks keep their authored XY placement while following
+            // the narrowed skin surface, including all expression targets.
+            float sourceX=x/FaceWidthScale(y);
+            float depth = Mathf.Sqrt(Mathf.Max(.05f, 1 - sourceX * sourceX / (.214f * .214f) - (y - .773f) * (y - .773f) / (.187f * .187f)));
+            var p=ShapeHeadPoint(V(sourceX,y,.166f*depth));p.x=x;p.z+=offset;return p;
         }
         static Vector3 Bezier(Vector3[] p, float t) => Mathf.Pow(1 - t, 3) * p[0] +
             3 * (1 - t) * (1 - t) * t * p[1] + 3 * (1 - t) * t * t * p[2] + t * t * t * p[3];
@@ -880,10 +903,11 @@ namespace DesktopFish.Editor
                 // Exact coincident pole positions let cleanup remove the
                 // collapsed fan faces after the jaw stretches forward.
                 if(i>=28*49)p=V(0,.773f-.187f,0);
-                float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.125f)/.045f,2)
-                    -Mathf.Pow((p.y-.665f)/.026f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
-                a.body.colors[i]=Color.Lerp(Skin,Hex("F1BFC3"),blush*.80f);
-                a.body.p[i]=ShapeHeadPoint(p);
+                p=ShapeHeadPoint(p);
+                float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.126f)/.048f,2)
+                    -Mathf.Pow((p.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
+                a.body.colors[i]=Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f);
+                a.body.p[i]=p;
             }
             a.Sphere(a.body, V(0, .555f, 0), V(.028f, .035f, .029f), Skin, neck);
             a.Sphere(a.body, V(0, .460f, 0), V(.120f, .108f, .080f), Navy, chest);
@@ -967,6 +991,21 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/rebuilt-angle-top.png",frame.EncodeToPNG());
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
             RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
+            // Inspect the skin separately from fringe occlusion. Head skin is
+            // the first contiguous bone group in the authored body mesh.
+            var bodySnapshot=snapshots[0];var completeBody=bodySnapshot.sharedMesh;
+            var skinWeights=skins[0].sharedMesh.boneWeights;
+            int headCount=skinWeights.TakeWhile(w=>w.boneIndex0==skinWeights[0].boneIndex0).Count();
+            var headOnly=UnityEngine.Object.Instantiate(completeBody);
+            var bodyTriangles=completeBody.triangles;var headTriangles=new List<int>();
+            for(int i=0;i<bodyTriangles.Length;i+=3)
+                if(bodyTriangles[i]<headCount&&bodyTriangles[i+1]<headCount&&bodyTriangles[i+2]<headCount)
+                    headTriangles.AddRange(new[]{bodyTriangles[i],bodyTriangles[i+1],bodyTriangles[i+2]});
+            headOnly.triangles=headTriangles.ToArray();bodySnapshot.sharedMesh=headOnly;
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+            RenderHeadStudy(camera,"work/rebuilt-head-skin",1,Vector3.zero);
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(headOnly);
             if(!includeMotion) {
                 if(includeExpressions)RenderExpressionDetails(companion,motion,skins,snapshots,camera);
                 camera.targetTexture=null;RenderTexture.active=null;

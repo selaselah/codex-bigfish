@@ -146,6 +146,7 @@ namespace DesktopFish.Editor
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
                 if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
+                if(slot==3)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-skin",.8f,new Vector3(0,-.056f,0));
                 if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
@@ -273,6 +274,14 @@ namespace DesktopFish.Editor
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var triangles=baked.GetTriangles(3);
             var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(float y in new[]{.385f,.39f,.40f,.42f,.44f,.46f,.48f,.50f,.55f,.60f,.65f}) {
+                var cuts=new System.Collections.Generic.List<Vector3>();
+                for(int i=0;i<triangles.Length;i+=3)for(int j=0;j<3;j++) {
+                    var a=points[triangles[i+j]];var b=points[triangles[i+(j+1)%3]];
+                    if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cuts.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));
+                }
+                if(cuts.Count>0)samples.Add(new Landmark{name="side",position=cuts.OrderByDescending(p=>p.x).First()});
+            }
             foreach(float y in new[]{.385f,.39f,.40f,.42f,.44f,.46f,.48f,.50f,.55f,.60f,.65f})
                 foreach(float x in new[]{0f,.025f,.050f,.075f,.10f,.125f,.15f}) {
                     float front=float.NegativeInfinity;
