@@ -174,6 +174,7 @@ namespace DesktopFish.Editor
             var profiles=new System.Collections.Generic.List<Landmark>();
             var chestSections=new System.Collections.Generic.List<HairSection>();
             var fringeProfiles=new System.Collections.Generic.List<Landmark>();
+            var chestTips=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -228,6 +229,14 @@ namespace DesktopFish.Editor
                     var selected=new System.Collections.Generic.List<int>();
                     for(int i=0;i<triangles.Length;i+=3)if(chestVertices.Contains(triangles[i]))
                         selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                    // Only a few extremal points guide the new branch; the
+                    // reference topology remains confined to this local preview.
+                    foreach(int side in new[]{-1,1}) {
+                        var lower=chestVertices.Select(i=>points[i]).Where(p=>p.x*side>0&&p.y<.35f).ToArray();
+                        if(lower.Length==0)continue;
+                        chestTips.Add(new Landmark{name="side-"+side+"-lower-tip",position=lower.OrderBy(p=>p.y).First()});
+                        chestTips.Add(new Landmark{name="side-"+side+"-outer-fork",position=lower.OrderByDescending(p=>p.x*side).First()});
+                    }
                     foreach(float y in new[]{.25f,.275f,.30f,.325f,.35f,.375f,.40f,.45f,.50f,.55f}) {
                         var cuts=new System.Collections.Generic.List<Vector3>();
                         for(int i=0;i<selected.Count;i+=3)for(int j=0;j<3;j++) {
@@ -294,6 +303,7 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
+            File.WriteAllText("work/reference-review/chest-tips.json",JsonUtility.ToJson(new FaceSectionReport{samples=chestTips.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=chestSections.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
             File.WriteAllText("work/reference-review/accessory-components.json",

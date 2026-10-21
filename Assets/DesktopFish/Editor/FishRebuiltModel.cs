@@ -920,6 +920,7 @@ namespace DesktopFish.Editor
             BuildDress(a, hips, chest);
             BuildLimbs(a, hips, chest);
             BuildAccessories(a, head, chest, hips);
+            BuildChestForks(a);
             // Compress the body continuously below the neck. Head and facial morph
             // coordinates stay intact; garment, hair ends and joints share the map.
             Func<Vector3,Vector3> compact=p=>V(p.x,p.y<.585f?.585f-(.585f-p.y)*.88f:p.y,p.z);
@@ -1353,9 +1354,9 @@ namespace DesktopFish.Editor
                     V(sign*.175f,.435f,.170f),V(sign*.157f,.40f,.172f),V(sign*.148f,.375f,.171f)};
                 var layerOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.225f,.84f,.015f),
                     V(sign*.215f,.74f,.012f),V(sign*.201f,.655f,.024f),
-                    V(sign*.187f,.615f,.043f),V(sign*.185f,.57f,.057f),V(sign*.191f,.53f,.086f),
-                    V(sign*.218f,.51f,.110f),V(sign*.224f,.485f,.118f),V(sign*.210f,.46f,.135f),
-                    V(sign*.189f,.435f,.152f),V(sign*.160f,.40f,.169f),V(sign*.148f,.375f,.171f)};
+                    V(sign*.187f,.615f,.043f),V(sign*.185f,.57f,.057f),V(sign*.185f,.53f,.110f),
+                    V(sign*.190f,.51f,.135f),V(sign*.194f,.485f,.150f),V(sign*.193f,.46f,.160f),
+                    V(sign*.180f,.435f,.166f),V(sign*.160f,.40f,.169f),V(sign*.148f,.375f,.171f)};
                 a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
                     samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.92f,paintOffset:.08f,wrapDepth:.010f,surfaceThickness:true);
                 // Independently drawn edges keep the temple broad while the
@@ -1417,6 +1418,23 @@ namespace DesktopFish.Editor
                 V(.10f,1.10f,-.090f),V(.12f,1.03f,-.095f)},24),
                 t=>.013f*tuftProfile(t),t=>.0075f*tuftProfile(t),t=>Hair,head,8);
             for(int row=0;row<24;row++)a.body.smoothNormalPairs.Add(new Vector2Int(tuftStart+row*9,tuftStart+row*9+8));
+        }
+
+        static void BuildChestForks(Author a) {
+            // The shorter outer tip grows beneath the existing long layer.
+            // Its receding depth leaves a narrow opening between the two tips.
+            foreach(int sign in new[]{-1,1}) {
+                int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
+                var inner=new[]{V(sign*.185f,.555f,.068f),V(sign*.181f,.540f,.085f),
+                    V(sign*.182f,.520f,.110f),V(sign*.190f,.505f,.120f),
+                    V(sign*.204f,.486f,.126f),V(sign*.217f,.470f,.125f),V(sign*.224f,.465f,.122f)};
+                var outer=new[]{V(sign*.187f,.555f,.062f),V(sign*.188f,.540f,.070f),
+                    V(sign*.190f,.520f,.085f),V(sign*.202f,.505f,.100f),
+                    V(sign*.210f,.486f,.112f),V(sign*.217f,.470f,.122f),V(sign*.224f,.465f,.122f)};
+                a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.016f,bone,true,6,
+                    samples:12,fullness:.50f,tipStart:.45f,edgeA:inner,edgeB:outer,rootTaper:.35f,
+                    paintOffset:.57f,tipPaintEase:.92f,surfaceThickness:true);
+            }
         }
 
         static float HairSweepAtAngle(float angle) {

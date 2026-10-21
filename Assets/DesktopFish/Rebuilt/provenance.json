@@ -1,8 +1,8 @@
 {
   "generator": "FishRebuiltModel.cs",
   "source_3d_assets_loaded": false,
-  "body_vertices": 29980,
+  "body_vertices": 30318,
   "face_vertices": 2132,
-  "triangles": 52476,
+  "triangles": 53052,
   "bones": 51
 }
