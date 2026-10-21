@@ -331,6 +331,11 @@ namespace DesktopFish.Editor
                         float ridge=.94f+.06f*Mathf.Pow(Mathf.Max(0,front),.6f)-.04f*Mathf.Pow(Mathf.Abs(u),6);
                         float crown=outward.HasValue?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.79f,.90f,attachmentHeight)):0;
                         ridge=Mathf.Lerp(ridge,.97f,crown*.85f);
+                        // Joined rear locks describe one upper mass. Keep broad
+                        // painted reflection continuous instead of baking a dark
+                        // stripe into both edges of every longitudinal patch.
+                        if(outward.HasValue)ridge=Mathf.Lerp(ridge,.97f,
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.42f,.64f,attachmentHeight))*.94f);
                         Color shade=Color.white*ridge; shade.a=1;
                         float anchored=bone==head?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,outward.HasValue?attachmentHeight:p.y));
                         int paintStrip=cyan?3:((phase%3)+3)%3;
@@ -888,6 +893,17 @@ namespace DesktopFish.Editor
                 float edgeContrast=cyan?Mathf.Lerp(.008f,.055f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.30f,.58f,t))):.06f;
                 baseColor*=1-edge*edgeContrast+strand*(cyan?.40f:1);
                 if(!cyan)baseColor*=1-.15f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.93f,1,Mathf.Abs(u*2-1)));
+                // Three spaced fine parting strokes replace the repeated
+                // broad vertex-darkened channels on the joined rear surface.
+                if(cyan&&longPaint==1) {
+                    float part=Mathf.InverseLerp(.09f,.49f,t);
+                    float center=.10f+.08f*Mathf.Sin(part*Mathf.PI);
+                    float width=.010f+.005f*Mathf.Sin(part*Mathf.PI);
+                    float line=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,1,Mathf.Abs(u-center)/width));
+                    float endsFade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.07f,part))*
+                        (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.88f,1,part)));
+                    baseColor=Color.Lerp(baseColor,Hex("182C63"),line*endsFade*.68f);
+                }
                 float glints=0;
                 if(!cyan) {
                     // Unequal slanted brushes and short joined pools describe
@@ -997,6 +1013,7 @@ namespace DesktopFish.Editor
 
         [MenuItem("Desktop Fish/Rebuilt Model/Review Default Pose")]
         public static void RenderIdle() { RenderAngles(false); }
+        public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
@@ -1008,7 +1025,7 @@ namespace DesktopFish.Editor
             RenderIdle();Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1057,6 +1074,7 @@ namespace DesktopFish.Editor
             RenderHeadStudy(camera,"work/rebuilt-head-skin",1,Vector3.zero);
             foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(headOnly);
+            if(includeSurfaceStudy)RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
             if(!includeMotion) {
                 if(includeExpressions)RenderExpressionDetails(companion,motion,skins,snapshots,camera);
                 camera.targetTexture=null;RenderTexture.active=null;
@@ -1120,6 +1138,37 @@ namespace DesktopFish.Editor
                 UnityEngine.Object.DestroyImmediate(snapshot.gameObject);
             }
             foreach(var skin in skins)skin.enabled=true;
+        }
+
+        // Separate lighting, vertex modulation and paint when diagnosing a
+        // visible groove. Only temporary baked snapshots are modified.
+        static void RenderSurfaceStudy(List<MeshFilter> snapshots,Camera camera,Vector3 center,
+            Vector3 front,RenderTexture target,Texture2D frame) {
+            var originalMeshes=snapshots.Select(s=>s.sharedMesh).ToArray();
+            var originalMaterials=snapshots.Select(s=>s.GetComponent<Renderer>().sharedMaterial).ToArray();
+            for(int mode=0;mode<3;mode++) {
+                string name=mode==0?"clay-lit":mode==1?"paint-flat":"albedo-flat";
+                for(int i=0;i<snapshots.Count;i++) {
+                    var mesh=UnityEngine.Object.Instantiate(originalMeshes[i]);
+                    var material=UnityEngine.Object.Instantiate(originalMaterials[i]);
+                    if(mode!=1)mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
+                    if(mode==0)material.mainTexture=Texture2D.whiteTexture;
+                    material.SetFloat("_Flat",mode==0?0:1);material.SetFloat("_OutlineWidth",0);
+                    snapshots[i].sharedMesh=mesh;snapshots[i].GetComponent<Renderer>().sharedMaterial=material;
+                }
+                foreach(int angle in new[]{90,180}) {
+                    camera.targetTexture=target;
+                    camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);
+                    camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
+                    frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                    File.WriteAllBytes("work/rebuilt-surface-"+name+"-"+angle+".png",frame.EncodeToPNG());
+                }
+                for(int i=0;i<snapshots.Count;i++) {
+                    UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                    UnityEngine.Object.DestroyImmediate(snapshots[i].GetComponent<Renderer>().sharedMaterial);
+                    snapshots[i].sharedMesh=originalMeshes[i];snapshots[i].GetComponent<Renderer>().sharedMaterial=originalMaterials[i];
+                }
+            }
         }
 
         static void RenderHandDetails(FishCompanion companion,FishMotion motion,
