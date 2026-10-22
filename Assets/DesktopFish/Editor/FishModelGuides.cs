@@ -399,6 +399,57 @@ namespace DesktopFish.Editor {
             return Vector3.Lerp(front,new Vector3(g.y,front.y,g.z),blend);
         }
 
+        // Visible cloth-color boundary and depth sections, sampled locally.
+        static readonly Vector4[] BibRows={
+            new Vector4(0.416000f,0.056000f,0.117000f,0.108000f),
+            new Vector4(0.420000f,0.061212f,0.117633f,0.107114f),
+            new Vector4(0.432500f,0.066164f,0.119163f,0.102272f),
+            new Vector4(0.445000f,0.069259f,0.113152f,0.095558f),
+            new Vector4(0.457500f,0.069695f,0.099108f,0.084820f),
+            new Vector4(0.470000f,0.070750f,0.083402f,0.074138f),
+            new Vector4(0.482500f,0.071299f,0.064929f,0.058138f),
+            new Vector4(0.495000f,0.072530f,0.049739f,0.043448f),
+            new Vector4(0.507500f,0.068711f,0.031602f,0.022747f),
+            new Vector4(0.514000f,0.061000f,0.025000f,0.017000f)
+        };
+        public static Vector3 Bib(float y,float u) {
+            Vector4 g=Sample(BibRows,y);float a=Mathf.Abs(u);
+            float fold=.0012f*Mathf.Sin(a*Mathf.PI*3)*Mathf.Sin(Mathf.InverseLerp(.416f,.514f,y)*Mathf.PI);
+            return new Vector3(u*g.y,y,Mathf.Lerp(g.z,g.w,a*a)+fold);
+        }
+        static readonly Vector3[][] BibLaceRows={
+            new[]{new Vector3(0.091000f,0.414000f,0.084000f),new Vector3(0.092580f,0.420000f,0.086045f),new Vector3(0.093235f,0.432500f,0.086937f),new Vector3(0.096056f,0.445000f,0.082075f),new Vector3(0.096228f,0.457500f,0.073862f),new Vector3(0.094514f,0.470000f,0.067018f),new Vector3(0.093103f,0.482500f,0.060389f),new Vector3(0.092733f,0.495000f,0.052299f),new Vector3(0.043920f,0.507500f,0.042944f),new Vector3(0.045179f,0.520000f,0.025591f)},
+            new[]{new Vector3(0.094000f,0.414000f,0.084000f),new Vector3(0.096296f,0.420000f,0.082527f),new Vector3(0.099784f,0.432500f,0.079273f),new Vector3(0.101243f,0.445000f,0.073971f),new Vector3(0.101445f,0.457500f,0.066543f),new Vector3(0.099427f,0.470000f,0.060396f),new Vector3(0.098692f,0.482500f,0.055182f),new Vector3(0.099719f,0.495000f,0.049208f),new Vector3(0.087224f,0.507500f,0.035323f),new Vector3(0.086077f,0.520000f,0.010338f)},
+            new[]{new Vector3(0.097000f,0.414000f,0.084000f),new Vector3(0.100455f,0.420000f,0.067488f),new Vector3(0.106206f,0.432500f,0.054663f),new Vector3(0.106530f,0.445000f,0.059065f),new Vector3(0.106612f,0.457500f,0.031948f),new Vector3(0.104563f,0.470000f,0.031107f),new Vector3(0.104643f,0.482500f,0.041824f),new Vector3(0.106829f,0.495000f,0.047547f),new Vector3(0.113749f,0.507500f,0.041010f),new Vector3(0.126952f,0.520000f,0.009248f)},
+        };
+        public static Vector3 BibLace(float y,float across) {
+            var points=new Vector3[3];
+            for(int col=0;col<3;col++) {
+                // Above this height the measured material also contains the
+                // collar. Continue the vertical strip into that overlap rather
+                // than lofting across both disjoint islands as a broad flap.
+                var rows=BibLaceRows[col];float sampleY=Mathf.Min(y,.495f);int i=0;while(i<rows.Length-2&&sampleY>rows[i+1].y)i++;
+                float t=Mathf.InverseLerp(rows[i].y,rows[i+1].y,sampleY);points[col]=Vector3.Lerp(rows[i],rows[i+1],t);
+                float top=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.495f,.514f,y));
+                points[col].x-=.010f*top*(1-col/2f);points[col].z-=.019f*top;points[col].y=y;
+            }
+            float u=across*2;int index=Mathf.Min(1,(int)u);return Vector3.Lerp(points[index],points[index+1],u-index);
+        }
+
+        static readonly Vector4[] ApronUpperDepth={
+            new Vector4(.370000f,.180550f,0,0),
+            new Vector4(.395000f,.138948f,0,0),
+            new Vector4(.400000f,.130263f,0,0)
+        };
+        public static float ApronDepth(float y) => Sample(ApronUpperDepth,y).y;
+
+        public static readonly Vector3[] BeltStuds={
+            new Vector3(-0.033360f,0.398500f,0.112992f),
+            new Vector3(-0.031634f,0.406231f,0.115756f),
+            new Vector3(0.034308f,0.398507f,0.112603f),
+            new Vector3(0.034262f,0.406692f,0.115217f)
+        };
+
         static readonly Dictionary<int,Bounds> SourceBounds=new Dictionary<int,Bounds>();
         static Vector3 AccessoryPoint(Vector3 p,int region) {
             Bounds source=SourceBounds[region];

@@ -105,6 +105,7 @@ namespace DesktopFish.Editor
             frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
             File.WriteAllBytes("work/reference-review/ref-top.png",frame.EncodeToPNG());
             FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
@@ -115,6 +116,7 @@ namespace DesktopFish.Editor
             ReviewFeatureGuides(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
+            ReviewBibGuides(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
             FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
             ReviewHandBounds(reference,baked,skin,snapshot.transform);
@@ -227,7 +229,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,32,34,35,37}) {
+            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 float[] heights=slot>=26&&slot<=28?new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f,.09f,.10f}:
                     new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f};
@@ -294,7 +296,7 @@ namespace DesktopFish.Editor
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             var innerTips=new System.Collections.Generic.List<Landmark>();
-            foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,32,37}) {
+            foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,31,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
                 Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
@@ -604,7 +606,7 @@ namespace DesktopFish.Editor
                     guides.Add(new Landmark{name=key+"/rear",position=cuts.OrderBy(p=>p.z).First()});
                 }
             };
-            section("apron",37,new[]{.12f,.13f,.14f,.15f,.16f,.18f,.20f,.22f,.24f,.26f,.27f,.28f,.29f},-.2f,.2f,.01f);
+            section("apron",37,new[]{.12f,.13f,.14f,.15f,.16f,.18f,.20f,.22f,.24f,.26f,.264f,.27f,.28f,.29f},-.2f,.2f,.01f);
             section("bib",37,new[]{.29f,.31f,.33f,.35f,.37f,.385f},-.075f,.075f,.04f);
             section("skirt",34,new[]{.05f,.08f,.12f,.16f,.20f,.24f},-.5f,.5f,-1);
             section("skirt-gold",35,new[]{.05f,.08f,.12f,.16f,.20f,.24f},-.5f,.5f,-1);
@@ -707,6 +709,44 @@ namespace DesktopFish.Editor
                     position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
             }
             File.WriteAllText("work/reference-review/front-crown.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
+        static void ReviewBibGuides(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(float y in new[]{.27f,.28f,.29f,.30f,.31f,.32f,.33f,.34f,.35f,.36f}) {
+                foreach(int slot in new[]{30,37}) {
+                    var texture=GuideTexture(slot);
+                    var cuts=VisibleSection(points,uv,baked.GetTriangles(slot),Vector3.up,y,slot,(p,st)=>{
+                        if(p.z<0||Mathf.Abs(p.x)>.12f)return false;
+                        if(slot==30)return p.x>.035f;
+                        Color c=texture.GetPixelBilinear(st.x,st.y);
+                        return Mathf.Min(c.r,Mathf.Min(c.g,c.b))>.60f&&Mathf.Max(c.r,Mathf.Max(c.g,c.b))-Mathf.Min(c.r,Mathf.Min(c.g,c.b))<.25f;
+                    });
+                    if(cuts.Count==0)continue;
+                    samples.Add(new Landmark{name=slot+"-left",position=cuts.OrderBy(p=>p.x).First()});
+                    samples.Add(new Landmark{name=slot+"-right",position=cuts.OrderByDescending(p=>p.x).First()});
+                    float mid=slot==37?0:(cuts.Min(p=>p.x)+cuts.Max(p=>p.x))*.5f;
+                    samples.Add(new Landmark{name=slot+"-middle",position=cuts.OrderBy(p=>Mathf.Abs(p.x-mid)).First()});
+                }
+            }
+            var goldPoints=new System.Collections.Generic.List<Vector3>();var cloth=GuideTexture(37);var clothTriangles=baked.GetTriangles(37);
+            for(int i=0;i<clothTriangles.Length;i+=3) {
+                int ai=clothTriangles[i],bi=clothTriangles[i+1],ci=clothTriangles[i+2];
+                if(new[]{points[ai],points[bi],points[ci]}.All(p=>p.y<.25f||p.y>.28f||p.z<0))continue;
+                for(int a=0;a<=16;a++)for(int b=0;b<=16-a;b++) {
+                    float u=a/16f,v=b/16f;Vector3 p=points[ai]*(1-u-v)+points[bi]*u+points[ci]*v;
+                    if(p.y<.25f||p.y>.28f||Mathf.Abs(p.x)<.015f||Mathf.Abs(p.x)>.05f||p.z<0)continue;
+                    Vector2 st=uv[ai]*(1-u-v)+uv[bi]*u+uv[ci]*v;Color c=cloth.GetPixelBilinear(st.x,st.y);
+                    if(c.a>.5f&&c.r>.5f&&c.g>.35f&&c.r-c.b>.20f&&c.g-c.b>.05f)goldPoints.Add(p);
+                }
+            }
+            foreach(int sign in new[]{-1,1})foreach(int row in new[]{0,1}) {
+                var selected=goldPoints.Where(p=>p.x*sign>0&&(p.y>.265f)==(row==1)).ToArray();
+                if(selected.Length==0)continue;var bounds=new Bounds(selected[0],Vector3.zero);foreach(var p in selected)bounds.Encapsulate(p);
+                samples.Add(new Landmark{name="gold-stud-"+sign+"-"+row,position=bounds.center});
+            }
+            File.WriteAllText("work/reference-review/bib-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {
