@@ -432,19 +432,25 @@ namespace DesktopFish.Editor
                 }
             }
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
-                int rows=panel==0?16:panel==7?18:panel>=8?14:12;const int cols=4;
+                bool cheekReturn=panel==4;
+                int rows=cheekReturn?10:panel==0?15:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
                 int start=body.p.Count,oldRegion=body.region;body.region=0;
-                var mid=new Vector3[(rows+1)*(cols+1)];
-                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++)
-                    mid[row*(cols+1)+col]=FishModelGuides.FrontPanel(panel,sign,row/(float)rows,col/(float)cols);
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    Vector3 p=mid[row*(cols+1)+col];
-                    float paintU=((phase%3)+3)%3*.25f+.012f+col/(float)cols*.226f;
-                    body.Add(AuthorPoint(p),Color.white*.98f,head,new Vector2(paintU,.02f+.94f*row/rows));
+                    float t=row/(float)rows,across=col<=4?col/4f:(8-col)/4f;
+                    Vector3 p=cheekReturn?(col>4&&col<8?FishModelGuides.CheekReturn(t,8-col):FishModelGuides.FrontPanel(panel,1,t,across)):
+                        FishModelGuides.FrontPanel(panel,sign,t,across);
+                    // A closed cross-section ends in one pole, not a tiny
+                    // coplanar line that turns its last return facets inside out.
+                    if(cheekReturn&&(row==0||row==rows))p=FishModelGuides.FrontPanel(panel,1,t,.5f);
+                    if(cheekReturn)p.x*=sign;
+                    float paintAcross=cheekReturn&&sign<0?1-across:across;
+                    float paintU=((phase%3)+3)%3*.25f+.012f+paintAcross*.226f;
+                    body.Add(AuthorPoint(p),Color.white*.98f,head,new Vector2(paintU,.02f+.94f*t));
                 }
-                // The material is two-sided. One sheet avoids duplicate nearly
-                // coplanar backfaces, depth fighting and unnecessary triangles.
-                int first=body.tri.Count;Grid(body,start,rows,cols);ReverseFaces(body,first);
+                // Most front locks remain single two-sided sheets. The measured
+                // cheek return has real transverse depth, not a coplanar back copy.
+                int first=body.tri.Count;Grid(body,start,rows,cols);
+                if(!cheekReturn||sign>0)ReverseFaces(body,first);
                 body.region=oldRegion;
             }
             public void GuidedChestPanel(int panel,int sign,int bone,int surface) {

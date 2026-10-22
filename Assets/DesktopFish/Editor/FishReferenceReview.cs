@@ -111,6 +111,7 @@ namespace DesktopFish.Editor
             ReviewFaceSections(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
+            ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
@@ -288,6 +289,7 @@ namespace DesktopFish.Editor
             var chestSections=new System.Collections.Generic.List<HairSection>();
             var fringeProfiles=new System.Collections.Generic.List<Landmark>();
             var frontPanels=new System.Collections.Generic.List<Landmark>();
+            var cheekWrap=new System.Collections.Generic.List<Landmark>();
             var chestTips=new System.Collections.Generic.List<Landmark>();
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
@@ -356,6 +358,15 @@ namespace DesktopFish.Editor
                             var cuts=VisibleSection(points,baked.uv,selected.ToArray(),Vector3.up,y,slot);
                             if(cuts.Count==0)continue;
                             float min=cuts.Min(p=>p.x),max=cuts.Max(p=>p.x);
+                            if(slot==10&&index-1==8) {
+                                var rear=cuts.Where(p=>p.x>=max-.0005f).OrderBy(p=>p.z).First();rear.x=max;
+                                cheekWrap.Add(new Landmark{name="outer-rear",position=rear});
+                                for(int quarter=1;quarter<=3;quarter++) {
+                                    float x=Mathf.Lerp(min,max,quarter/4f),nearest=cuts.Min(p=>Mathf.Abs(p.x-x));
+                                    var back=cuts.Where(p=>Mathf.Abs(p.x-x)<=nearest+.0005f).OrderBy(p=>p.z).First();back.x=x;
+                                    cheekWrap.Add(new Landmark{name="back-quarter-"+quarter,position=back});
+                                }
+                            }
                             for(int col=0;col<5;col++) {
                                 float x=Mathf.Lerp(min,max,col/4f),nearest=cuts.Min(p=>Mathf.Abs(p.x-x));
                                 var point=cuts.Where(p=>Mathf.Abs(p.x-x)<=nearest+.0005f).OrderByDescending(p=>p.z).First();
@@ -568,6 +579,7 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/front-panel-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=frontPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
             File.WriteAllText("work/reference-review/side-curl-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=sideCurlSections.ToArray()},true));
+            File.WriteAllText("work/reference-review/cheek-wrap-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=cheekWrap.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-panel-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=chestPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-tips.json",JsonUtility.ToJson(new FaceSectionReport{samples=chestTips.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=chestSections.ToArray()},true));
@@ -638,6 +650,46 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/head-envelope.json",JsonUtility.ToJson(new HairSectionReport{sections=rows.ToArray()},true));
+        }
+
+        static void ReviewFringeCoverage(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var rays=new System.Collections.Generic.List<Landmark>();
+            foreach(Vector2 pixel in new[]{new Vector2(230,345),new Vector2(230,380),new Vector2(225,430),new Vector2(238,490)}) {
+                var focus=new Vector3(0,.56f,.048f);
+                Vector3 offset=Quaternion.Euler(0,35,0)*new Vector3(0,.24f,3)*.8f;
+                Vector3 direction=-offset.normalized,right=Vector3.Cross(Vector3.up,direction).normalized,up=Vector3.Cross(direction,right);
+                Vector3 origin=focus+offset+right*((pixel.x-360)*.528f/720)+up*((360-pixel.y)*.528f/720);
+                float nearest=float.PositiveInfinity;int bestSlot=-1,bestTriangle=-1;Vector3 hit=Vector3.zero;
+                for(int slot=0;slot<baked.subMeshCount;slot++) {
+                    var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                    for(int i=0;i<triangles.Length;i+=3) {
+                        int ai=triangles[i],bi=triangles[i+1],ci=triangles[i+2];
+                        Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a,h=Vector3.Cross(direction,ac);
+                        float det=Vector3.Dot(ab,h);if(Mathf.Abs(det)<1e-9f)continue;
+                        Vector3 delta=origin-a;float u=Vector3.Dot(delta,h)/det;if(u<0||u>1)continue;
+                        Vector3 q=Vector3.Cross(delta,ab);float v=Vector3.Dot(direction,q)/det;if(v<0||u+v>1)continue;
+                        float distance=Vector3.Dot(ac,q)/det;if(distance<=0||distance>=nearest)continue;
+                        Vector2 st=uv[ai]*(1-u-v)+uv[bi]*u+uv[ci]*v;
+                        if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        nearest=distance;bestSlot=slot;bestTriangle=i;hit=origin+direction*distance;
+                    }
+                }
+                int component=-1;
+                if(bestSlot>=0) {
+                    var indices=baked.GetTriangles(bestSlot);var parents=Enumerable.Range(0,points.Length).ToArray();
+                    Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+                    for(int i=0;i<indices.Length;i+=3){parents[root(indices[i+1])]=root(indices[i]);parents[root(indices[i+2])]=root(indices[i]);}
+                    foreach(var seam in indices.Distinct().GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))) {
+                        int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);
+                    }
+                    int index=0;foreach(var group in indices.Distinct().GroupBy(i=>root(i)).OrderByDescending(g=>g.Count())) {
+                        if(group.Contains(indices[bestTriangle]))component=index;index++;
+                    }
+                }
+                rays.Add(new Landmark{name="pixel-"+pixel.x+"-"+pixel.y+"-slot-"+bestSlot+"-component-"+component,position=hit});
+            }
+            File.WriteAllText("work/reference-review/fringe-coverage-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=rays.ToArray()},true));
         }
 
         static void ReviewFrontCrown(Mesh baked,Transform snapshot) {

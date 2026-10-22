@@ -348,6 +348,57 @@ namespace DesktopFish.Editor {
         };
         public static Vector3 ChestPanel(int panel,int sign,float t,float across) => SamplePanel(ChestPanelRows[panel],sign,t,across);
 
+        // The outer cheek lock turns back toward its inner edge. Its frontmost
+        // depth profile alone omits the visible side return in oblique views.
+        static readonly Vector4[][] CheekReturnRows={
+            new[]{
+                new Vector4(0.588750f,0.111798f,0.149395f,0),
+                new Vector4(0.601250f,0.132891f,0.131021f,0),
+                new Vector4(0.620000f,0.150048f,0.120225f,0),
+                new Vector4(0.657500f,0.165974f,0.115720f,0),
+                new Vector4(0.695000f,0.170331f,0.113394f,0),
+                new Vector4(0.732500f,0.169596f,0.112269f,0),
+                new Vector4(0.782500f,0.162836f,0.114028f,0),
+                new Vector4(0.832500f,0.148567f,0.116106f,0),
+                new Vector4(0.882500f,0.115991f,0.114808f,0),
+                new Vector4(0.920000f,0.060038f,0.113058f,0),
+                new Vector4(0.945000f,0.016533f,0.126425f,0)
+            },
+            new[]{
+                new Vector4(0.588750f,0.117564f,0.144358f,0),
+                new Vector4(0.601250f,0.139387f,0.127266f,0),
+                new Vector4(0.620000f,0.158477f,0.116364f,0),
+                new Vector4(0.657500f,0.176480f,0.110965f,0),
+                new Vector4(0.695000f,0.182112f,0.108510f,0),
+                new Vector4(0.732500f,0.182277f,0.107241f,0),
+                new Vector4(0.782500f,0.176089f,0.109577f,0),
+                new Vector4(0.832500f,0.161522f,0.112647f,0),
+                new Vector4(0.882500f,0.129989f,0.112078f,0),
+                new Vector4(0.920000f,0.079031f,0.110334f,0),
+                new Vector4(0.945000f,0.017588f,0.125794f,0)
+            },
+            new[]{
+                new Vector4(0.588750f,0.123329f,0.140359f,0),
+                new Vector4(0.601250f,0.145884f,0.123443f,0),
+                new Vector4(0.620000f,0.166905f,0.112130f,0),
+                new Vector4(0.657500f,0.186986f,0.106805f,0),
+                new Vector4(0.695000f,0.193893f,0.103626f,0),
+                new Vector4(0.732500f,0.194958f,0.102715f,0),
+                new Vector4(0.782500f,0.189342f,0.104918f,0),
+                new Vector4(0.832500f,0.174478f,0.108827f,0),
+                new Vector4(0.882500f,0.143988f,0.109704f,0),
+                new Vector4(0.920000f,0.098024f,0.107310f,0),
+                new Vector4(0.945000f,0.018642f,0.126278f,0)
+            }
+        };
+        public static Vector3 CheekReturn(float t,int quarter) {
+            Vector3 front=FrontPanel(4,1,t,quarter/4f);
+            var rows=CheekReturnRows[quarter-1];Vector4 g=Sample(rows,front.y);
+            float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(FrontPanelRows[4][0].y,rows[rows.Length-1].x,front.y))*
+                Mathf.SmoothStep(0,1,Mathf.InverseLerp(FrontPanelRows[4][FrontPanelRows[4].Length-1].y,rows[0].x,front.y));
+            return Vector3.Lerp(front,new Vector3(g.y,front.y,g.z),blend);
+        }
+
         static readonly Dictionary<int,Bounds> SourceBounds=new Dictionary<int,Bounds>();
         static Vector3 AccessoryPoint(Vector3 p,int region) {
             Bounds source=SourceBounds[region];
