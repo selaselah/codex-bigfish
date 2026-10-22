@@ -71,6 +71,10 @@ namespace DesktopFish.Editor {
         static readonly Vector3[][] FrontPanelRows = {
             new[]{ // slot-10-component-0
                 new Vector3(0.035981f,0.975132f,0.088588f),new Vector3(0.036081f,0.975132f,0.088588f),new Vector3(0.036181f,0.975132f,0.088588f),new Vector3(0.036281f,0.975132f,0.088588f),new Vector3(0.036381f,0.975132f,0.088588f),
+                new Vector3(0.024467f,0.973750f,0.080145f),new Vector3(0.028784f,0.973750f,0.087866f),new Vector3(0.033101f,0.973750f,0.091733f),new Vector3(0.037418f,0.973750f,0.092467f),new Vector3(0.041735f,0.973750f,0.093201f),
+                new Vector3(0.010419f,0.970000f,0.084335f),new Vector3(0.021369f,0.970000f,0.099241f),new Vector3(0.032319f,0.970000f,0.101223f),new Vector3(0.043270f,0.970000f,0.102589f),new Vector3(0.054220f,0.970000f,0.103286f),
+                new Vector3(-0.002675f,0.966250f,0.086725f),new Vector3(0.013757f,0.966250f,0.099096f),new Vector3(0.030189f,0.966250f,0.107710f),new Vector3(0.046621f,0.966250f,0.108775f),new Vector3(0.063053f,0.966250f,0.106066f),
+                new Vector3(-0.005728f,0.963750f,0.082245f),new Vector3(0.012939f,0.963750f,0.091439f),new Vector3(0.031607f,0.963750f,0.111721f),new Vector3(0.050274f,0.963750f,0.113043f),new Vector3(0.068941f,0.963750f,0.104548f),
                 new Vector3(-0.011356f,0.957500f,0.073272f),new Vector3(0.012387f,0.957500f,0.079105f),new Vector3(0.036130f,0.957500f,0.121289f),new Vector3(0.059873f,0.957500f,0.121534f),new Vector3(0.083617f,0.957500f,0.098254f),
                 new Vector3(-0.019160f,0.945000f,0.061199f),new Vector3(0.011866f,0.945000f,0.059962f),new Vector3(0.042893f,0.945000f,0.136941f),new Vector3(0.073919f,0.945000f,0.135468f),new Vector3(0.104945f,0.945000f,0.107147f),
                 new Vector3(-0.029633f,0.920000f,0.046009f),new Vector3(0.011471f,0.920000f,0.035241f),new Vector3(0.052574f,0.920000f,0.158397f),new Vector3(0.093678f,0.920000f,0.155512f),new Vector3(0.134781f,0.920000f,0.125203f),
@@ -259,6 +263,27 @@ namespace DesktopFish.Editor {
                 new Vector3(0.043043f,0.732500f,0.217001f),new Vector3(0.047355f,0.732500f,0.217310f),new Vector3(0.051667f,0.732500f,0.217536f),new Vector3(0.055979f,0.732500f,0.215698f),new Vector3(0.060291f,0.732500f,0.213305f),
                 new Vector3(0.034326f,0.695000f,0.212349f),new Vector3(0.035346f,0.695000f,0.212519f),new Vector3(0.036366f,0.695000f,0.212672f),new Vector3(0.037385f,0.695000f,0.212672f),new Vector3(0.038405f,0.695000f,0.212054f),
                 new Vector3(0.031915f,0.687772f,0.210924f),new Vector3(0.031975f,0.687772f,0.210924f),new Vector3(0.032035f,0.687772f,0.210924f),new Vector3(0.032095f,0.687772f,0.210924f),new Vector3(0.032155f,0.687772f,0.210924f)
+            },
+            new[]{ // measured underlayer, slot-11-component-0
+                new Vector3(-0.001735f,0.955554f,0.108675f),new Vector3(-0.001635f,0.955554f,0.108675f),new Vector3(-0.001535f,0.955554f,0.108675f),new Vector3(-0.001435f,0.955554f,0.108675f),new Vector3(-0.001335f,0.955554f,0.108675f),
+                new Vector3(0.023833f,0.945000f,0.122821f),new Vector3(0.033105f,0.945000f,0.123964f),new Vector3(0.042377f,0.945000f,0.123939f),new Vector3(0.051648f,0.945000f,0.120405f),new Vector3(0.060920f,0.945000f,0.113327f),
+                new Vector3(0.063495f,0.920000f,0.137551f),new Vector3(0.074734f,0.920000f,0.136164f),new Vector3(0.085972f,0.920000f,0.134557f),new Vector3(0.097210f,0.920000f,0.129955f),new Vector3(0.108448f,0.920000f,0.116230f),
+                new Vector3(0.105424f,0.882500f,0.148797f),new Vector3(0.116151f,0.882500f,0.145231f),new Vector3(0.126878f,0.882500f,0.141672f),new Vector3(0.137605f,0.882500f,0.134400f),new Vector3(0.148332f,0.882500f,0.117806f),
+                new Vector3(0.134555f,0.832500f,0.151576f),new Vector3(0.144837f,0.832500f,0.147668f),new Vector3(0.155119f,0.832500f,0.143534f),new Vector3(0.165401f,0.832500f,0.136058f),new Vector3(0.175683f,0.832500f,0.117316f),
+                new Vector3(0.153194f,0.782500f,0.151445f),new Vector3(0.161037f,0.782500f,0.147159f),new Vector3(0.168880f,0.782500f,0.142754f),new Vector3(0.176723f,0.782500f,0.138348f),new Vector3(0.184566f,0.782500f,0.117192f),
+                new Vector3(0.161675f,0.732500f,0.148208f),new Vector3(0.167552f,0.732500f,0.145027f),new Vector3(0.173430f,0.732500f,0.141688f),new Vector3(0.179307f,0.732500f,0.138350f),new Vector3(0.185185f,0.732500f,0.122644f),
+                new Vector3(0.160452f,0.695000f,0.142765f),new Vector3(0.163343f,0.695000f,0.141515f),new Vector3(0.166235f,0.695000f,0.139987f),new Vector3(0.169127f,0.695000f,0.138262f),new Vector3(0.172018f,0.695000f,0.131399f),
+                new Vector3(0.159237f,0.674401f,0.137919f),new Vector3(0.159297f,0.674401f,0.137919f),new Vector3(0.159357f,0.674401f,0.137919f),new Vector3(0.159417f,0.674401f,0.137919f),new Vector3(0.159477f,0.674401f,0.137919f),
+            },
+            new[]{ // measured underlayer, slot-11-component-2
+                new Vector3(-0.002290f,0.957440f,0.097541f),new Vector3(-0.002190f,0.957440f,0.097541f),new Vector3(-0.002090f,0.957440f,0.097541f),new Vector3(-0.001990f,0.957440f,0.097541f),new Vector3(-0.001890f,0.957440f,0.097541f),
+                new Vector3(0.005646f,0.945000f,0.117864f),new Vector3(0.017083f,0.945000f,0.121931f),new Vector3(0.028520f,0.945000f,0.124763f),new Vector3(0.039957f,0.945000f,0.120268f),new Vector3(0.051394f,0.945000f,0.114925f),
+                new Vector3(0.026055f,0.920000f,0.144520f),new Vector3(0.041571f,0.920000f,0.145627f),new Vector3(0.057088f,0.920000f,0.145490f),new Vector3(0.072605f,0.920000f,0.138122f),new Vector3(0.088121f,0.920000f,0.128138f),
+                new Vector3(0.053848f,0.882500f,0.167287f),new Vector3(0.070716f,0.882500f,0.164925f),new Vector3(0.087585f,0.882500f,0.162441f),new Vector3(0.104454f,0.882500f,0.152652f),new Vector3(0.121323f,0.882500f,0.138084f),
+                new Vector3(0.088966f,0.832500f,0.179462f),new Vector3(0.104559f,0.832500f,0.175119f),new Vector3(0.120152f,0.832500f,0.170150f),new Vector3(0.135746f,0.832500f,0.159236f),new Vector3(0.151339f,0.832500f,0.142364f),
+                new Vector3(0.118883f,0.782500f,0.177234f),new Vector3(0.131130f,0.782500f,0.172020f),new Vector3(0.143377f,0.782500f,0.166653f),new Vector3(0.155624f,0.782500f,0.156845f),new Vector3(0.167871f,0.782500f,0.140505f),
+                new Vector3(0.148966f,0.732500f,0.158529f),new Vector3(0.155523f,0.732500f,0.154709f),new Vector3(0.162081f,0.732500f,0.150465f),new Vector3(0.168639f,0.732500f,0.145582f),new Vector3(0.175197f,0.732500f,0.132782f),
+                new Vector3(0.179679f,0.709260f,0.122491f),new Vector3(0.179739f,0.709260f,0.122491f),new Vector3(0.179799f,0.709260f,0.122491f),new Vector3(0.179859f,0.709260f,0.122491f),new Vector3(0.179919f,0.709260f,0.122491f),
             },
         };
         static Vector3 FrontPanelRaw(int panel,int sign,float t,float across) {

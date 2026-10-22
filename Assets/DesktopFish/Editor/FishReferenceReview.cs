@@ -368,7 +368,9 @@ namespace DesktopFish.Editor
                         for(int ti=0;ti<triangles.Length;ti+=3)if(members.Contains(triangles[ti]))
                             selected.AddRange(new[]{triangles[ti],triangles[ti+1],triangles[ti+2]});
                         frontPanels.Add(new Landmark{name=name+"-root",position=group.Select(i=>points[i]).OrderByDescending(p=>p.y).First()});
-                        foreach(float y in new[]{.71f,.70f,.68f,.65f,.61f,.57f,.53f,.50f,.47f,.44f,.425f,.415f}) {
+                        var heights=new[]{.71f,.70f,.68f,.65f,.61f,.57f,.53f,.50f,.47f,.44f,.425f,.415f};
+                        if(slot==10&&index-1==0)heights=new[]{.723f,.720f,.717f,.715f}.Concat(heights).ToArray();
+                        foreach(float y in heights) {
                             var cuts=VisibleSection(points,baked.uv,selected.ToArray(),Vector3.up,y,slot);
                             if(cuts.Count==0)continue;
                             float min=cuts.Min(p=>p.x),max=cuts.Max(p=>p.x);
@@ -669,9 +671,13 @@ namespace DesktopFish.Editor
         static void ReviewFringeCoverage(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
             var rays=new System.Collections.Generic.List<Landmark>();
-            foreach(Vector2 pixel in new[]{new Vector2(230,345),new Vector2(230,380),new Vector2(225,430),new Vector2(238,490)}) {
+            var probes=new[]{new Vector3(230,345,35),new Vector3(230,380,35),new Vector3(225,430,35),new Vector3(238,490,35),
+                new Vector3(228,315,0),new Vector3(224,335,0),new Vector3(492,315,0),new Vector3(498,340,0),
+                new Vector3(360,150,0),new Vector3(330,165,0),new Vector3(390,165,0)};
+            foreach(Vector3 probe in probes) {
+                Vector2 pixel=new Vector2(probe.x,probe.y);
                 var focus=new Vector3(0,.56f,.048f);
-                Vector3 offset=Quaternion.Euler(0,35,0)*new Vector3(0,.24f,3)*.8f;
+                Vector3 offset=Quaternion.Euler(0,probe.z,0)*new Vector3(0,.24f,3)*.8f;
                 Vector3 direction=-offset.normalized,right=Vector3.Cross(Vector3.up,direction).normalized,up=Vector3.Cross(direction,right);
                 Vector3 origin=focus+offset+right*((pixel.x-360)*.528f/720)+up*((360-pixel.y)*.528f/720);
                 float nearest=float.PositiveInfinity;int bestSlot=-1,bestTriangle=-1;Vector3 hit=Vector3.zero;
@@ -701,7 +707,7 @@ namespace DesktopFish.Editor
                         if(group.Contains(indices[bestTriangle]))component=index;index++;
                     }
                 }
-                rays.Add(new Landmark{name="pixel-"+pixel.x+"-"+pixel.y+"-slot-"+bestSlot+"-component-"+component,position=hit});
+                rays.Add(new Landmark{name="view-"+probe.z+"-pixel-"+pixel.x+"-"+pixel.y+"-slot-"+bestSlot+"-component-"+component,position=hit});
             }
             File.WriteAllText("work/reference-review/fringe-coverage-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=rays.ToArray()},true));
         }

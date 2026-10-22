@@ -433,16 +433,19 @@ namespace DesktopFish.Editor
             }
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
                 bool cheekReturn=panel==4;
-                int rows=cheekReturn?10:panel==0?15:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
+                int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
                 int start=body.p.Count,oldRegion=body.region;body.region=0;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=row/(float)rows,across=col<=4?col/4f:(8-col)/4f;
+                    float t=panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows;
+                    float across=col<=4?col/4f:(8-col)/4f;
                     Vector3 p=cheekReturn?(col>4&&col<8?FishModelGuides.CheekReturn(t,8-col):FishModelGuides.FrontPanel(panel,1,t,across)):
                         FishModelGuides.FrontPanel(panel,sign,t,across);
                     // A closed cross-section ends in one pole, not a tiny
                     // coplanar line that turns its last return facets inside out.
                     if(cheekReturn&&(row==0||row==rows))p=FishModelGuides.FrontPanel(panel,1,t,.5f);
                     if(cheekReturn)p.x*=sign;
+                    // A common crown pole prevents a tiny reversed root fan.
+                    if(panel==0&&row==0)p=FishModelGuides.FrontPanel(panel,sign,t,.5f);
                     float paintAcross=cheekReturn&&sign<0?1-across:across;
                     float paintU=((phase%3)+3)%3*.25f+.012f+paintAcross*.226f;
                     body.Add(AuthorPoint(p),Color.white*.98f,head,new Vector2(paintU,.02f+.94f*t));
@@ -1783,6 +1786,11 @@ namespace DesktopFish.Editor
                     a.GuidedChestPanel(panel,sign,bone,surface);
                 for(int panel=0;panel<7;panel++)a.GuidedFrontPanel(panel,sign,head,panel%3);
                 a.GuidedFrontPanel(7,sign,head,sign);
+                // Corresponding Ref rays locate these two underlying locks.
+                // Their sparse sections close forehead gaps without enlarging
+                // the outer fringe or shrinking the skin shell.
+                a.GuidedFrontPanel(15,sign,head,0);
+                a.GuidedFrontPanel(16,sign,head,1);
             }
             for(int panel=8;panel<15;panel++)a.GuidedFrontPanel(panel,1,head,panel%3);
             // A gently rearward arch keeps the crown tuft curved in side view.
