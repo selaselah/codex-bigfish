@@ -166,6 +166,7 @@ namespace DesktopFish.Editor
             ReviewRearPaint(baked,snapshot.transform);
             ReviewRearPaintEdges(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
+            ReviewHeadSideGuides(baked,snapshot.transform,skin);
             ReviewEyeProfiles(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
@@ -309,7 +310,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,3,4,5,6,7,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37}) {
+            foreach(int slot in new[]{1,3,4,5,6,7,10,11,12,15,16,17,18,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 float[] heights=slot>=26&&slot<=28?new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f,.09f,.10f}:
                     new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f};
@@ -344,7 +345,7 @@ namespace DesktopFish.Editor
                 if(slot==29||slot==30)FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib-cloth-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot>=26&&slot<=28)FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot-part-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==34||slot==35||slot==36)FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/hem-part-"+slot,.8f,new Vector3(0,-.056f,0));
-                if(slot==3)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-skin",.8f,new Vector3(0,-.056f,0));
+                if(slot==3||slot==18)FishRebuiltModel.RenderHeadStudy(camera,slot==3?"work/reference-review/head-skin":"work/reference-review/head-body-skin",.8f,new Vector3(0,-.056f,0));
                 if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
@@ -1420,6 +1421,32 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/eye-profile-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        // Three sparse side/rear/front extrema per alpha-visible skin section.
+        // Only position guides leave this local review, never source mesh or UVs.
+        static void ReviewHeadSideGuides(Mesh baked,Transform snapshot,SkinnedMeshRenderer skin) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;var triangles=baked.GetTriangles(3);
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(float y in new[]{.3825f,.385f,.39f,.40f,.41f,.42f,.43f,.44f,.45f,.46f,.47f,.48f,.50f,.52f,.54f,.56f,.58f,.60f}) {
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,3,maxStep:.00015f);if(cuts.Count==0)continue;
+                var left=cuts.OrderBy(q=>q.x).First();var right=cuts.OrderByDescending(q=>q.x).First();
+                samples.Add(new Landmark{name="head-left",position=left});samples.Add(new Landmark{name="head-right",position=right});
+                samples.Add(new Landmark{name="head-rear",position=cuts.OrderBy(q=>q.z).First()});
+                samples.Add(new Landmark{name="head-front",position=cuts.OrderByDescending(q=>q.z).First()});
+            }
+            File.WriteAllText("work/reference-review/head-side-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var neck=new System.Collections.Generic.List<Landmark>();var weights=skin.sharedMesh.boneWeights;
+            var headNeck=new System.Collections.Generic.HashSet<int>(skin.bones.Select((bone,index)=>new{bone,index}).Where(v=>v.bone.name=="J_Bip_C_Head"||v.bone.name=="J_Bip_C_Neck").Select(v=>v.index));
+            Func<int,float> influence=i=>{var w=weights[i];return (headNeck.Contains(w.boneIndex0)?w.weight0:0)+(headNeck.Contains(w.boneIndex1)?w.weight1:0)+(headNeck.Contains(w.boneIndex2)?w.weight2:0)+(headNeck.Contains(w.boneIndex3)?w.weight3:0);};
+            var all=baked.GetTriangles(18);var selected=new System.Collections.Generic.List<int>();
+            for(int i=0;i<all.Length;i+=3)if(influence(all[i])>.5f||influence(all[i+1])>.5f||influence(all[i+2])>.5f)selected.AddRange(new[]{all[i],all[i+1],all[i+2]});
+            foreach(float y in new[]{.34f,.35f,.36f,.37f,.38f,.39f,.40f,.41f,.42f,.44f,.46f,.48f,.50f,.52f}) {
+                var cuts=VisibleSection(points,uv,selected.ToArray(),Vector3.up,y,18,maxStep:.00015f);if(cuts.Count==0)continue;
+                neck.Add(new Landmark{name="neck-left",position=cuts.OrderBy(q=>q.x).First()});neck.Add(new Landmark{name="neck-right",position=cuts.OrderByDescending(q=>q.x).First()});
+                neck.Add(new Landmark{name="neck-rear",position=cuts.OrderBy(q=>q.z).First()});neck.Add(new Landmark{name="neck-front",position=cuts.OrderByDescending(q=>q.z).First()});
+            }
+            File.WriteAllText("work/reference-review/neck-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=neck.ToArray()},true));
         }
 
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {

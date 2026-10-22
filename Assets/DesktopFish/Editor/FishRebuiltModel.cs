@@ -165,6 +165,29 @@ namespace DesktopFish.Editor
                 }
                 Grid(g, start, rows, n);
             }
+            public void GuidedNeck(int neck,int head) {
+                int start=body.p.Count,oldRegion=body.region;body.region=0;const int columns=12;var ys=FishNeckGuides.Stations;
+                for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++) {
+                    float y=ys[row],angle=col*Mathf.PI*2/columns;Vector4 q=FishNeckGuides.Profile(y);
+                    // A convex section overlaps the independent head shell
+                    // inside its hidden anterior face. Its measured posterior
+                    // bound and width remain fixed; avoid concave clipped rings.
+                    if(row>0&&row<ys.Length-1&&y>.548f) {
+                        Vector3 old=AuthorPoint(V(0,y,0));float width=FaceWidthScale(old.y)*FishModelGuides.Point(V(1,y,0),1).x;
+                        float x=q.y*.95f/width,disc=1-x*x/(.214f*.214f)-Mathf.Pow((old.y-.773f)/.187f,2);
+                        if(disc>0)q.w=Mathf.Max(q.w,ShapeHeadPoint(V(x,old.y,-.166f*Mathf.Sqrt(disc))).z+.004f);
+                    }
+                    float center=(q.z+q.w)*.5f,rx=q.y,rz=(q.w-q.z)*.5f;
+                    if(row==0||row==ys.Length-1){rx=0;rz=0;}
+                    Vector3 final=V(rx*Mathf.Cos(angle),y,center+rz*Mathf.Sin(angle));
+                    Vector3 p=AuthorPoint(final);if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
+                    float share=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.58f,y));
+                    body.Add(p,Skin,neck,null,head,share);
+                }
+                Grid(body,start,ys.Length-1,columns);
+                for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(columns+1),start+row*(columns+1)+columns));
+                body.region=oldRegion;
+            }
             public void Tube(Geo g, Vector3[] path, float radius, Color color, int bone, int sides = 6) {
                 Sweep(g, path, t => radius, t => radius, t => color, bone, sides);
             }
@@ -1139,10 +1162,13 @@ namespace DesktopFish.Editor
         }
         static Vector3 ShapeHeadPoint(Vector3 p) {
             float radius=.166f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow((p.y-.773f)/.187f,2)));
-            // Retain the rear jaw/neck attachment while moving the chin. Moving
-            // the whole lower ring forward would leave the neck outside it.
+            // Keep frontal anchors while shaping the facial shell. A separate
+            // sparse-section posterior/neck loft supplies its hidden closure.
             float forward=radius<.001f?1:Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.5f,.5f,p.z/radius));
-            p.z+=JawForward(p.y)*forward;p.x*=FaceWidthScale(p.y);return p;
+            float raw=p.z,jaw=JawForward(p.y),derivative;float finalY=FitHeight(p.y,out derivative);
+            p.z+=jaw*forward;
+            p.z=FishHeadSideGuides.Depth(p.z,raw,radius,jaw,finalY);
+            p.x*=FaceWidthScale(p.y);return p;
         }
         static Vector3 FacePoint(float x, float y, float offset) {
             // Facial marks keep their authored XY placement while following
@@ -1402,7 +1428,7 @@ namespace DesktopFish.Editor
                 a.body.p[i]=p;
             }
             a.body.region=0;
-            a.Sphere(a.body, V(0, .555f, 0), V(.028f, .035f, .029f), Skin, neck);
+            a.GuidedNeck(neck,head);
             int torsoStart=a.body.p.Count;
             a.Sphere(a.body, V(0, .460f, 0), V(.120f, .108f, .080f), Navy, chest);
             for(int i=torsoStart;i<a.body.p.Count;i++) {
@@ -1476,7 +1502,9 @@ namespace DesktopFish.Editor
         public static void RenderIdleHandSkinningAndBuild() { BuildWithSkinningReview(true); }
         // Localized regression for hair topology/attachments: head-look extrema,
         // different secondary-sway phases and the raised working posture.
-        public static void RenderIdleHairCheckAndBuild() {
+        public static void RenderIdleHairCheckAndBuild() { RenderHairCheckAndBuild(false); }
+        public static void RenderIdleHeadSkinAndBuild() { RenderHairCheckAndBuild(true); }
+        static void RenderHairCheckAndBuild(bool includeFace) {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1516,7 +1544,7 @@ namespace DesktopFish.Editor
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);UnityEngine.Object.DestroyImmediate(sheet);
             foreach(var snapshot in snapshots){UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);UnityEngine.Object.DestroyImmediate(snapshot.gameObject);}
-            RenderIdle();Build();
+            if(includeFace)RenderIdleFace();else RenderIdle();Build();
         }
         public static void RenderIdleFootCheckAndBuild() {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
