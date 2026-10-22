@@ -973,11 +973,33 @@ namespace DesktopFish.Editor
                 int first=face.tri.Count;Grid(face,start,rows,columns-1);
                 if(sign<0)ReverseFaces(face,first);
             }
+            public void GuidedEyeWhite(int sign,int bone) {
+                const int rows=4;int columns=FishEyeWhiteGuides.Columns(sign);int[] previous=null;
+                for(int col=0;col<columns;col++) {
+                    Vector3 lower=FishEyeWhiteGuides.Point(sign,col,false),upper=FishEyeWhiteGuides.Point(sign,col,true);
+                    bool pole=col==0||col==columns-1;var current=new int[pole?1:rows+1];
+                    for(int row=0;row<current.Length;row++) {
+                        float v=pole?.5f:row/(float)rows;Vector2 xy=EyeInputPoint(Vector3.Lerp(lower,upper,v));
+                        float shade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,1,v));
+                        Color color=Color.Lerp(Hex("FFFCFA"),Hex("D8C9D3"),shade*.30f);
+                        int vertex=face.Add(FacePoint(xy.x,xy.y,.0015f),color,bone);current[row]=vertex;
+                        features.Add(Tuple.Create(vertex,V(sign*.085f,.696f,.0015f),"eye"));
+                    }
+                    if(previous!=null) {
+                        if(previous.Length==1)for(int row=0;row<rows;row++)face.Face(previous[0],current[row],current[row+1]);
+                        else if(pole)for(int row=0;row<rows;row++)face.Face(previous[row],current[0],previous[row+1]);
+                        else for(int row=0;row<rows;row++){face.Face(previous[row],current[row],current[row+1]);face.Face(previous[row],current[row+1],previous[row+1]);}
+                    }
+                    previous=current;
+                }
+            }
             public void PaintedIris(int sign,int bone) {
                 int start=face.p.Count;const int columns=32,rows=2;
                 Vector3 center=FishIrisGuides.Center(sign);Vector2 inputCenter=EyeInputPoint(center);
+                var clip=Enumerable.Range(0,columns).Select(col=>FishEyeWhiteGuides.Clip(sign,center,FishIrisGuides.Rim(sign,col))).ToArray();
+                Debug.Log("Iris opening clip "+sign+": "+clip.Count(t=>t<.99999f)+"/"+columns+", min radius "+clip.Min());
                 for(int row=0;row<=rows;row++)for(int col=0;col<(row==0?1:columns);col++) {
-                    float radius=row/(float)rows,angle=col*Mathf.PI*2/columns;
+                    float radius=row/(float)rows*clip[col],angle=col*Mathf.PI*2/columns;
                     Vector2 xy=EyeInputPoint(Vector3.Lerp(center,FishIrisGuides.Rim(sign,col),radius));
                     int vertex=face.Add(FacePoint(xy.x,xy.y,.0027f),Color.white,bone,
                         IrisPaintUV(Mathf.Cos(angle)*radius,Mathf.Sin(angle)*radius));
@@ -2332,7 +2354,7 @@ namespace DesktopFish.Editor
         {
             foreach (int sign in new[] { -1, 1 }) {
                 float x = sign * .085f;
-                a.Disk(a.face, new Vector2(x, .696f), new Vector2(.046f, .0347f), Hex("FFFCFA"), head, .0015f, "eye");
+                a.GuidedEyeWhite(sign,head);
                 a.PaintedIris(sign,head);
                 a.GuidedUpperEyeLine(sign,head);
                 a.FaceLine(new[] { new Vector2(x - .031f, .742f), new Vector2(x, .748f), new Vector2(x + .029f, .742f) }, .0016f, Hex("83666B"), head,"brow");

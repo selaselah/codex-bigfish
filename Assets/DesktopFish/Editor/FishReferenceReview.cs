@@ -177,6 +177,7 @@ namespace DesktopFish.Editor
             ReviewFaceSections(baked,snapshot.transform);
             ReviewHeadSideGuides(baked,snapshot.transform,skin);
             ReviewEyeProfiles(baked,snapshot.transform);
+            ReviewEyeApertures(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
             ReviewFrontPaint(baked,snapshot,camera);
@@ -1746,6 +1747,65 @@ namespace DesktopFish.Editor
                 filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(mesh);
                 foreach(var material in materials)UnityEngine.Object.DestroyImmediate(material);
             }
+        }
+
+        // Visible white backing is clipped by the facial opening. Measuring
+        // the isolated eyeball extrema alone would reproduce the hidden sphere.
+        static void ReviewEyeApertures(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var projected=new System.Collections.Generic.Dictionary<int,Func<float,float,float>>();
+            foreach(int slot in new[]{3,4}) {
+                var source=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                var faces=Enumerable.Range(0,source.Length/3).Select(k=>new[]{source[k*3],source[k*3+1],source[k*3+2]})
+                    .Where(t=>t.Max(i=>points[i].y)>.43f&&t.Min(i=>points[i].y)<.53f&&t.Max(i=>points[i].z)>.065f).ToArray();
+                projected[slot]=(x,y)=>{
+                    float front=float.NegativeInfinity;
+                    foreach(var t in faces) {
+                        Vector3 a=points[t[0]],b=points[t[1]],c=points[t[2]];
+                        if(x<Mathf.Min(a.x,Mathf.Min(b.x,c.x))||x>Mathf.Max(a.x,Mathf.Max(b.x,c.x))||
+                            y<Mathf.Min(a.y,Mathf.Min(b.y,c.y))||y>Mathf.Max(a.y,Mathf.Max(b.y,c.y)))continue;
+                        float den=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);if(Mathf.Abs(den)<1e-12f)continue;
+                        float wa=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/den;
+                        float wb=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/den,wc=1-wa-wb;
+                        if(wa<-.000001f||wb<-.000001f||wc<-.000001f)continue;
+                        Vector2 st=uv[t[0]]*wa+uv[t[1]]*wb+uv[t[2]]*wc;
+                        if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        front=Mathf.Max(front,a.z*wa+b.z*wb+c.z*wc);
+                    }
+                    return front;
+                };
+            }
+            Func<float,float,bool> visible=(x,y)=>{
+                float white=projected[4](x,y);return !float.IsNegativeInfinity(white)&&white>projected[3](x,y)+.00001f;
+            };
+            Func<float,Vector2?> section=x=>{
+                float lo=float.PositiveInfinity,hi=float.NegativeInfinity;
+                for(int row=0;row<=634;row++){float y=.43f+row*.00015f;if(visible(x,y)){lo=Mathf.Min(lo,y);hi=Mathf.Max(hi,y);}}
+                if(float.IsPositiveInfinity(lo))return null;
+                float a=lo-.00015f,b=lo;for(int i=0;i<20;i++){float y=(a+b)*.5f;if(visible(x,y))b=y;else a=y;}lo=b;
+                a=hi;b=hi+.00015f;for(int i=0;i<20;i++){float y=(a+b)*.5f;if(visible(x,y))a=y;else b=y;}hi=a;
+                return new Vector2(lo,hi);
+            };
+            var measured=new System.Collections.Generic.List<Landmark>();
+            foreach(int sign in new[]{-1,1}) {
+                var occupied=Enumerable.Range(0,106).Select(i=>.025f+i*.001f).Where(x=>section(sign*x).HasValue).ToArray();
+                if(occupied.Length==0)throw new InvalidOperationException("No visible white aperture: "+sign);
+                float inner=occupied.First(),outer=occupied.Last();
+                foreach(bool far in new[]{false,true}) {
+                    float inside=far?outer:inner,outside=inside+(far?.001f:-.001f);
+                    for(int i=0;i<20;i++){float x=(inside+outside)*.5f;if(section(sign*x).HasValue)inside=x;else outside=x;}
+                    if(far)outer=inside;else inner=inside;
+                }
+                for(int col=0;col<=16;col++) {
+                    float u=.5f-.5f*Mathf.Cos(col*Mathf.PI/16),x=sign*Mathf.Lerp(inner,outer,u);
+                    Vector2 bounds=section(x).Value;
+                    foreach(bool upper in new[]{false,true}) {
+                        float y=upper?bounds.y:bounds.x;
+                        measured.Add(new Landmark{name="white-"+sign+"-"+col+"-"+(upper?"upper":"lower"),position=new Vector3(x,y,projected[4](x,y))});
+                    }
+                }
+            }
+            File.WriteAllText("work/reference-review/eye-aperture-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=measured.ToArray()},true));
         }
 
         static void ReviewEyeProfiles(Mesh baked,Transform snapshot) {

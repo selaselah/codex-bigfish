@@ -5,7 +5,7 @@
   "triangle_budget": 20000,
   "paint_size": [1024, 2048],
   "body_vertices": 13188,
-  "face_vertices": 778,
-  "triangles": 19406,
+  "face_vertices": 586,
+  "triangles": 19142,
   "bones": 51
 }
