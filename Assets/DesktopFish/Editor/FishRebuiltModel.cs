@@ -2043,6 +2043,18 @@ namespace DesktopFish.Editor
             RenderHeadStudy(camera,"work/rebuilt-head-skin",1,Vector3.zero);
             foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(headOnly);
+            var sleevesOnly=UnityEngine.Object.Instantiate(completeBody);var sleeveFacets=new List<int>();
+            var armBones=skins[0].bones.Select((b,i)=>new{b,i}).Where(v=>v.b.name.Contains("UpperArm")||v.b.name.Contains("LowerArm")||v.b.name.Contains("Shoulder")).Select(v=>v.i).ToArray();
+            var bodyColors=skins[0].sharedMesh.colors;
+            for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>{
+                int v=bodyTriangles[i+k];var w=skinWeights[v];var color=bodyColors[v];
+                return (armBones.Contains(w.boneIndex0)||armBones.Contains(w.boneIndex1))&&color.r<.5f&&color.b<.65f;
+            }))sleeveFacets.AddRange(new[]{bodyTriangles[i],bodyTriangles[i+1],bodyTriangles[i+2]});
+            sleevesOnly.triangles=sleeveFacets.ToArray();bodySnapshot.sharedMesh=sleevesOnly;
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+            RenderBodyStudy(camera,"work/rebuilt-sleeves",1,Vector3.zero);
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(sleevesOnly);
             var feetOnly=UnityEngine.Object.Instantiate(completeBody);var footTriangles=new List<int>();
             var footBones=skins[0].bones.Select((b,i)=>new{b,i}).Where(v=>v.b.name.Contains("Foot")||v.b.name.Contains("LowerLeg")).Select(v=>v.i).ToArray();
             for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>footBones.Contains(skinWeights[bodyTriangles[i+k]].boneIndex0)))
@@ -3108,6 +3120,24 @@ namespace DesktopFish.Editor
             return V(Mathf.Lerp(1,1.65f,opening),Mathf.Lerp(.95f,1.10f,opening),-.005f*opening);
         }
 
+        static Vector3 SleevePoint(int sign,float x,float theta,float relief=0) {
+            float[] sx={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.326f,.342f};
+            float[] sr={.025f,.040f,.045f,.046f,.041f,.035f,.033f,.032f,.032f,.030f,.028f,.0275f,.0275f,.027f};
+            int row=1;while(row<sx.Length-1&&sx[row]<x)row++;
+            float radius=Mathf.Lerp(sr[row-1],sr[row],Mathf.InverseLerp(sx[row-1],sx[row],x));
+            float gathering=Mathf.Sin(Mathf.InverseLerp(.11f,.205f,x)*Mathf.PI);
+            radius*=1+.035f*Mathf.Cos(theta*4+.6f)*gathering;
+            var section=SleeveSection(x);
+            Vector3 original=V(sign*x,.49f+Mathf.Cos(theta)*radius*section.x+section.z,Mathf.Sin(theta)*radius*section.y);
+            var measured=AuthorPoint(FishSleeveGuides.Point(sign,x,theta));
+            var point=Vector3.Lerp(original,measured,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.130f,FishSleeveGuides.FirstX,x)));
+            if(relief>0) {
+                // Share the same shaped sleeve surface with both embroidery bands.
+                Vector3 n=V(0,Mathf.Cos(theta),Mathf.Sin(theta));point+=n*relief;
+            }
+            return point;
+        }
+
         static void BuildLimbs(Author a,int hips,int chest)
         {
             foreach(int s in new[]{-1,1}) {
@@ -3118,20 +3148,17 @@ namespace DesktopFish.Editor
                 int hand=a.Bone(prefix+"Hand",elbow,V(s*.34f,.49f,0));
                 // One rounded sleeve bridges shoulder and elbow with continuous
                 // weights; the cuff remains rigid with the forearm.
-                float[] sleeveX={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.326f,.342f};
-                float[] sleeveRadius={.025f,.040f,.045f,.046f,.041f,.035f,.033f,.032f,.032f,.030f,.028f,.0275f,.0275f,.027f};
+                float[] sleeveX=new[]{.092f,.110f,.130f}.Concat(FishSleeveGuides.Stations(s)).Concat(new[]{.342f}).ToArray();
                 int sleeveStart=a.body.p.Count,sleeveTriangles=a.body.tri.Count;const int sleeveSides=12;
                 for(int row=0;row<sleeveX.Length;row++)for(int j=0;j<=sleeveSides;j++) {
                     float x=sleeveX[row],theta=j/(float)sleeveSides*Mathf.PI*2;
                     float gathering=Mathf.Sin(Mathf.InverseLerp(.11f,.205f,x)*Mathf.PI);
                     float fold=Mathf.Cos(theta*4+.6f)*gathering;
-                    float radius=sleeveRadius[row]*(1+.035f*fold);
                     int primary=x<.18f?chest:upper,secondary=x<.18f?upper:elbow;
                     float blend=x<.18f?Mathf.SmoothStep(0,1,Mathf.InverseLerp(.070f,.180f,x)):
                         Mathf.SmoothStep(0,1,Mathf.InverseLerp(.192f,.278f,x));
                     Color cloth=Navy*(.98f+.025f*fold);cloth.a=1;
-                    var section=SleeveSection(x);
-                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius*section.x+section.z,Mathf.Sin(theta)*radius*section.y),
+                    a.body.Add(SleevePoint(s,x,theta),
                         cloth,primary,null,secondary,blend);
                 }
                 Grid(a.body,sleeveStart,sleeveX.Length-1,sleeveSides);
@@ -3143,22 +3170,15 @@ namespace DesktopFish.Editor
                     a.body.smoothNormalPairs.Add(new Vector2Int(first,first+sleeveSides));
                 }
                 foreach(float centerX in new[]{.321f,.333f}) {
-                    // Shallow embroidered bands follow the same elliptical
+                    // Shallow embroidered bands follow the same measured
                     // sleeve profile instead of intersecting it as round tubes.
                     int bandStart=a.body.p.Count,bandTriangles=a.body.tri.Count;
-                    const int bandSegments=24;
+                    const int bandSegments=12;
                     for(int row=0;row<2;row++) {
                         float x=centerX+(row*2-1)*.0018f;
-                        int section=1;
-                        while(section<sleeveX.Length-1&&sleeveX[section]<x)section++;
-                        float radius=Mathf.Lerp(sleeveRadius[section-1],sleeveRadius[section],
-                            Mathf.InverseLerp(sleeveX[section-1],sleeveX[section],x));
-                        float relief=.0008f;
-                        var cuff=SleeveSection(x);
                         for(int j=0;j<=bandSegments;j++) {
                             float theta=j/(float)bandSegments*Mathf.PI*2;
-                            a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*(radius*cuff.x+relief)+cuff.z,
-                                Mathf.Sin(theta)*(radius*cuff.y+relief)),Gold,elbow);
+                            a.body.Add(SleevePoint(s,x,theta,.0009f),Gold,elbow);
                         }
                     }
                     Grid(a.body,bandStart,1,bandSegments);

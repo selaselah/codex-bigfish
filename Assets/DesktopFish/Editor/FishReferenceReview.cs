@@ -93,6 +93,54 @@ namespace DesktopFish.Editor
                 File.WriteAllText("work/reference-review/rear-branch-guides-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=measured.ToArray()},true));
             }
         }
+        // Local rest-space calibration; only sparse sleeve positions leave this review.
+        public static void MeasureSleeves() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);
+            var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            var rest=new Mesh();skin.BakeMesh(rest);
+            var points=rest.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(string side in new[]{"R","L"}) {
+                var upper=skin.bones.First(t=>t.name=="J_Bip_"+side+"_UpperArm").position;
+                var elbow=skin.bones.First(t=>t.name=="J_Bip_"+side+"_LowerArm").position;
+                var hand=skin.bones.First(t=>t.name=="J_Bip_"+side+"_Hand").position;
+                samples.Add(new Landmark{name=side+"-upper",position=upper});
+                samples.Add(new Landmark{name=side+"-elbow",position=elbow});
+                samples.Add(new Landmark{name=side+"-hand",position=hand});
+                var axis=(hand-upper).normalized;var up=Vector3.ProjectOnPlane(Vector3.up,axis).normalized;
+                var across=Vector3.Cross(axis,up).normalized;
+                float length=Vector3.Distance(hand,upper);
+                foreach(float station in new[]{.18f,.22f,.28f,.36f,.44f,.52f,.58f,.64f,.70f,.76f,.84f,.92f,.98f,1.01f}) {
+                    var center=upper+axis*(length*station);
+                    var cuts=VisibleSection(points,rest.uv,rest.GetTriangles(32),axis,Vector3.Dot(center,axis),32,maxStep:.00008f);
+                    if(cuts.Count<3)continue;
+                    // Fixed ray angles establish corresponding folds, rather than a rotating PCA hull.
+                    for(int j=0;j<12;j++) {
+                        float angle=j*Mathf.PI/6;Vector3 ray=up*Mathf.Cos(angle)+across*Mathf.Sin(angle);
+                        var perpendicular=Vector3.Cross(axis,ray);
+                        var candidates=cuts.Where(q=>Vector3.Dot(q-center,ray)>0).ToArray();
+                        if(candidates.Length==0)throw new InvalidOperationException("Empty sleeve support ray");
+                        float distance=candidates.Min(q=>Mathf.Abs(Vector3.Dot(q-center,perpendicular)));
+                        var point=candidates.Where(q=>Mathf.Abs(Vector3.Dot(q-center,perpendicular))<=distance+.00008f)
+                            .OrderByDescending(q=>Vector3.Dot(q-center,ray)).First();
+                        samples.Add(new Landmark{name=side+"-"+station.ToString("F2",System.Globalization.CultureInfo.InvariantCulture)+"-"+j,position=point});
+                    }
+                }
+            }
+            Directory.CreateDirectory("work/ref-sleeves-80");
+            File.WriteAllText("work/ref-sleeves-80/source-rest-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            UnityEngine.Object.DestroyImmediate(rest);
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Sparse rest sleeves measured; reference unchanged.");
+        }
+
         public static void Render()
         {
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);
