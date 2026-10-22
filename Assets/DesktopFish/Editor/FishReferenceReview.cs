@@ -187,6 +187,7 @@ namespace DesktopFish.Editor
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
             ReviewBibSurface(baked,snapshot,camera);
+            ReviewSideLaceSurface(baked,snapshot,camera);
             ReviewCollarRibbonGuides(baked,snapshot.transform);
             ReviewFootGuides(baked,snapshot.transform);
             ReviewHemGuides(baked,snapshot.transform);
@@ -1427,6 +1428,58 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name="gold-stud-"+sign+"-"+row,position=bounds.center});
             }
             File.WriteAllText("work/reference-review/bib-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewSideLaceSurface(Mesh baked,GameObject snapshot,Camera camera) {
+            var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();var uv=baked.uv;
+            var triangles=baked.GetTriangles(30);var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int sign in new[]{-1,1})for(int row=0;row<=20;row++) {
+                float registeredY=.414f+row*.006f,y=(registeredY-.07f)/1.25f;
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,30,(p,st)=>p.x*sign>.065f&&p.z>0,maxStep:.0001f);
+                if(cuts.Count==0)continue;
+                float lo=cuts.Min(p=>p.x),hi=cuts.Max(p=>p.x);
+                for(int col=0;col<5;col++) {
+                    float x=Mathf.Lerp(lo,hi,col/4f),near=cuts.Min(p=>Mathf.Abs(p.x-x));
+                    Vector3 p=cuts.Where(q=>Mathf.Abs(q.x-x)<=near+.00005f).OrderByDescending(q=>q.z).First();p.x=x;
+                    samples.Add(new Landmark{name="side-lace-"+sign+"-"+col,position=p});
+                }
+            }
+            var strap=new System.Collections.Generic.List<Landmark>();var cloth=GuideTexture(37);var clothTriangles=baked.GetTriangles(37);
+            foreach(int sign in new[]{-1,1})foreach(float registeredY in new[]{.416f,.428f,.440f,.452f,.464f,.476f,.488f,.500f,.512f}) {
+                float y=(registeredY-.07f)/1.25f;
+                var white=VisibleSection(points,uv,clothTriangles,Vector3.up,y,37,(p,st)=>{
+                    Color c=cloth.GetPixelBilinear(st.x,st.y);return p.x*sign>0&&p.z>0&&Mathf.Min(c.r,Mathf.Min(c.g,c.b))>.60f;
+                },maxStep:.0001f);
+                var lace=VisibleSection(points,uv,triangles,Vector3.up,y,30,(p,st)=>p.x*sign>.065f&&p.z>0,maxStep:.0001f);
+                var cuts=VisibleSection(points,uv,clothTriangles,Vector3.up,y,37,(p,st)=>p.x*sign>0&&p.z>0,maxStep:.0001f);
+                if(white.Count==0||lace.Count==0||cuts.Count==0)throw new InvalidOperationException("Missing strap section: "+registeredY);
+                float inner=white.Max(p=>p.x*sign),outer=lace.Min(p=>p.x*sign);
+                for(int col=0;col<5;col++) {
+                    float x=Mathf.Lerp(inner,outer,col/4f)*sign,near=cuts.Min(p=>Mathf.Abs(p.x-x));
+                    Vector3 p=cuts.Where(q=>Mathf.Abs(q.x-x)<=near+.00005f).OrderByDescending(q=>q.z).First();p.x=x;
+                    strap.Add(new Landmark{name="side-strap-"+sign+"-"+col,position=p});
+                }
+            }
+            File.WriteAllText("work/reference-review/side-strap-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=strap.ToArray()},true));
+            var tips=new System.Collections.Generic.List<Landmark>();
+            foreach(int sign in new[]{-1,1})for(float registeredY=.408f;registeredY<=.414f;registeredY+=.00005f) {
+                float y=(registeredY-.07f)/1.25f;
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,30,(p,st)=>p.x*sign>.065f&&p.z>0,maxStep:.00005f);
+                if(cuts.Count==0)continue;Vector3 tip=Vector3.zero;foreach(var p in cuts)tip+=p/cuts.Count;
+                tips.Add(new Landmark{name="side-lace-tip-"+sign,position=tip});break;
+            }
+            File.WriteAllText("work/reference-review/side-lace-tips.json",JsonUtility.ToJson(new FaceSectionReport{samples=tips.ToArray()},true));
+            File.WriteAllText("work/reference-review/side-lace-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var selected=new System.Collections.Generic.List<int>();
+            for(int k=0;k<triangles.Length;k+=3) {
+                var ids=new[]{triangles[k],triangles[k+1],triangles[k+2]};
+                if(ids.All(i=>Mathf.Abs(points[i].x)>.065f&&points[i].z>0))selected.AddRange(ids);
+            }
+            var isolated=UnityEngine.Object.Instantiate(baked);
+            for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==30?selected.ToArray():Array.Empty<int>(),sub,false);
+            var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+            FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/side-lace-selected",.8f,new Vector3(0,-.056f,0));
+            filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
         }
 
         static void ReviewBibSurface(Mesh baked,GameObject snapshot,Camera camera) {

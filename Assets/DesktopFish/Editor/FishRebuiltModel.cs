@@ -1329,6 +1329,7 @@ namespace DesktopFish.Editor
             PaintApron(pixels);
             PaintIris(pixels);
             PaintBib(pixels);
+            PaintSideLace(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
@@ -1384,6 +1385,30 @@ namespace DesktopFish.Editor
             float distance=Mathf.Sqrt(Mathf.Pow((x-cx)/rx,2)+Mathf.Pow((y-cy)/ry,2));
             return 1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.97f,1.03f,distance));
         }
+        static Vector2 SideLaceUV(float t,float r) {
+            return new Vector2((936+80*r)/1024f,(1864+144*t-128)/1024f);
+        }
+        // A dedicated chart preserves the other lace tiles and adds broad,
+        // irregular gathered folds plus an independently authored cutout edge.
+        static void PaintSideLace(Color[] pixels) {
+            float[] folds={.418f,.435f,.451f,.467f,.482f,.496f,.513f};
+            for(int py=1856;py<2016;py++)for(int px=928;px<1024;px++) {
+                float t=Mathf.Clamp01((py+.5f-1864)/144),r=Mathf.Clamp01((px+.5f-936)/80);
+                float y=Mathf.Lerp(.4102f,.522f,t),shade=0,light=0;
+                for(int k=0;k<folds.Length;k++) {
+                    float d=y-folds[k]+.007f*(r-.35f)*(r-.35f)-.002f*(r-.35f)*Mathf.Sin(k*2.1f);
+                    float width=.0031f+.00050f*Mathf.Sin(k*1.7f);
+                    shade+=Mathf.Exp(-d*d/(width*width))*(.20f+.42f*r);
+                    light+=Mathf.Exp(-(d-.003f)*(d-.003f)/.000010f)*.022f;
+                }
+                float seam=Mathf.Exp(-Mathf.Pow((r-.065f)/.045f,2))*.24f;
+                Color color=Color.Lerp(Hex("F9FAFF"),Hex("BFC4DA"),Mathf.Clamp01(shade+seam-light));
+                float edge=.965f+.035f*Mathf.Sin(t*Mathf.PI*13+.50f*Mathf.Sin(t*9));
+                color.a=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.010f,edge+.010f,r));
+                pixels[py*PaintWidth+px]=color;
+            }
+        }
+
         static Vector2 BibPaintUV(float u,float v) {
             return new Vector2((936+80*u)/1024f,(1704+112*v-128)/1024f);
         }
@@ -1562,6 +1587,7 @@ namespace DesktopFish.Editor
 
         [MenuItem("Desktop Fish/Rebuilt Model/Review Default Pose")]
         public static void RenderIdle() { RenderAngles(false); }
+        public static void RenderIdleLaceStudy() { RenderAngles(false,false,false,false,true); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
@@ -1722,7 +1748,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1785,6 +1811,17 @@ namespace DesktopFish.Editor
             feetOnly.triangles=footTriangles.ToArray();bodySnapshot.sharedMesh=feetOnly;
             RenderFootStudy(camera,"work/rebuilt-foot-isolated",1,Vector3.zero);
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(feetOnly);
+            if(includeLaceReview) {
+                var laceOnly=UnityEngine.Object.Instantiate(completeBody);var laceTriangles=new List<int>();var st=completeBody.uv;
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x>=928f/1024&&q.y>=1856f/PaintHeight&&q.y<=2016f/PaintHeight;
+                }))laceTriangles.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                laceOnly.triangles=laceTriangles.ToArray();bodySnapshot.sharedMesh=laceOnly;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBibStudy(camera,"work/rebuilt-lace-isolated",1,Vector3.zero);
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(laceOnly);
+            }
             if(includeSurfaceStudy) {
                 RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
                 var chestOnly=UnityEngine.Object.Instantiate(completeBody);var chestTriangles=new List<int>();var st=completeBody.uv;
@@ -2626,24 +2663,24 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,start,rows,cols);
             foreach(int sign in new[]{-1,1}) {
-                // The dark shoulder band separates the white bib from its
-                // outer lace; both follow the same sparse section depths.
-                int band=a.body.p.Count,first=a.body.tri.Count;const int bandRows=12;
-                for(int row=0;row<=bandRows;row++)for(int col=0;col<=2;col++) {
-                    float y=Mathf.Lerp(.414f,.514f,row/(float)bandRows),r=col/2f;
-                    Vector3 inner=FishBibSurfaceGuides.Point(y,sign);inner.x-=sign*.002f;inner.z-=.001f;
-                    Vector3 outer=FishModelGuides.BibLace(y,0);outer.x=(outer.x+.002f)*sign;
-                    Vector3 p=Vector3.Lerp(inner,outer,r);
+                // The measured front bands recess behind the folded frill;
+                // a straight bridge to its inner rim would hide the outer edge.
+                int band=a.body.p.Count,first=a.body.tri.Count;const int bandRows=18,bandCols=4;
+                for(int row=0;row<=bandRows;row++)for(int col=0;col<=bandCols;col++) {
+                    float y=Mathf.Lerp(.414f,.514f,row/(float)bandRows),r=col/(float)bandCols;
+                    Vector3 p=FishSideLaceGuides.Strap(sign,y,r);p.z-=.0008f;
+                    p.x+=sign*Mathf.Lerp(-.0005f,.0005f,r);
                     a.body.Add(AuthorGarmentPoint(p),Navy*.95f,bone);
                 }
-                Grid(a.body,band,bandRows,2);if(sign<0)ReverseFaces(a.body,first);
-                int lace=a.body.p.Count;first=a.body.tri.Count;const int laceRows=18;
-                for(int row=0;row<=laceRows;row++)for(int col=0;col<=2;col++) {
-                    float t=row/(float)laceRows,r=col/2f,y=Mathf.Lerp(.414f,.510f,t);
-                    Vector3 p=FishModelGuides.BibLace(y,r);p.z+=.002f+.0015f*Mathf.Cos(t*Mathf.PI*12)*r;p.x*=sign;
-                    a.body.Add(AuthorGarmentPoint(p),White,bone,LaceUV(3,t*.5f,r));
+                Grid(a.body,band,bandRows,bandCols);if(sign<0)ReverseFaces(a.body,first);
+                int lace=a.body.p.Count;first=a.body.tri.Count;const int laceRows=36,laceCols=4;
+                for(int row=0;row<=laceRows;row++)for(int col=0;col<=laceCols;col++) {
+                    float t=row/(float)laceRows,r=col/(float)laceCols;
+                    float y=Mathf.Lerp(FishSideLaceGuides.Low(sign),FishSideLaceGuides.High(sign),t);
+                    Vector3 p=FishSideLaceGuides.Point(sign,y,r);
+                    a.body.Add(AuthorGarmentPoint(p),Color.white,bone,SideLaceUV(t,r));
                 }
-                Grid(a.body,lace,laceRows,2);if(sign<0)ReverseFaces(a.body,first);
+                Grid(a.body,lace,laceRows,laceCols);if(sign<0)ReverseFaces(a.body,first);
             }
         }
 
