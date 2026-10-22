@@ -17,7 +17,13 @@ bpy.ops.object.delete(use_global=False)
 
 
 def xyz(value):
-    return Vector((value['x'], -value['z'], value['y']))
+    # Unity's camera/mesh convention is left-handed. Reflect X as well
+    # as changing the up axis so a front view retains left/right placement.
+    return Vector((-value['x'], -value['z'], value['y']))
+
+
+def gltf_xyz(value):
+    return Vector((-value['x'], value['y'], value['z']))
 
 
 rig_data = bpy.data.armatures.new('Authored BigFish rig')
@@ -44,8 +50,9 @@ degenerate_normal_positions = {}
 for index, item in enumerate(data['meshes']):
     mesh = bpy.data.meshes.new(item['name'])
     triangles = item['triangles']
+    # A reflection reverses orientation; reverse each face to retain outward normals.
     mesh.from_pydata([xyz(v) for v in item['vertices']], [],
-                    [tuple(triangles[i:i+3]) for i in range(0, len(triangles), 3)])
+                    [(triangles[i], triangles[i+2], triangles[i+1]) for i in range(0, len(triangles), 3)])
     mesh.update()
     uv_layer = mesh.uv_layers.new(name='SurfaceUV')
     for loop in mesh.loops:
@@ -62,7 +69,7 @@ for index, item in enumerate(data['meshes']):
     mesh.update()
     collapsed_vertices = {v for poly in mesh.polygons if poly.area < 1e-12 for v in poly.vertices}
     degenerate_normal_positions[item['name']] = {
-        tuple(round(item['vertices'][v][c], 6) for c in 'xyz') for v in collapsed_vertices}
+        tuple(round(c, 6) for c in gltf_xyz(item['vertices'][v])) for v in collapsed_vertices}
     for loop, normal in zip(mesh.loops, mesh.corner_normals):
         expected = authored_normals[loop.vertex_index]
         if expected.length_squared > .5 and loop.vertex_index not in collapsed_vertices:
@@ -124,7 +131,7 @@ for index, item in enumerate(data['meshes']):
 
 pose_path = ROOT / 'work/rebuilt-idle-pose.json'
 if pose_path.exists():
-    conversion = Matrix(((1,0,0,0),(0,0,-1,0),(0,1,0,0),(0,0,0,1)))
+    conversion = Matrix(((-1,0,0,0),(0,0,-1,0),(0,1,0,0),(0,0,0,1)))
     posed = {bone['name']: bone for bone in json.loads(pose_path.read_text())['bones']}
     for bone in data['bones']:
         value = posed[bone['name']]
@@ -137,6 +144,32 @@ if pose_path.exists():
         delta = conversion @ matrix @ rest_matrix.inverted() @ conversion.inverted()
         rig.pose.bones[bone['name']].matrix = delta @ rig.data.bones[bone['name']].matrix_local
         bpy.context.view_layer.update()
+
+# Check the opened idle pose against source-space linear skinning. This catches
+# inconsistent handedness between the mesh, rig and pose conversion.
+if pose_path.exists():
+    idle_error = 0.0
+    for item in data['meshes']:
+        evaluated = bpy.data.objects[item['name']].evaluated_get(bpy.context.evaluated_depsgraph_get())
+        mesh = evaluated.to_mesh()
+        for i, vertex in enumerate(item['vertices']):
+            point = Vector(tuple(vertex[c] for c in 'xyz'))
+            expected = Vector((0, 0, 0))
+            primary = item['primary_bone_weights'][i]
+            for bone_index, weight in ((item['bone_indices'][i], primary),
+                                       (item['secondary_bone_indices'][i], 1 - primary)):
+                bone = data['bones'][bone_index]
+                pose = posed[bone['name']]
+                q = pose['rotation']
+                rotation = Quaternion((q['w'], q['x'], q['y'], q['z']))
+                rest = Vector(tuple(bone['position'][c] for c in 'xyz'))
+                position = Vector(tuple(pose['position'][c] for c in 'xyz'))
+                expected += (rotation @ (point - rest) + position) * weight
+            expected = Vector((-expected.x, -expected.z, expected.y))
+            idle_error = max(idle_error, (evaluated.matrix_world @ mesh.vertices[i].co - expected).length)
+        evaluated.to_mesh_clear()
+    assert idle_error < .00002, f"Exported idle pose differs from Unity skinning: {idle_error}"
+    print(f"Idle-pose handedness/skinning validated: maximum vertex error {idle_error:.9g}")
 
 bpy.ops.object.camera_add(location=(0, -3, .85))
 camera = bpy.context.object
@@ -230,8 +263,8 @@ for mesh in document['meshes']:
     normals_by_position = {}
     indices_by_position = {}
     for index, (position, normal) in enumerate(zip(source['vertices'], source['normals'])):
-        key = tuple(round(position[c], 6) for c in 'xyz')
-        normals_by_position.setdefault(key, []).append(Vector(tuple(normal[c] for c in 'xyz')))
+        key = tuple(round(c, 6) for c in gltf_xyz(position))
+        normals_by_position.setdefault(key, []).append(gltf_xyz(normal))
         indices_by_position.setdefault(key, []).append(index)
     assert mesh.get('extras', {}).get('targetNames', []) == [shape['name'] for shape in source['shapes']]
     for primitive in mesh['primitives']:
@@ -262,7 +295,7 @@ for mesh in document['meshes']:
             for vertex, position in enumerate(positions):
                 candidates = indices_by_position[tuple(round(c, 6) for c in position)]
                 assert any(all(
-                    (Vector(deltas[shape][vertex]) - Vector(tuple(source['shapes'][shape]['deltas'][index][c] for c in 'xyz'))).length < .000002
+                    (Vector(deltas[shape][vertex]) - gltf_xyz(source['shapes'][shape]['deltas'][index])).length < .000002
                     for shape in range(len(targets))) for index in candidates), 'Authored GLB expression changed'
             checked_morph_deltas += len(positions) * len(targets)
         assert 'COLOR_1' not in attributes
