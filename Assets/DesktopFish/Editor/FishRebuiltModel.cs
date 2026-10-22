@@ -483,9 +483,8 @@ namespace DesktopFish.Editor
                     if(cheekReturn)p.x*=sign;
                     // A common crown pole prevents a tiny reversed root fan.
                     if(panel==0&&row==0)p=FishModelGuides.FrontPanel(panel,sign,t,.5f);
-                    float paintAcross=cheekReturn&&sign<0?1-across:across;
-                    float paintU=((phase%3)+3)%3*.25f+.012f+paintAcross*.226f;
-                    body.Add(AuthorPoint(p),Color.white*.98f,head,new Vector2(paintU,.02f+.94f*t));
+                    float paintAcross=cheekReturn?across:sign<0?1-across:across;
+                    body.Add(AuthorPoint(p),Color.white*.98f,head,FrontPaintUV(panel,paintAcross,t));
                 }
                 // Most front locks remain single two-sided sheets. The measured
                 // cheek return has real transverse depth, not a coplanar back copy.
@@ -1330,6 +1329,7 @@ namespace DesktopFish.Editor
             PaintIris(pixels);
             PaintBib(pixels);
             PaintSideLace(pixels);
+            PaintFrontPanels(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
@@ -1385,6 +1385,54 @@ namespace DesktopFish.Editor
             float distance=Mathf.Sqrt(Mathf.Pow((x-cx)/rx,2)+Mathf.Pow((y-cy)/ry,2));
             return 1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.97f,1.03f,distance));
         }
+        static Vector2 FrontPaintUV(int panel,float u,float t) {
+            return new Vector2((panel%6*128+16+96*u)/1024f,(panel/6*320+16+288*t)/1024f);
+        }
+        static void PaintFrontPanels(Color[] pixels) {
+            for(int y=128;y<LegacyPaintHeight;y++)for(int x=0;x<768;x++)pixels[y*PaintWidth+x]=Hex("2C457F");
+            for(int panel=0;panel<17;panel++) {
+                int ox=panel%6*128,oy=128+panel/6*320;var islands=FishFrontPaintGuides.Islands(panel);
+                for(int py=0;py<320;py++) {
+                    float t=Mathf.Clamp01((py+.5f-16)/288);var row=new Vector3[5];
+                    for(int col=0;col<5;col++)row[col]=FishModelGuides.FrontPanel(panel,1,t,col/4f);
+                    for(int px=0;px<128;px++) {
+                        float u=Mathf.Clamp01((px+.5f-16)/96),f=u*4;int j=Mathf.Min(3,(int)f);
+                        Vector3 p=Vector3.Lerp(row[j],row[j+1],f-j);
+                        float mass=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.8f);
+                        Color color=Color.Lerp(Hex("1A388B"),Hex("365FAC"),mass*.70f);
+                        float ends=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,1,t));
+                        color=Color.Lerp(color,Hex("8A8ABB"),ends*.78f);
+                        float filament=Mathf.Sin(u*21+t*2.3f+panel*.41f)*.0035f;
+                        color*=1-Mathf.Pow(Mathf.Abs(u*2-1),3)*.075f+filament;
+                        float glint=0;
+                        foreach(var island in islands) {
+                            Vector2 center=new Vector2(island[0].x,island[0].y);
+                            Vector2 axis=new Vector2(island[6].x-island[5].x,island[6].y-island[5].y);
+                            Vector2 cross=new Vector2(island[8].x-island[7].x,island[8].y-island[7].y);
+                            float rx=Mathf.Max(.0003f,axis.magnitude*.425f),ry=Mathf.Max(.0003f,cross.magnitude*.40f);
+                            axis.Normalize();cross.Normalize();Vector2 d=new Vector2(p.x,p.y)-center;
+                            float a=Vector2.Dot(d,axis)/rx,b=Vector2.Dot(d,cross)/ry;
+                            float radius=Mathf.Sqrt(a*a+b*b),angle=Mathf.Atan2(b,a);
+                            float contour=.96f+.035f*Mathf.Sin(angle*3+panel*.7f);
+                            float brush=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(contour-.10f,contour+.025f,radius));
+                            glint=Mathf.Max(glint,brush*(.85f+.15f*Mathf.Clamp01(.5f+b*.5f)));
+                        }
+                        color=Color.Lerp(color,Hex("7FA8E8"),glint*.72f);
+                        float stroke=PaintBrush(u,t,.20f+(panel%3)*.10f,.79f,.021f,.025f);
+                        stroke=Mathf.Max(stroke,PaintBrush(u,t,.72f-(panel%2)*.08f,.84f,.016f,-.02f));
+                        color=Color.Lerp(color,Hex("526DA4"),stroke*.24f);
+                        if(panel==0||panel==4||(panel>=7&&panel<=14)) {
+                            float ink=Mathf.Exp(-Mathf.Pow(u/.014f,2))+Mathf.Exp(-Mathf.Pow((u-1)/.014f,2));
+                            float fade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.16f,.30f,t))*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.91f,1,t)));
+                            color=Color.Lerp(color,Hex("15285B"),ink*fade*.38f);
+                        }
+                        color.a=1;
+                        pixels[(oy+py)*PaintWidth+ox+px]=color;
+                    }
+                }
+            }
+        }
+
         static Vector2 SideLaceUV(float t,float r) {
             return new Vector2((936+80*r)/1024f,(1864+144*t-128)/1024f);
         }
@@ -1588,6 +1636,7 @@ namespace DesktopFish.Editor
         [MenuItem("Desktop Fish/Rebuilt Model/Review Default Pose")]
         public static void RenderIdle() { RenderAngles(false); }
         public static void RenderIdleLaceStudy() { RenderAngles(false,false,false,false,true); }
+        public static void RenderIdleFrontStudy() { RenderAngles(false,false,false,false,false,true); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
@@ -1748,7 +1797,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1811,6 +1860,22 @@ namespace DesktopFish.Editor
             feetOnly.triangles=footTriangles.ToArray();bodySnapshot.sharedMesh=feetOnly;
             RenderFootStudy(camera,"work/rebuilt-foot-isolated",1,Vector3.zero);
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(feetOnly);
+            if(includeFrontReview) {
+                var only=UnityEngine.Object.Instantiate(completeBody);var chosen=new List<int>();var st=completeBody.uv;
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x<.75f&&q.y>=128f/PaintHeight&&q.y<LegacyPaintHeight/(float)PaintHeight;
+                }))chosen.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                only.triangles=chosen.ToArray();bodySnapshot.sharedMesh=only;var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                for(int mode=0;mode<2;mode++) {
+                    only.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,only.vertexCount).ToArray();
+                    var mat=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));mat.mainTexture=mode==0?Texture2D.whiteTexture:original[0].mainTexture;
+                    mat.SetFloat("_Flat",mode);mat.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=mat;
+                    RenderHeadStudy(camera,"work/rebuilt-front-"+(mode==0?"clay":"paint-flat"),1,Vector3.zero);UnityEngine.Object.DestroyImmediate(mat);
+                }
+                renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(only);
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            }
             if(includeLaceReview) {
                 var laceOnly=UnityEngine.Object.Instantiate(completeBody);var laceTriangles=new List<int>();var st=completeBody.uv;
                 for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{

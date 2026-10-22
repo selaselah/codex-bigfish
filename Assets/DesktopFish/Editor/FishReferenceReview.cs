@@ -179,6 +179,7 @@ namespace DesktopFish.Editor
             ReviewEyeProfiles(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
+            ReviewFrontPaint(baked,snapshot,camera);
             ReviewRearCrown(baked,snapshot.transform);
             ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
@@ -1243,6 +1244,69 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name=elevation+"/"+angle,position=center+direction*farthest});
             }
             File.WriteAllText("work/reference-review/rear-crown-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewFrontPaint(Mesh baked,GameObject snapshot,Camera camera) {
+            var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();var uv=baked.uv;
+            int[] slots={10,10,10,10,10,10,10,11,11,11,11,11,11,11,11,11,11};
+            int[] components={0,3,4,6,8,10,13,8,4,6,7,9,10,11,12,0,2};
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{10,11}) {
+                var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
+                var parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> root=null;
+                root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+                for(int k=0;k<triangles.Length;k+=3){parents[root(triangles[k+1])]=root(triangles[k]);parents[root(triangles[k+2])]=root(triangles[k]);}
+                foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))) {
+                    int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);
+                }
+                var groups=used.GroupBy(root).OrderByDescending(g=>g.Count()).ToArray();var texture=GuideTexture(slot);
+                foreach(int panel in Enumerable.Range(0,17).Where(i=>slots[i]==slot)) {
+                    var members=new System.Collections.Generic.HashSet<int>(groups[components[panel]]);var selected=new System.Collections.Generic.List<int>();
+                    for(int k=0;k<triangles.Length;k+=3)if(members.Contains(triangles[k]))selected.AddRange(new[]{triangles[k],triangles[k+1],triangles[k+2]});
+                    var bright=new System.Collections.Generic.List<Vector3>();
+                    for(float registeredY=.80f;registeredY<=.925f;registeredY+=.0015f) {
+                        float y=(registeredY-.07f)/1.25f;
+                        bright.AddRange(VisibleSection(points,uv,selected.ToArray(),Vector3.up,y,slot,(p,st)=>{
+                            Color c=texture.GetPixelBilinear(st.x,st.y);
+                            return p.z>0&&c.r>.34f&&c.g>.44f&&c.b>.56f&&c.g/c.b>.60f;
+                        },maxStep:.0002f));
+                    }
+                    var cells=bright.GroupBy(p=>new Vector2Int(Mathf.FloorToInt(p.x/.0006f),Mathf.FloorToInt(p.y/.0013f))).ToDictionary(g=>g.Key,g=>g.ToArray());
+                    var remaining=new System.Collections.Generic.HashSet<Vector2Int>(cells.Keys);int island=0;
+                    while(remaining.Count>0) {
+                        var queue=new System.Collections.Generic.Queue<Vector2Int>();var region=new System.Collections.Generic.List<Vector3>();
+                        var first=remaining.OrderBy(q=>q.x).ThenBy(q=>q.y).First();queue.Enqueue(first);remaining.Remove(first);
+                        while(queue.Count>0) {
+                            var cell=queue.Dequeue();region.AddRange(cells[cell]);
+                            for(int dx=-1;dx<=1;dx++)for(int dy=-1;dy<=1;dy++) {
+                                var next=cell+new Vector2Int(dx,dy);if(remaining.Remove(next))queue.Enqueue(next);
+                            }
+                        }
+                        float x0=region.Min(p=>p.x),x1=region.Max(p=>p.x),y0=region.Min(p=>p.y),y1=region.Max(p=>p.y);
+                        if(region.Count<5||x1-x0<.0008f||y1-y0<.0008f)continue;
+                        Vector3 center=new Vector3((x0+x1)*.5f,(y0+y1)*.5f,region.Max(p=>p.z));
+                        float xx=0,yy=0,xy=0;foreach(var p in region){Vector3 d=p-center;xx+=d.x*d.x;yy+=d.y*d.y;xy+=d.x*d.y;}
+                        float angle=.5f*Mathf.Atan2(2*xy,xx-yy);Vector3 axis=new Vector3(Mathf.Cos(angle),Mathf.Sin(angle),0),cross=new Vector3(-axis.y,axis.x,0);
+                        float a0=region.Min(p=>Vector3.Dot(p-center,axis)),a1=region.Max(p=>Vector3.Dot(p-center,axis));
+                        float b0=region.Min(p=>Vector3.Dot(p-center,cross)),b1=region.Max(p=>Vector3.Dot(p-center,cross));
+                        center+=axis*((a0+a1)*.5f)+cross*((b0+b1)*.5f);float ra=(a1-a0)*.5f,rb=(b1-b0)*.5f;
+                        // Box extrema plus projected PCA extent endpoints, only positions.
+                        foreach(var q in new[]{center,new Vector3(x0,center.y,center.z),new Vector3(x1,center.y,center.z),new Vector3(center.x,y0,center.z),new Vector3(center.x,y1,center.z),center-axis*ra,center+axis*ra,center-cross*rb,center+cross*rb})
+                            samples.Add(new Landmark{name="front-glint-"+panel+"-"+island,position=q});island++;
+                    }
+                }
+            }
+            File.WriteAllText("work/reference-review/front-glint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
+            for(int mode=0;mode<2;mode++) {
+                var mesh=UnityEngine.Object.Instantiate(baked);
+                for(int slot=0;slot<mesh.subMeshCount;slot++)if(slot!=10&&slot!=11)mesh.SetTriangles(Array.Empty<int>(),slot,false);
+                mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
+                var materials=original.Select(m=>{var n=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));n.mainTexture=mode==0?Texture2D.whiteTexture:m.mainTexture;n.SetFloat("_Flat",mode);n.SetFloat("_OutlineWidth",0);return n;}).ToArray();
+                filter.sharedMesh=mesh;renderer.sharedMaterials=materials;
+                FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/front-"+(mode==0?"clay":"paint-flat"),.8f,new Vector3(0,-.056f,0));
+                filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(mesh);foreach(var m in materials)UnityEngine.Object.DestroyImmediate(m);
+            }
         }
 
         static void ReviewFrontCrown(Mesh baked,Transform snapshot) {
