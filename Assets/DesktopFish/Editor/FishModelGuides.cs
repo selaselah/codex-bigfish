@@ -303,8 +303,10 @@ namespace DesktopFish.Editor {
             return SamplePanel(FrontPanelRows[panel],sign,t,across);
         }
         static Vector3 SamplePanel(Vector3[] rows,int sign,float t,float across) {
+            return SamplePanelAtHeight(rows,sign,Mathf.Lerp(rows[0].y,rows[rows.Length-1].y,t),across);
+        }
+        internal static Vector3 SamplePanelAtHeight(Vector3[] rows,int sign,float y,float across) {
             int count=rows.Length/5;
-            float y=Mathf.Lerp(rows[0].y,rows[rows.Length-1].y,t);
             int row=0;while(row<count-2&&rows[(row+1)*5].y>y)row++;
             float h=rows[row*5].y-rows[(row+1)*5].y;
             float u=Mathf.Clamp01((rows[row*5].y-y)/h);

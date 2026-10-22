@@ -1251,6 +1251,7 @@ namespace DesktopFish.Editor
             int[] slots={10,10,10,10,10,10,10,11,11,11,11,11,11,11,11,11,11};
             int[] components={0,3,4,6,8,10,13,8,4,6,7,9,10,11,12,0,2};
             var samples=new System.Collections.Generic.List<Landmark>();
+            var rootSamples=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{10,11}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> root=null;
@@ -1263,6 +1264,22 @@ namespace DesktopFish.Editor
                 foreach(int panel in Enumerable.Range(0,17).Where(i=>slots[i]==slot)) {
                     var members=new System.Collections.Generic.HashSet<int>(groups[components[panel]]);var selected=new System.Collections.Generic.List<int>();
                     for(int k=0;k<triangles.Length;k+=3)if(members.Contains(triangles[k]))selected.AddRange(new[]{triangles[k],triangles[k+1],triangles[k+2]});
+                    // Near the root, height sections open rapidly around the crown.
+                    // Read only sparse section positions, never source indices/UVs.
+                    float top=groups[components[panel]].Max(i=>points[i].y)*1.25f+.07f;
+                    var rootHeights=new[]{top-.0005f,top-.0015f,top-.003f,top-.006f,top-.010f,top-.016f,top-.024f,top-.036f,top-.050f,.920f}
+                        .Where(y=>y>.9199f&&y<top).Distinct().OrderByDescending(y=>y).ToArray();
+                    foreach(float height in rootHeights) {
+                        float rawY=(height-.07f)/1.25f;
+                        var cuts=VisibleSection(points,uv,selected.ToArray(),Vector3.up,rawY,slot,maxStep:.0001f);
+                        if(cuts.Count<2)continue;
+                        float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
+                        for(int col=0;col<5;col++) {
+                            float x=Mathf.Lerp(lo,hi,col/4f),nearest=cuts.Min(q=>Mathf.Abs(q.x-x));
+                            Vector3 q=cuts.Where(q=>Mathf.Abs(q.x-x)<=nearest+.00008f).OrderByDescending(q=>q.z).First();q.x=x;q.y=rawY;
+                            rootSamples.Add(new Landmark{name="front-root-"+panel+"-"+col,position=q});
+                        }
+                    }
                     var bright=new System.Collections.Generic.List<Vector3>();
                     for(float registeredY=.80f;registeredY<=.925f;registeredY+=.0015f) {
                         float y=(registeredY-.07f)/1.25f;
@@ -1296,6 +1313,7 @@ namespace DesktopFish.Editor
                     }
                 }
             }
+            File.WriteAllText("work/reference-review/front-root-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=rootSamples.ToArray()},true));
             File.WriteAllText("work/reference-review/front-glint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
             var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
             for(int mode=0;mode<2;mode++) {

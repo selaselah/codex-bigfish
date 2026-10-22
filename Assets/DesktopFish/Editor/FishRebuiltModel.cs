@@ -471,18 +471,21 @@ namespace DesktopFish.Editor
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
                 bool cheekReturn=panel==4;
                 int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
+                var stations=Enumerable.Range(0,rows+1).Select(row=>panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows)
+                    .Where(t=>t>=.15f).Concat(new[]{0f,.004f,.016f,.045f,.100f}).Distinct().OrderBy(t=>t).ToArray();
+                rows=stations.Length-1;
                 int start=body.p.Count,oldRegion=body.region;body.region=0;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows;
+                    float t=stations[row];
                     float across=col<=4?col/4f:(8-col)/4f;
-                    Vector3 p=cheekReturn?(col>4&&col<8?FishModelGuides.CheekReturn(t,8-col):FishModelGuides.FrontPanel(panel,1,t,across)):
-                        FishModelGuides.FrontPanel(panel,sign,t,across);
+                    Vector3 p=cheekReturn?(col>4&&col<8?FishModelGuides.CheekReturn(t,8-col):FishFrontRootGuides.Surface(panel,1,t,across)):
+                        FishFrontRootGuides.Surface(panel,sign,t,across);
                     // A closed cross-section ends in one pole, not a tiny
                     // coplanar line that turns its last return facets inside out.
-                    if(cheekReturn&&(row==0||row==rows))p=FishModelGuides.FrontPanel(panel,1,t,.5f);
+                    if(cheekReturn&&(row==0||row==rows))p=FishFrontRootGuides.Surface(panel,1,t,.5f);
                     if(cheekReturn)p.x*=sign;
                     // A common crown pole prevents a tiny reversed root fan.
-                    if(panel==0&&row==0)p=FishModelGuides.FrontPanel(panel,sign,t,.5f);
+                    if(!cheekReturn&&row==0)p=FishFrontRootGuides.Surface(panel,sign,t,.5f);
                     float paintAcross=cheekReturn?across:sign<0?1-across:across;
                     body.Add(AuthorPoint(p),Color.white*.98f,head,FrontPaintUV(panel,paintAcross,t));
                 }
