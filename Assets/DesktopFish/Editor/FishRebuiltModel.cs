@@ -1175,6 +1175,57 @@ namespace DesktopFish.Editor
             foreach(var snapshot in snapshots){UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);UnityEngine.Object.DestroyImmediate(snapshot.gameObject);}
             RenderIdle();Build();
         }
+        public static void RenderIdleFootCheckAndBuild() {
+            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion=new FishMotion(companion.model){randomActions=false};
+            var skins=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
+            var snapshots=new List<MeshFilter>();
+            foreach(var skin in skins) {
+                var obj=new GameObject("Foot regression snapshot");obj.transform.SetParent(skin.transform,false);
+                var filter=obj.AddComponent<MeshFilter>();filter.sharedMesh=new Mesh();snapshots.Add(filter);
+                obj.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;skin.enabled=false;
+            }
+            var camera=companion.view;
+            var target=new RenderTexture(360,480,24){antiAliasing=4};camera.targetTexture=target;
+            var frame=new Texture2D(360,480,TextureFormat.RGBA32,false);
+            var sheet=new Texture2D(1440,960,TextureFormat.RGBA32,false);
+            Vector2 min=Vector2.one,max=Vector2.zero;
+            var footSheet=new Texture2D(1440,960,TextureFormat.RGBA32,false);
+            for(int pose=0;pose<8;pose++) {
+                motion.Play(pose<6?FishMotion.Gesture.Step:FishMotion.Gesture.Bow,0);
+                motion.Tick(pose<6?.60f+pose*.30f:.75f+(pose-6)*.5f,1,0,0,"idle",false);
+                for(int i=0;i<skins.Length;i++) {
+                    var mesh=snapshots[i].sharedMesh;skins[i].BakeMesh(mesh);
+                    foreach(var point in mesh.vertices) {
+                        Vector3 p=camera.WorldToViewportPoint(skins[i].transform.TransformPoint(point));
+                        if(float.IsNaN(p.x)||float.IsNaN(p.y)||float.IsInfinity(p.x)||float.IsInfinity(p.y))
+                            throw new InvalidOperationException("Non-finite foot regression pose "+pose);
+                        min=Vector2.Min(min,p);max=Vector2.Max(max,p);
+                    }
+                }
+                camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,360,480),0,0);frame.Apply();
+                sheet.SetPixels((pose%4)*360,(1-pose/4)*480,360,480,frame.GetPixels());
+                var savedPosition=camera.transform.position;var savedRotation=camera.transform.rotation;float savedSize=camera.orthographicSize;
+                Vector3 focus=V(0,.135f,.025f);camera.orthographicSize=.18f;camera.transform.position=focus+Quaternion.Euler(0,35,0)*V(0,1f,3);
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,360,480),0,0);frame.Apply();
+                footSheet.SetPixels((pose%4)*360,(1-pose/4)*480,360,480,frame.GetPixels());
+                camera.transform.SetPositionAndRotation(savedPosition,savedRotation);camera.orthographicSize=savedSize;
+
+            }
+            if(min.x<.02f||min.y<.02f||max.x>.98f||max.y>.98f)
+                throw new InvalidOperationException("Foot regression outside viewport: "+min+" / "+max);
+            footSheet.Apply();File.WriteAllBytes("work/rebuilt-foot-regression-close.png",footSheet.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(footSheet);sheet.Apply();File.WriteAllBytes("work/rebuilt-foot-regression.png",sheet.EncodeToPNG());
+            File.WriteAllText("work/foot-motion-validation.json","{\n  \"sampled_poses\": 8,\n  \"scope\": \"six stepping phases and two bow phases\",\n  \"finite_and_viewport_passed\": true,\n  \"intersection_test\": false\n}\n");
+            Debug.Log("Targeted foot validation passed: 8 poses; viewport "+min+" / "+max);
+            camera.targetTexture=null;RenderTexture.active=null;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);UnityEngine.Object.DestroyImmediate(sheet);
+            foreach(var snapshot in snapshots){UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);UnityEngine.Object.DestroyImmediate(snapshot.gameObject);}
+            RenderIdle();Build();
+        }
         public static void RenderIdleLowPolyValidationAndBuild() {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
@@ -1225,6 +1276,7 @@ namespace DesktopFish.Editor
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
             RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
             RenderBibStudy(camera,"work/rebuilt-bib",1,Vector3.zero);
+            RenderFootStudy(camera,"work/rebuilt-foot",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-aligned",1,Vector3.zero);
             var defaultHand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_R_Hand");
             RenderDefaultHandStudy(camera,"work/rebuilt-hand-default",defaultHand.position+V(0,-.014f,.015f),1);
@@ -1243,6 +1295,13 @@ namespace DesktopFish.Editor
             RenderHeadStudy(camera,"work/rebuilt-head-skin",1,Vector3.zero);
             foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(headOnly);
+            var feetOnly=UnityEngine.Object.Instantiate(completeBody);var footTriangles=new List<int>();
+            var footBones=skins[0].bones.Select((b,i)=>new{b,i}).Where(v=>v.b.name.Contains("Foot")||v.b.name.Contains("LowerLeg")).Select(v=>v.i).ToArray();
+            for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>footBones.Contains(skinWeights[bodyTriangles[i+k]].boneIndex0)))
+                footTriangles.AddRange(new[]{bodyTriangles[i],bodyTriangles[i+1],bodyTriangles[i+2]});
+            feetOnly.triangles=footTriangles.ToArray();bodySnapshot.sharedMesh=feetOnly;
+            RenderFootStudy(camera,"work/rebuilt-foot-isolated",1,Vector3.zero);
+            bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(feetOnly);
             if(includeSurfaceStudy)RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
             if(!includeMotion) {
                 if(includeHandReview) {
@@ -1497,6 +1556,27 @@ namespace DesktopFish.Editor
             camera.targetTexture=target;camera.aspect=1;camera.orthographicSize= .135f*scale;
             foreach(int angle in new[]{0,35,90}) {
                 camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.24f,3)*scale;
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,size,size),0,0);frame.Apply();
+                File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());
+            }
+            camera.targetTexture=oldTarget;camera.orthographicSize=oldSize;camera.aspect=oldAspect;
+            camera.transform.SetPositionAndRotation(oldPosition,oldRotation);RenderTexture.active=null;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
+
+        public static void RenderFootStudy(Camera camera,string prefix,float scale,Vector3 offset) {
+            // Identical pitch and world-space framing expose modelling differences
+            // independently of the full-body camera's gesture clearance.
+            var oldPosition=camera.transform.position;var oldRotation=camera.transform.rotation;
+            var oldTarget=camera.targetTexture;float oldSize=camera.orthographicSize,oldAspect=camera.aspect;
+            const int size=720;
+            var target=new RenderTexture(size,size,24){antiAliasing=4};
+            var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
+            Vector3 focus=V(0,.135f,.025f)*scale+offset;
+            camera.targetTexture=target;camera.aspect=1;camera.orthographicSize= .165f*scale;
+            foreach(int angle in new[]{0,35,90,180}) {
+                camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,1.0f,3)*scale;
                 camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
                 frame.ReadPixels(new Rect(0,0,size,size),0,0);frame.Apply();
                 File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());
@@ -2280,76 +2360,80 @@ namespace DesktopFish.Editor
                 int knee=a.Bone(prefix+"LowerLeg",thigh,V(s*.065f,.16f,0));
                 int foot=a.Bone(prefix+"Foot",knee,V(s*.065f,.062f,0));
                 a.Sphere(a.body,V(s*.065f,.208f,0),V(.036f,.062f,.038f),Skin,thigh);
-                int sockStart=a.body.p.Count;
-                a.Sphere(a.body,V(s*.065f,.112f,.003f),V(.032f,.055f,.033f),White,knee);
-                for(int i=sockStart;i<a.body.p.Count;i++) {
-                    Vector3 p=a.body.p[i];
-                    float lower=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.140f,.167f,p.y));
-                    float angle=Mathf.Atan2((p.z-.003f)/.033f,(p.x-s*.065f)/.032f);
-                    float cuff=Mathf.Exp(-Mathf.Pow((p.y-.120f)/.016f,2));
-                    float fold=.002f*Mathf.Cos(angle*8)*cuff;
-                    p.x+=s*.002f*lower+(p.x-s*.065f)*.25f*lower+Mathf.Cos(angle)*fold;
-                    p.z+=(p.z-.003f)*.35f*lower-.012f*lower+Mathf.Sin(angle)*fold;
-                    p.y+=fold*.45f;
-                    a.body.p[i]=p;
-                }
-                a.body.region=s>0?6:7;
-                ShoeUpper(a,s,foot);
-                int soleStart=a.body.p.Count;
-                a.Sphere(a.body,V(s*.065f,.020f,.023f),V(.047f,.009f,.066f),Hex("19213C"),foot,16,6);
-                int soleEnd=a.body.p.Count;
-                // The same authored volume map carries the strap and buckle.
-                // Keep the sole shallow while giving the upper a taller heel and toe.
-                for(int i=soleStart;i<a.body.p.Count;i++) {
-                    Vector3 p=a.body.p[i];
-                    float heel=.018f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.040f,-.025f,p.z))*
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.025f,.060f,p.y));
-                    float toe=.026f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.015f,.065f,p.z))*
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.035f,.065f,p.y));
-                    float y=i>=soleStart&&i<soleEnd?.002f+(p.y-.011f)*.78f:
-                        .002f+(p.y-.011f)*1.45f+heel-toe;
-                    a.body.p[i]=V(s*.067f+(p.x-s*.065f)*1.04f,y,.0235f+(p.z-.023f)*1.55f);
-                }
-                a.body.region=0;
-                // Three visible strap anchors measured from the local reference.
-                // A flat band spans the upper; it is distinct from the white sock.
-                var strap=Enumerable.Range(0,13).Select(i=>{float t=i/12f;return V(s*Mathf.Lerp(.04375f,.09375f,t),.132f,.016f+Mathf.Lerp(.04468f,.04586f,t)+.01554f*4*t*(1-t));}).ToArray();
-                int strapStart=a.body.p.Count,strapTriangles=a.body.tri.Count;
-                for(int row=0;row<=1;row++)for(int i=0;i<strap.Length;i++)
-                    a.body.Add(AuthorPoint(strap[i]+V(0,(row-.5f)*.009f,-(row-.5f)*.004f)),Navy,foot);
-                Grid(a.body,strapStart,1,strap.Length-1);
-                if(s>0)ReverseFaces(a.body,strapTriangles);
-                var buckle=new[]{V(s*.089f,.128f,.067f),V(s*.099f,.128f,.067f),
-                    V(s*.099f,.137f,.063f),V(s*.089f,.137f,.063f),V(s*.089f,.128f,.067f)};
-                a.Tube(a.body,buckle.Select(AuthorPoint).ToArray(),.0012f,Gold,foot,4);
+                RebuiltFoot(a,s,knee,foot);
 
             }
         }
 
-        static void ShoeUpper(Author a,int sign,int bone) {
-            // An open ankle ring flows into a broad low toe and a shallow sole.
-            // Eleven authored sections reuse the old ellipsoid's sampling budget.
-            // The white sock remains a separate surface inside the opening.
-            float[] height={.085f,.074f,.056f,.040f,.027f,.015f,.010f,.008f,.007f,.007f,.007f};
-            float[] width={.037f,.043f,.049f,.049f,.047f,.046f,.045f,.038f,.028f,.015f,0};
-            float[] depth={.047f,.059f,.090f,.106f,.104f,.101f,.099f,.085f,.063f,.034f,0};
-            float[] center={-.015f,-.009f,.010f,.019f,.020f,.020f,.020f,.020f,.020f,.020f,.020f};
-            int start=a.body.p.Count;const int sides=14;
-            for(int row=0;row<height.Length;row++) {
-                for(int i=0;i<=sides;i++) {
-                    float angle=(i%sides)*Mathf.PI*2/sides,front=Mathf.Sin(angle);
-                    float slope=row<=2?Mathf.Lerp(.008f,.006f,row/2f):0;
-                    float y=height[row]-front*slope;
-                    float broad=Mathf.Pow(Mathf.Max(0,front),3)*Mathf.Exp(-Mathf.Pow((row-2.5f)/1.5f,2));
-                    Color color=Navy*Mathf.Lerp(.85f,1.23f,broad);color.a=1;
-                    float glint=Mathf.Exp(-Mathf.Pow(Mathf.DeltaAngle(angle*Mathf.Rad2Deg,sign>0?108:72)/10,2))*
-                        Mathf.Exp(-Mathf.Pow((row-3)/.55f,2));
-                    color=Color.Lerp(color,Hex("C8D5EC"),glint*.32f);
-                    a.body.Add(V(sign*.067f+Mathf.Cos(angle)*width[row],y,center[row]+front*depth[row]),color,bone);
-                }
-                a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+        static void RebuiltFoot(Author a,int sign,int knee,int foot) {
+            const int sides=24;
+            // Loft the visible opening into the wide toe and shallow outsole.
+            int start=a.body.p.Count,triangles=a.body.tri.Count;
+            for(int row=0;row<=4;row++)for(int i=0;i<=sides;i++) {
+                float t=i/(float)sides;Vector3 p=FishModelGuides.FootRing(t,row);p.x*=sign;
+                float toe=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI*2)),2);
+                Color color=Color.Lerp(Hex("293E71"),Hex("3F5A99"),toe*(row==1?.8f:.25f));
+                a.body.Add(AuthorPoint(p),color,foot);
             }
-            Grid(a.body,start,height.Length-1,sides);
+            Grid(a.body,start,4,sides);if(sign<0)ReverseFaces(a.body,triangles);
+            for(int row=0;row<=4;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+            start=a.body.p.Count;triangles=a.body.tri.Count;
+            for(int row=4;row<=5;row++)for(int i=0;i<=sides;i++) {
+                Vector3 p=FishModelGuides.FootRing(i/(float)sides,row);p.x*=sign;
+                a.body.Add(AuthorPoint(p),Hex("202B4D"),foot);
+            }
+            Grid(a.body,start,1,sides);if(sign<0)ReverseFaces(a.body,triangles);
+            for(int row=0;row<2;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+            int soleRing=start+sides+1,soleCenter=a.body.p.Count;
+            Vector3 cap=V(sign*.069f,.071f,.025f);a.body.Add(AuthorPoint(cap),Hex("202B4D"),foot);
+            int capTriangles=a.body.tri.Count;
+            for(int i=0;i<sides;i++)a.body.Face(soleCenter,soleRing+i,soleRing+i+1);
+            if(sign<0)ReverseFaces(a.body,capTriangles);
+            // One broad painted-style highlight reads at desktop scale.
+            int shine=a.body.p.Count,shineTriangles=a.body.tri.Count;
+            for(int i=-1;i<8;i++) {
+                float angle=i<0?0:i*Mathf.PI*2/8;
+                float t=.18f+(i<0?0:Mathf.Cos(angle)*.018f),r=.28f+(i<0?0:Mathf.Sin(angle)*.25f);
+                Vector3 p=Vector3.Lerp(FishModelGuides.FootRing(t,1),FishModelGuides.FootRing(t,2),r);p.y+=.0009f;p.z+=.0003f;p.x*=sign;
+                a.body.Add(AuthorPoint(p),Hex("DBE6F5"),foot);
+            }
+            for(int i=0;i<8;i++)a.body.Face(shine,shine+1+i,shine+1+(i+1)%8);
+            if(sign<0)ReverseFaces(a.body,shineTriangles);
+            start=a.body.p.Count;triangles=a.body.tri.Count;
+            for(int row=0;row<=4;row++)for(int i=0;i<=16;i++) {
+                Vector3 p=FishModelGuides.SockRing(i/16f,row);p.x*=sign;
+                a.body.Add(AuthorPoint(p),White,knee);
+            }
+            Grid(a.body,start,4,16);if(sign<0)ReverseFaces(a.body,triangles);
+            for(int row=0;row<=4;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*17,start+row*17+16));
+            // A small flared cuff uses the independently painted scallop tile.
+            start=a.body.p.Count;triangles=a.body.tri.Count;
+            for(int row=0;row<=2;row++)for(int i=0;i<=24;i++) {
+                float t=i/24f,r=row/2f,angle=t*Mathf.PI*2;
+                Vector3 p=FishModelGuides.SockRing(t,1),center=V(.069f,p.y,-.019f);
+                p=center+(p-center)*(1+.18f*r);p.y=.164f-.019f*r+.0015f*Mathf.Cos(angle*6)*r;p.x*=sign;
+                a.body.Add(AuthorPoint(p),White,knee,LaceUV(3,t,r));
+            }
+            Grid(a.body,start,2,24);if(sign<0)ReverseFaces(a.body,triangles);
+            start=a.body.p.Count;triangles=a.body.tri.Count;
+            for(int row=0;row<=1;row++)for(int i=0;i<=12;i++) {
+                Vector3 p=FishModelGuides.FootStrap(i/12f);p.z+=(row-.5f)*.011f;p.y-=(row-.5f)*.006f;p.x*=sign;
+                a.body.Add(AuthorPoint(p),Hex("354C82"),foot);
+            }
+            Grid(a.body,start,1,12);if(sign<0)ReverseFaces(a.body,triangles);
+            Vector3 c=FishModelGuides.FootStrap(.96f)+V(0,.002f,0);
+            Vector3 slope=FishModelGuides.FootStrap(1)-FishModelGuides.FootStrap(.84f);float rise=slope.y/slope.x;
+            // Wide gold frame, four sides and a single tongue remain legible
+            // at the pet's desktop size without a high-sided tube.
+            Vector3[] corners={V(-.008f,0,-.006f),V(.008f,0,-.006f),V(.008f,0,.006f),V(-.008f,0,.006f)};
+            start=a.body.p.Count;triangles=a.body.tri.Count;
+            foreach(float scale in new[]{1f,.69f})foreach(var q in corners) {
+                Vector3 p=c+q*scale;p.y+=(q.x*rise-q.z*.55f)*scale;p.x*=sign;a.body.Add(AuthorPoint(p),Gold,foot);
+            }
+            for(int i=0;i<4;i++){int next=(i+1)%4;a.body.Face(start+i,start+next,start+4+i);a.body.Face(start+next,start+4+next,start+4+i);}
+            if(sign>0)ReverseFaces(a.body,triangles);
+            Vector3 tongue=c+V(-.003f,.0006f,0);tongue.x*=sign;
+            a.Tube(a.body,new[]{AuthorPoint(tongue),AuthorPoint(tongue+V(sign*.008f,0,0))},.0008f,Gold,foot,4);
         }
 
         static void BuildAccessories(Author a,int head,int chest,int hips)

@@ -106,6 +106,7 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/reference-review/ref-top.png",frame.EncodeToPNG());
             FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
@@ -118,6 +119,7 @@ namespace DesktopFish.Editor
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
             ReviewCollarRibbonGuides(baked,snapshot.transform);
+            ReviewFootGuides(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
             FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
             ReviewHandBounds(reference,baked,skin,snapshot.transform);
@@ -263,10 +265,16 @@ namespace DesktopFish.Editor
                 }
                 if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==29||slot==30)FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib-cloth-"+slot,.8f,new Vector3(0,-.056f,0));
+                if(slot>=26&&slot<=28)FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot-part-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==3)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-skin",.8f,new Vector3(0,-.056f,0));
                 if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
+            var footwear=UnityEngine.Object.Instantiate(baked);
+            for(int sub=0;sub<footwear.subMeshCount;sub++)if(sub<26||sub>28)footwear.SetTriangles(Array.Empty<int>(),sub,false);
+            filter.sharedMesh=footwear;
+            FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot-isolated",.8f,new Vector3(0,-.056f,0));
+            filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(footwear);
             File.WriteAllText("work/reference-review/hair-sections.json",JsonUtility.ToJson(
                 new HairSectionReport{sections=sections.ToArray()},true));
         }
@@ -711,6 +719,82 @@ namespace DesktopFish.Editor
                     position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
             }
             File.WriteAllText("work/reference-review/front-crown.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
+        static void ReviewFootGuides(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{26,27,28}) {
+                foreach(float z in new[]{-.064f,-.058f,-.045f,-.025f,0,.025f,.045f,.065f,.080f,.092f,.101f}) {
+                    var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(slot),Vector3.forward,z,slot,(p,st)=>p.x>0);
+                    if(cuts.Count<3)continue;
+                    float lo=cuts.Min(p=>p.x),hi=cuts.Max(p=>p.x);
+                    for(int row=0;row<=8;row++) {
+                        float x=Mathf.Lerp(lo,hi,row/8f);var near=cuts.Where(p=>Mathf.Abs(p.x-x)<.0008f).ToArray();
+                        if(near.Length==0)near=new[]{cuts.OrderBy(p=>Mathf.Abs(p.x-x)).First()};
+                        samples.Add(new Landmark{name=slot+"/z/"+z.ToString("F3")+"/top/"+row,position=new Vector3(x,near.Max(p=>p.y),z)});
+                        samples.Add(new Landmark{name=slot+"/z/"+z.ToString("F3")+"/bottom/"+row,position=new Vector3(x,near.Min(p=>p.y),z)});
+                    }
+                }
+                foreach(float y in new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f}) {
+                    var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(slot),Vector3.up,y,slot,(p,st)=>p.x>0);
+                    if(cuts.Count<3)continue;
+                    float cx=(cuts.Min(p=>p.x)+cuts.Max(p=>p.x))*.5f,cz=(cuts.Min(p=>p.z)+cuts.Max(p=>p.z))*.5f;
+                    for(int i=0;i<16;i++) {
+                        float angle=i*Mathf.PI*2/16;
+                        var p=cuts.OrderBy(q=>Mathf.Abs(Mathf.DeltaAngle(Mathf.Atan2(q.z-cz,q.x-cx)*Mathf.Rad2Deg,angle*Mathf.Rad2Deg))).First();
+                        samples.Add(new Landmark{name=slot+"/y/"+y.ToString("F3")+"/"+i,position=p});
+                    }
+                }
+            }
+            // Weld positional seams only for local boundary analysis. Keep a
+            // sparse angular sample; never reuse reference indices in output.
+            foreach(int slot in new[]{26,27,28}) {
+                var faces=baked.GetTriangles(slot);var lookup=new System.Collections.Generic.Dictionary<Vector3Int,int>();
+                var welded=new System.Collections.Generic.Dictionary<int,int>();
+                foreach(int id in faces.Distinct()) {
+                    Vector3 p=points[id];var key=new Vector3Int(Mathf.RoundToInt(p.x*100000),Mathf.RoundToInt(p.y*100000),Mathf.RoundToInt(p.z*100000));
+                    if(!lookup.TryGetValue(key,out int index)){index=id;lookup[key]=index;}welded[id]=index;
+                }
+                var edges=new System.Collections.Generic.Dictionary<(int,int),int>();
+                for(int j=0;j<faces.Length;j+=3)for(int k=0;k<3;k++) {
+                    int a=welded[faces[j+k]],b=welded[faces[j+(k+1)%3]];var key=(Mathf.Min(a,b),Mathf.Max(a,b));
+                    edges.TryGetValue(key,out int count);edges[key]=count+1;
+                }
+                var boundary=edges.Where(e=>e.Value==1).SelectMany(e=>new[]{points[e.Key.Item1],points[e.Key.Item2]}).Where(p=>p.x>0&&p.y>.025f).Distinct().ToArray();
+                Debug.Log("Foot boundary "+slot+": "+boundary.Length);
+                var center=new Vector3(.055f,0,-.012f);
+                for(int k=0;k<16&&boundary.Length>0;k++) {
+                    float angle=k*Mathf.PI*2/16;Vector3 direction=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle)/.6f).normalized;
+                    Vector3 normal=Vector3.Cross(direction,Vector3.up);var hits=new System.Collections.Generic.List<Vector3>();
+                    foreach(var edge in edges.Where(e=>e.Value==1)) {
+                        Vector3 a=points[edge.Key.Item1],b=points[edge.Key.Item2];
+                        if(a.x<=0||b.x<=0||a.y<.025f||b.y<.025f)continue;
+                        float da=Vector3.Dot(a-center,normal),db=Vector3.Dot(b-center,normal);
+                        if((da<=0&&db>0)||(db<=0&&da>0)) {
+                            Vector3 p=Vector3.Lerp(a,b,da/(da-db));
+                            if(Vector3.Dot(p-center,direction)>0)hits.Add(p);
+                        }
+                    }
+                    if(hits.Count>0)samples.Add(new Landmark{name=slot+"/opening/"+k,position=hits.OrderByDescending(q=>(q-new Vector3(center.x,q.y,center.z)).sqrMagnitude).First()});
+                }
+            }
+            for(int k=0;k<16;k++) {
+                float angle=k*Mathf.PI*2/16;Vector3 direction=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle)/.6f).normalized;
+                Vector3 center=new Vector3(.055f,0,-.012f),normal=Vector3.Cross(direction,Vector3.up);
+                var cut=VisibleSection(points,baked.uv,baked.GetTriangles(26),normal,Vector3.Dot(center,normal),26,
+                    (p,st)=>p.x>0&&Vector3.Dot(p-center,direction)>0&&!(p.z>.03f&&p.z<.058f&&Mathf.Abs(p.x-.055f)<.025f));
+                if(cut.Count>0)samples.Add(new Landmark{name="26/visible-rim/"+k,position=cut.OrderByDescending(p=>p.y).First()});
+            }
+            // Locate the visible vamp edge after transparent instep pixels.
+            foreach(float x in new[]{.025f,.035f,.045f,.055f,.065f,.075f,.085f}) {
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(26),Vector3.right,x,26);
+                for(int i=0;i<=30;i++) {
+                    float z=.020f+i*.002f;var near=cuts.Where(p=>Mathf.Abs(p.z-z)<.0005f).ToArray();
+                    if(near.Length>0)samples.Add(new Landmark{name="vamp/"+x.ToString("F3")+"/"+i,position=new Vector3(x,near.Max(p=>p.y),z)});
+                }
+            }
+            File.WriteAllText("work/reference-review/foot-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewCollarRibbonGuides(Mesh baked,Transform snapshot) {

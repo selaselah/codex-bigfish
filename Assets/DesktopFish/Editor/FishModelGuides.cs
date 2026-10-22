@@ -510,6 +510,122 @@ namespace DesktopFish.Editor {
             new Vector3(0.034262f,0.406692f,0.115217f)
         };
 
+        // Visible shoe edges include alpha-cut instep holes. These sparse
+        // measured rings feed a new loft, independent of reference topology.
+        static readonly Vector3[] ShoeRim={
+            new Vector3(0.111125f,0.124703f,-0.015000f),
+            new Vector3(0.109153f,0.117690f,0.012892f),
+            new Vector3(0.093750f,0.111044f,0.072500f),
+            new Vector3(0.090781f,0.111373f,0.073645f),
+            new Vector3(0.068750f,0.113039f,0.087027f),
+            new Vector3(0.046997f,0.110959f,0.072525f),
+            new Vector3(0.043750f,0.110962f,0.070000f),
+            new Vector3(0.029110f,0.118063f,0.012366f),
+            new Vector3(0.025259f,0.123863f,-0.015000f),
+            new Vector3(0.027438f,0.127145f,-0.043520f),
+            new Vector3(0.037269f,0.127852f,-0.067469f),
+            new Vector3(0.053132f,0.128316f,-0.077843f),
+            new Vector3(0.068750f,0.128670f,-0.079734f),
+            new Vector3(0.083570f,0.128440f,-0.074631f),
+            new Vector3(0.096298f,0.128510f,-0.060914f),
+            new Vector3(0.106425f,0.126955f,-0.041009f)
+        };
+        static readonly Vector3[] ShoeWide={
+            new Vector3(0.111170f,0.095000f,0.026941f),
+            new Vector3(0.112367f,0.095000f,0.044124f),
+            new Vector3(0.113482f,0.095000f,0.069401f),
+            new Vector3(0.103803f,0.095000f,0.106411f),
+            new Vector3(0.071035f,0.095000f,0.128966f),
+            new Vector3(0.037640f,0.095000f,0.107466f),
+            new Vector3(0.028292f,0.095000f,0.069319f),
+            new Vector3(0.029787f,0.095000f,0.043825f),
+            new Vector3(0.030273f,0.095000f,0.026973f),
+            new Vector3(0.032071f,0.095000f,0.010953f),
+            new Vector3(0.033689f,0.095000f,-0.010600f),
+            new Vector3(0.037501f,0.095000f,-0.054027f),
+            new Vector3(0.070871f,0.095000f,-0.071973f),
+            new Vector3(0.098013f,0.095000f,-0.038039f),
+            new Vector3(0.105278f,0.095000f,-0.007272f),
+            new Vector3(0.108834f,0.095000f,0.011218f)
+        };
+        static readonly Vector3[] ShoeBottom={
+            new Vector3(0.109013f,0.082500f,0.027752f),
+            new Vector3(0.113236f,0.082500f,0.044658f),
+            new Vector3(0.114628f,0.082500f,0.070478f),
+            new Vector3(0.103896f,0.082500f,0.105522f),
+            new Vector3(0.071555f,0.082500f,0.121310f),
+            new Vector3(0.038091f,0.082500f,0.108024f),
+            new Vector3(0.027763f,0.082500f,0.071545f),
+            new Vector3(0.030006f,0.082500f,0.044814f),
+            new Vector3(0.033150f,0.082500f,0.027463f),
+            new Vector3(0.035270f,0.082500f,0.012528f),
+            new Vector3(0.037237f,0.082500f,-0.006943f),
+            new Vector3(0.038915f,0.082500f,-0.050877f),
+            new Vector3(0.071616f,0.082500f,-0.068651f),
+            new Vector3(0.095353f,0.082500f,-0.029396f),
+            new Vector3(0.101571f,0.082500f,-0.002319f),
+            new Vector3(0.105466f,0.082500f,0.013569f)
+        };
+        static readonly Vector3[] SockAnkle={
+            new Vector3(0.108849f,0.145000f,-0.019613f),
+            new Vector3(0.106193f,0.145000f,-0.004560f),
+            new Vector3(0.100240f,0.145000f,0.010720f),
+            new Vector3(0.088418f,0.145000f,0.025996f),
+            new Vector3(0.069279f,0.145000f,0.033456f),
+            new Vector3(0.050514f,0.145000f,0.026882f),
+            new Vector3(0.039094f,0.145000f,0.011649f),
+            new Vector3(0.033056f,0.145000f,-0.003985f),
+            new Vector3(0.030924f,0.145000f,-0.019533f),
+            new Vector3(0.032371f,0.145000f,-0.034952f),
+            new Vector3(0.038171f,0.145000f,-0.050862f),
+            new Vector3(0.050495f,0.145000f,-0.066076f),
+            new Vector3(0.069669f,0.145000f,-0.070860f),
+            new Vector3(0.087272f,0.145000f,-0.062023f),
+            new Vector3(0.099512f,0.145000f,-0.049778f),
+            new Vector3(0.105180f,0.145000f,-0.033890f)
+        };
+        // The outer two stations connect to the wall; alpha sampling there
+        // finds the side panel instead of the narrow strap, so continue the arch.
+        static readonly Vector3[] ShoeStrap={
+            new Vector3(0.031250f,0.121000f,0.046875f),
+            new Vector3(0.043750f,0.124211f,0.051875f),
+            new Vector3(0.056250f,0.126312f,0.056875f),
+            new Vector3(0.068750f,0.128513f,0.061875f),
+            new Vector3(0.081250f,0.126977f,0.056875f),
+            new Vector3(0.093750f,0.124982f,0.051875f),
+            new Vector3(0.106250f,0.121700f,0.046875f)
+        };
+        static Vector3 ClosedFootCurve(Vector3[] ring,float t) {
+            float f=Mathf.Repeat(t,1)*ring.Length;int i=(int)f;float u=f-i;
+            Vector3 p0=ring[(i+ring.Length-1)%ring.Length],p1=ring[i],p2=ring[(i+1)%ring.Length],p3=ring[(i+2)%ring.Length];
+            return .5f*((2*p1)+(-p0+p2)*u+(2*p0-5*p1+4*p2-p3)*u*u+(-p0+3*p1-3*p2+p3)*u*u*u);
+        }
+        public static Vector3 FootRing(float t,int row) {
+            Vector3 rim=ClosedFootCurve(ShoeRim,t),wide=ClosedFootCurve(ShoeWide,t),bottom=ClosedFootCurve(ShoeBottom,t);
+            if(row==0)return rim;
+            float front=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI*2)),2);
+            if(row==1||row==2) {
+                Vector3 p=Vector3.Lerp(rim,wide,row==1?.57f:.84f);
+                p.z+=(row==1?.006f:.003f)*front;p.y+=(row==1?.003f:.005f)*front;
+                return p;
+            }
+            if(row==3)return wide;
+            bottom.y=row==4?.0785f:.071f;return bottom;
+        }
+        public static Vector3 SockRing(float t,int row) {
+            Vector3 ankle=ClosedFootCurve(SockAnkle,t),bottom=ClosedFootCurve(ShoeBottom,t);
+            if(row==0){ankle.y=.205f;ankle.x=.065f+(ankle.x-.069f)*.8f;ankle.z*=.65f;return ankle;}
+            if(row==1){ankle.y=.156f;return ankle;}
+            if(row==2)return ankle;
+            if(row==3){Vector3 p=ClosedFootCurve(ShoeRim,t),c=new Vector3(.069f,p.y,.005f);p=c+(p-c)*.88f;p.y-=.006f;return p;}
+            bottom=ClosedFootCurve(ShoeWide,t);bottom.x=.069f+(bottom.x-.069f)*.88f;bottom.z=.02f+(bottom.z-.02f)*.88f;bottom.y=.083f;return bottom;
+        }
+        public static Vector3 FootStrap(float t) {
+            float f=t*(ShoeStrap.Length-1);int i=Mathf.Min(ShoeStrap.Length-2,(int)f);
+            float u=f-i;Vector3 p0=ShoeStrap[Mathf.Max(0,i-1)],p1=ShoeStrap[i],p2=ShoeStrap[i+1],p3=ShoeStrap[Mathf.Min(ShoeStrap.Length-1,i+2)];
+            return .5f*((2*p1)+(-p0+p2)*u+(2*p0-5*p1+4*p2-p3)*u*u+(-p0+3*p1-3*p2+p3)*u*u*u);
+        }
+
         static readonly Dictionary<int,Bounds> SourceBounds=new Dictionary<int,Bounds>();
         static Vector3 AccessoryPoint(Vector3 p,int region) {
             Bounds source=SourceBounds[region];
