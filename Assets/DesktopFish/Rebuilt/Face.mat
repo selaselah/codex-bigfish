@@ -31,5 +31,6 @@ Material:
     m_Floats:
     - _Flat: 1
     - _OutlineWidth: 0
-    m_Colors: []
+    m_Colors:
+    - _LightDirection: {r: -0.35, g: 0.65, b: 0.8, a: 0}
   m_BuildTextureStacks: []

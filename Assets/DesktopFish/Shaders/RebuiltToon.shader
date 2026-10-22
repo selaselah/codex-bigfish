@@ -3,6 +3,7 @@ Shader "DesktopFish/Rebuilt Toon"
     Properties {
         _MainTex ("Authored surface paint", 2D) = "white" {}
         _Flat ("Flat illustration", Float) = 0
+        _LightDirection ("Reviewable light direction", Vector) = (-0.35,0.65,0.80,0)
         _OutlineWidth ("Outline width", Float) = 0.0012
     }
     SubShader {
@@ -28,6 +29,7 @@ Shader "DesktopFish/Rebuilt Toon"
             #pragma fragment frag
             #include "UnityCG.cginc"
             float _Flat;
+            float4 _LightDirection;
             sampler2D _MainTex;
             struct app { float4 vertex:POSITION; float3 normal:NORMAL; float4 color:COLOR; float2 uv:TEXCOORD0; };
             struct v2f { float4 pos:SV_POSITION; float3 normal:TEXCOORD0; float4 color:COLOR; float2 uv:TEXCOORD1; float skin:TEXCOORD2; };
@@ -47,7 +49,7 @@ Shader "DesktopFish/Rebuilt Toon"
                 // Single-surface hair and lace use the same material from both
                 // sides. Orient lighting consistently with the visible side.
                 float3 normal=normalize(i.normal)*(facing>=0?1:-1);
-                float light=dot(normal,normalize(float3(-0.35,0.65,0.80)));
+                float light=dot(normal,normalize(_LightDirection.xyz));
                 float shade=lerp(0.76,1.04,smoothstep(-0.45,0.95,light));
                 fixed4 paint=tex2D(_MainTex,i.uv);
                 clip(paint.a-.5);

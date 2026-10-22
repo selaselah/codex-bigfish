@@ -1445,10 +1445,21 @@ namespace DesktopFish.Editor
             }
             // A continuous rear field decouples the broad cyan masses from the
             // nine geometric lock patches. Legacy hair/lace pixels stay intact.
-            for(int y=0;y<RearPaintHeight;y++)for(int x=0;x<size;x++) {
-                float u=x/(float)(size-1),t=y/(float)(RearPaintHeight-1);
-                // Extend the neutral swatch upward so lower mip levels cannot bleed rear blue into unpainted cloth.
-                pixels[(LegacyPaintHeight+y)*size+x]=u>.98f?Color.white:RearPaintColor((u-.5f)*.82f,1.03f-t*.96f);
+            for(int y=0;y<RearPaintHeight;y++) {
+                float t=y/(float)(RearPaintHeight-1),height=1.03f-t*.96f;
+                var spans=new Vector2[5];
+                for(int panel=0;panel<5;panel++) {
+                    float sample=Mathf.Min(.807f,height),blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.45f,.53f,height));
+                    float cap=Mathf.Sqrt(Mathf.Max(.003f,1-Mathf.Pow(Mathf.Max(0,height-.807f)/.185f,2)));
+                    float left=Mathf.Lerp(FishLowerRearGuides.Surface(panel,Mathf.Min(.50f,sample),0).x,FishRearHairGuides.Surface(panel,sample,0).x,blend);
+                    float right=Mathf.Lerp(FishLowerRearGuides.Surface(panel,Mathf.Min(.50f,sample),1).x,FishRearHairGuides.Surface(panel,sample,1).x,blend);
+                    spans[panel]=new Vector2(left,right)*(height>.807f?cap:1);
+                }
+                for(int x=0;x<size;x++) {
+                    float u=x/(float)(size-1);
+                    // Preserve the neutral swatch and every other atlas chart.
+                    pixels[(LegacyPaintHeight+y)*size+x]=u>.98f?Color.white:RearPaintColor((u-.5f)*.82f,height,spans);
+                }
             }
             PaintApron(pixels);
             PaintIris(pixels);
@@ -1474,7 +1485,7 @@ namespace DesktopFish.Editor
         // small desktop view does not become a row of solid blue fence posts.
         static readonly float[] RearBlueCenters={-.291f,-.254f,-.222f,-.197f,-.165f,-.128f,-.101f,-.060f,-.026f,.009f,.043f,.079f,.106f,.144f,.178f,.215f,.253f,.288f};
         static readonly float[] RearBlueWidths={.0035f,.0028f,.0045f,.0025f,.0040f,.0030f,.0050f,.0028f,.0032f,.0025f,.0044f,.0032f,.0046f,.0027f,.0038f,.0030f,.0040f,.0025f};
-        static Color RearPaintColor(float x,float y) {
+        static Color RearPaintColor(float x,float y,Vector2[] spans) {
             float crest=FishRearPaintGuides.Height(x);
             float mass=(FishRearPaintGuides.Height(x,true)*4+
                 2*FishRearPaintGuides.Height(x-.012f,true)+2*FishRearPaintGuides.Height(x+.012f,true)+
@@ -1482,10 +1493,30 @@ namespace DesktopFish.Editor
             float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(mass+.014f,mass-.083f,y));
             // Sparse higher tongues are painted on top of the broad gradient;
             // their contrast fades into it, rather than cutting a hard band.
-            float tongue=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.003f,crest-.030f,y));
-            cyan=Mathf.Max(cyan,tongue*.53f);
-            Color blue=Color.Lerp(Hex("2E4A97"),Hex("4A70B6"),.48f*Mathf.Exp(-Mathf.Pow((y-.68f)/.18f,2)));
-            Color color=Color.Lerp(blue,Hex("67B9FA"),cyan*.96f);
+            float tongue=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.002f,crest-.015f,y));
+            cyan=Mathf.Max(cyan,tongue*.72f);
+            // Independent broad painted volume follows the measured lock
+            // widths. This reads at pet size without extra overlay geometry.
+            float crown=Mathf.Exp(-Mathf.Pow((y-.755f)/.185f,2));
+            Color blue=Color.Lerp(Hex("24438C"),Hex("4A78C6"),crown*.85f);
+            float volume=0,seam=0;
+            for(int panel=0;panel<spans.Length;panel++) {
+                float width=spans[panel].y-spans[panel].x;
+                if(width<.002f)continue;
+                float u=(x-spans[panel].x)/width;
+                if(u>=0&&u<=1)volume=Mathf.Max(volume,Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*Mathf.PI)),.65f));
+                if(panel<spans.Length-1&&panel!=2) {
+                    float edge=(spans[panel].y+spans[panel+1].x)*.5f;
+                    // The narrow middle pair forms a shared parting, rather
+                    // than two long parallel ink lines down the center.
+                    if(panel==1)edge=(edge+(spans[2].y+spans[3].x)*.5f)*.5f;
+                    seam=Mathf.Max(seam,Mathf.Exp(-Mathf.Pow((x-edge)/.00075f,2)));
+                }
+            }
+            float volumeGate=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.23f,.48f,y));
+            blue*=1-(1-volume)*(.085f+.055f*crown)*volumeGate;
+            Color color=Color.Lerp(blue,Hex("64B6F4"),cyan*.96f);
+            color*=1-(1-volume)*cyan*.085f;
             for(int i=0;i<RearBlueCenters.Length;i++) {
                 float foot=.193f+.023f*Mathf.Sin(i*2.17f),top=FishRearPaintGuides.Height(RearBlueCenters[i])+.020f;
                 float along=Mathf.Clamp01((y-foot)/(top-foot));
@@ -1495,11 +1526,9 @@ namespace DesktopFish.Editor
                 float fade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.16f,along))*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.88f,1,along)));
                 color=Color.Lerp(color,Hex("345391"),brush*fade*cyan*.64f);
             }
-            float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.66f,y))*
-                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.94f,y)));
-            float curve=.105f+.055f*Mathf.Sin(Mathf.Clamp01((y-.50f)/.45f)*Mathf.PI);
-            float part=Mathf.Exp(-Mathf.Pow((Mathf.Abs(x)-curve)/.0012f,2));
-            color=Color.Lerp(color,Hex("182C63"),part*upper*.64f);color.a=1;
+            float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.62f,y))*
+                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.965f,y)));
+            color=Color.Lerp(color,Hex("172B60"),seam*upper*.40f);color.a=1;
             return color;
         }
 
@@ -2169,6 +2198,19 @@ namespace DesktopFish.Editor
             foreach(var skin in skins)skin.enabled=true;
         }
 
+        // Temporary diagnostic texture: preserve cutout evidence while
+        // removing RGB. Never save or reuse reference pixels in model paint.
+        public static Texture2D DiagnosticAlpha(Texture source) {
+            if(!source)return null;
+            var rt=RenderTexture.GetTemporary(source.width,source.height,0,RenderTextureFormat.ARGB32);
+            var previous=RenderTexture.active;Graphics.Blit(source,rt);RenderTexture.active=rt;
+            var result=new Texture2D(source.width,source.height,TextureFormat.RGBA32,false);
+            result.ReadPixels(new Rect(0,0,source.width,source.height),0,0);var pixels=result.GetPixels32();
+            for(int i=0;i<pixels.Length;i++)pixels[i]=new Color32(255,255,255,pixels[i].a);
+            result.SetPixels32(pixels);result.Apply();result.wrapMode=source.wrapMode;result.filterMode=source.filterMode;
+            RenderTexture.active=previous;RenderTexture.ReleaseTemporary(rt);return result;
+        }
+
         // Separate lighting, vertex modulation and paint when diagnosing a
         // visible groove. Only temporary baked snapshots are modified.
         static void RenderSurfaceStudy(List<MeshFilter> snapshots,Camera camera,Vector3 center,
@@ -2181,19 +2223,15 @@ namespace DesktopFish.Editor
                     var mesh=UnityEngine.Object.Instantiate(originalMeshes[i]);
                     var material=UnityEngine.Object.Instantiate(originalMaterials[i]);
                     if(mode!=1&&mode!=3)mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
-                    if(mode==0)material.mainTexture=Texture2D.whiteTexture;
+                    if(mode==0)material.mainTexture=DiagnosticAlpha(originalMaterials[i].mainTexture);
                     material.SetFloat("_Flat",mode==0||mode==3?0:1);material.SetFloat("_OutlineWidth",0);
                     snapshots[i].sharedMesh=mesh;snapshots[i].GetComponent<Renderer>().sharedMaterial=material;
                 }
-                foreach(int angle in new[]{0,35,90,180}) {
-                    camera.targetTexture=target;
-                    camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);
-                    camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
-                    frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
-                    File.WriteAllBytes("work/rebuilt-surface-"+name+"-"+angle+".png",frame.EncodeToPNG());
-                }
+                RenderBodyStudy(camera,"work/rebuilt-surface-"+name,1,Vector3.zero,reviewMaterials:mode==0?snapshots.Select(m=>m.GetComponent<Renderer>().sharedMaterial).ToArray():null);
                 for(int i=0;i<snapshots.Count;i++) {
                     UnityEngine.Object.DestroyImmediate(snapshots[i].sharedMesh);
+                    if(mode==0&&snapshots[i].GetComponent<Renderer>().sharedMaterial.mainTexture)
+                        UnityEngine.Object.DestroyImmediate(snapshots[i].GetComponent<Renderer>().sharedMaterial.mainTexture);
                     UnityEngine.Object.DestroyImmediate(snapshots[i].GetComponent<Renderer>().sharedMaterial);
                     snapshots[i].sharedMesh=originalMeshes[i];snapshots[i].GetComponent<Renderer>().sharedMaterial=originalMaterials[i];
                 }
@@ -2314,7 +2352,7 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 
-        public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset,int width=720,int height=960) {
+        public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset,int width=720,int height=960,Material[] reviewMaterials=null) {
             // Use the same approximate crown/sole calibration as head studies.
             // Fixed framing prevents different auto-fit margins from hiding
             // overall proportion differences between reference and rebuild.
@@ -2327,6 +2365,10 @@ namespace DesktopFish.Editor
             foreach(int angle in new[]{0,35,90,180,360}) {
                 Vector3 direction=angle==360?V(0,.64f,3):Quaternion.Euler(0,angle,0)*V(0,.24f,3);
                 camera.transform.position=focus+direction*scale;camera.transform.LookAt(focus);
+                if(reviewMaterials!=null) {
+                    Vector3 light=Quaternion.Euler(0,angle==360?0:angle,0)*V(-.35f,.65f,.80f);
+                    foreach(var material in reviewMaterials)material.SetVector("_LightDirection",new Vector4(light.x,light.y,light.z,0));
+                }
                 camera.Render();RenderTexture.active=target;
                 frame.ReadPixels(new Rect(0,0,width,height),0,0);frame.Apply();
                 File.WriteAllBytes(prefix+"-"+(angle==360?"top":angle.ToString())+".png",frame.EncodeToPNG());

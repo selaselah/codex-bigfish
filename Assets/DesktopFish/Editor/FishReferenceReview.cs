@@ -188,6 +188,7 @@ namespace DesktopFish.Editor
             ReviewFrontCrown(baked,snapshot.transform);
             ReviewFrontPaint(baked,snapshot,camera);
             ReviewOuterCurtainClay(baked,snapshot,camera);
+            ReviewCommonSurfaces(baked,snapshot,camera);
             ReviewRearCrown(baked,snapshot.transform);
             ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
@@ -1177,8 +1178,8 @@ namespace DesktopFish.Editor
             var p=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
             var rows=new System.Collections.Generic.List<Landmark>();
             var triangles=new[]{15,16}.Select(slot=>baked.GetTriangles(slot)).ToArray();
-            for(int column=0;column<=40;column++) {
-                float x=Mathf.Lerp(-.25f,.25f,column/40f);
+            for(int column=0;column<=160;column++) {
+                float x=Mathf.Lerp(-.25f,.25f,column/160f);
                 var cyan=new System.Collections.Generic.List<Vector3>();
                 for(int row=0;row<=180;row++) {
                     float y=.075f+row*.0015f,nearest=float.PositiveInfinity;Color paint=Color.clear;Vector3 hit=Vector3.zero;
@@ -1395,6 +1396,28 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/rear-crown-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
+        static void ReviewCommonSurfaces(Mesh baked,GameObject snapshot,Camera camera) {
+            var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();
+            var original=renderer.sharedMaterials;
+            for(int mode=0;mode<4;mode++) {
+                string name=mode==0?"clay-lit":mode==1?"paint-flat":mode==2?"albedo-flat":"toon-no-outline";
+                var mesh=UnityEngine.Object.Instantiate(baked);
+                // Ref's visual color lives in material textures, not vertex tint.
+                mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
+                var materials=new Material[original.Length];
+                for(int slot=0;slot<materials.Length;slot++) {
+                    var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));
+                    material.mainTexture=mode==0?FishRebuiltModel.DiagnosticAlpha(original[slot].mainTexture):original[slot].mainTexture;
+                    material.SetFloat("_Flat",mode==0||mode==3?0:1);material.SetFloat("_OutlineWidth",0);materials[slot]=material;
+                }
+                filter.sharedMesh=mesh;renderer.sharedMaterials=materials;
+                FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/surface-"+name,.8f,new Vector3(0,-.056f,0),reviewMaterials:mode==0?materials:null);
+                filter.sharedMesh=baked;renderer.sharedMaterials=original;
+                foreach(var material in materials){if(mode==0&&material.mainTexture)UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);}
+                UnityEngine.Object.DestroyImmediate(mesh);
+            }
+        }
+
         static void ReviewOuterCurtainClay(Mesh baked,GameObject snapshot,Camera camera) {
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();var tri=baked.GetTriangles(15);var used=tri.Distinct().ToArray();
             int[] parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
@@ -1405,10 +1428,10 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
             var clay=UnityEngine.Object.Instantiate(baked);for(int slot=0;slot<clay.subMeshCount;slot++)clay.SetTriangles(slot==15?selected.ToArray():Array.Empty<int>(),slot,false);
             clay.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),clay.vertexCount).ToArray();
-            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=Texture2D.whiteTexture;material.SetFloat("_OutlineWidth",0);
+            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=FishRebuiltModel.DiagnosticAlpha(GuideTexture(15));material.SetFloat("_OutlineWidth",0);
             filter.sharedMesh=clay;renderer.sharedMaterials=Enumerable.Repeat(material,original.Length).ToArray();
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/outer-clay-total",.8f,new Vector3(0,-.056f,0));
-            filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(clay);UnityEngine.Object.DestroyImmediate(material);
+            filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(clay);UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);
         }
 
         static void ReviewFrontPaint(Mesh baked,GameObject snapshot,Camera camera) {
