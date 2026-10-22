@@ -164,6 +164,7 @@ namespace DesktopFish.Editor
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewRearPaint(baked,snapshot.transform);
+            ReviewRearPaintEdges(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
             ReviewEyeProfiles(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
@@ -940,6 +941,40 @@ namespace DesktopFish.Editor
                 if(!float.IsNegativeInfinity(top))rows.Add(new Landmark{name="cyan-upper-"+column,position=hit});
             }
             File.WriteAllText("work/reference-review/rear-paint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
+        // Sparse visible color-transition positions only; no source texels or UVs leave the local review.
+        static void ReviewRearPaintEdges(Mesh baked,Transform snapshot) {
+            var p=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var rows=new System.Collections.Generic.List<Landmark>();
+            var triangles=new[]{15,16}.Select(slot=>baked.GetTriangles(slot)).ToArray();
+            for(int column=0;column<=40;column++) {
+                float x=Mathf.Lerp(-.25f,.25f,column/40f);
+                var cyan=new System.Collections.Generic.List<Vector3>();
+                for(int row=0;row<=180;row++) {
+                    float y=.075f+row*.0015f,nearest=float.PositiveInfinity;Color paint=Color.clear;Vector3 hit=Vector3.zero;
+                    for(int part=0;part<2;part++) {
+                        var texture=GuideTexture(part+15);var faces=triangles[part];
+                        for(int i=0;i<faces.Length;i+=3) {
+                            int ai=faces[i],bi=faces[i+1],ci=faces[i+2];Vector3 a=p[ai],ab=p[bi]-a,ac=p[ci]-a;
+                            float det=ab.x*ac.y-ab.y*ac.x;if(Mathf.Abs(det)<1e-10f)continue;
+                            float dx=x-a.x,dy=y-a.y,u=(dx*ac.y-dy*ac.x)/det,v=(ab.x*dy-ab.y*dx)/det;
+                            if(u<0||v<0||u+v>1)continue;
+                            Vector3 q=a+ab*u+ac*v;if(q.z>=nearest)continue;
+                            Vector2 st=uv[ai]+(uv[bi]-uv[ai])*u+(uv[ci]-uv[ai])*v;Color c=texture.GetPixelBilinear(st.x,st.y);
+                            if(c.a<.5f)continue;nearest=q.z;paint=c;hit=q;
+                        }
+                    }
+                    if(paint.a>=.5f&&paint.g>paint.b*.62f&&paint.g>.25f)cyan.Add(hit);
+                }
+                if(cyan.Count==0)continue;
+                rows.Add(new Landmark{name="edge-"+column,position=cyan.OrderByDescending(q=>q.y).First()});
+                // Longest contiguous cyan interval identifies the broad lower mass, ignoring isolated thin upper brushes.
+                var runs=new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
+                foreach(var q in cyan.OrderBy(q=>q.y)) {if(runs.Count==0||q.y-runs.Last().Last().y>.002f)runs.Add(new System.Collections.Generic.List<Vector3>());runs.Last().Add(q);}
+                rows.Add(new Landmark{name="mass-"+column,position=runs.OrderByDescending(g=>g.Count).First().OrderByDescending(q=>q.y).First()});
+            }
+            File.WriteAllText("work/reference-review/rear-paint-edges.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
         }
 
         static void ReviewApronDetails(Mesh baked,Transform snapshot) {

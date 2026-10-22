@@ -1314,9 +1314,6 @@ namespace DesktopFish.Editor
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
         }
-        // Thirteen alpha-visible color-boundary heights, registered locally.
-        // Texture pixels are freshly painted; no reference texture is sampled at build time.
-        static readonly float[] RearCyanBoundary={0.3013f,0.3063f,0.3362f,0.3213f,0.3262f,0.3013f,0.3613f,0.3912f,0.3362f,0.3162f,0.3362f,0.3313f,0.3463f};
         static Vector2 RearPaintUV(Vector3 p) {
             if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
             p=FishModelGuides.Point(FitPoint(p),2);
@@ -1326,27 +1323,32 @@ namespace DesktopFish.Editor
             float u=Mathf.Clamp01(.5f+p.x/.82f),t=Mathf.Clamp01((1.03f-p.y)/.96f);
             return new Vector2(u,(LegacyPaintHeight+t*(RearPaintHeight-1)-128)/1024f);
         }
-        static readonly float[] RearBlueCenters={-.286f,-.218f,-.157f,-.092f,-.028f,.047f,.122f,.183f,.271f};
-        static readonly float[] RearBlueWidths={.006f,.010f,.006f,.008f,.004f,.010f,.005f,.009f,.006f};
+        // Unequal tapered brush returns follow the overall fall of the hair.
+        // Broad cyan shading and narrow accents have separate scales, so the
+        // small desktop view does not become a row of solid blue fence posts.
+        static readonly float[] RearBlueCenters={-.291f,-.254f,-.222f,-.197f,-.165f,-.128f,-.101f,-.060f,-.026f,.009f,.043f,.079f,.106f,.144f,.178f,.215f,.253f,.288f};
+        static readonly float[] RearBlueWidths={.0035f,.0028f,.0045f,.0025f,.0040f,.0030f,.0050f,.0028f,.0032f,.0025f,.0044f,.0032f,.0046f,.0027f,.0038f,.0030f,.0040f,.0025f};
         static Color RearPaintColor(float x,float y) {
-            float section=Mathf.Clamp((x+.30f)/.05f,0,12);int index=Mathf.Min(11,(int)section);
-            float boundary=Mathf.Lerp(RearCyanBoundary[index],RearCyanBoundary[index+1],Mathf.SmoothStep(0,1,section-index));
-            // The sparse boundary supplies broad color fans. A restrained uneven
-            // brush edge and unequal curved returns retain narrow painted tips.
-            float broken=.006f*Mathf.Sin(x*133+1.7f)+.003f*Mathf.Sin(x*227-.8f);
-            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(boundary+.006f+broken,boundary-.024f+broken,y));
-            Color blue=Color.Lerp(Hex("34559C"),Hex("567CBA"),.55f*Mathf.Exp(-Mathf.Pow((y-.68f)/.16f,2)));
-            Color color=Color.Lerp(blue,Hex("6AB7FF"),cyan*.96f);
-            // A few unequal blue returns split the cyan into painted fans.
+            float crest=FishRearPaintGuides.Height(x);
+            float mass=(FishRearPaintGuides.Height(x,true)*4+
+                2*FishRearPaintGuides.Height(x-.012f,true)+2*FishRearPaintGuides.Height(x+.012f,true)+
+                FishRearPaintGuides.Height(x-.026f,true)+FishRearPaintGuides.Height(x+.026f,true))/10;
+            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(mass+.014f,mass-.083f,y));
+            // Sparse higher tongues are painted on top of the broad gradient;
+            // their contrast fades into it, rather than cutting a hard band.
+            float tongue=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.003f,crest-.030f,y));
+            cyan=Mathf.Max(cyan,tongue*.53f);
+            Color blue=Color.Lerp(Hex("2E4A97"),Hex("4A70B6"),.48f*Mathf.Exp(-Mathf.Pow((y-.68f)/.18f,2)));
+            Color color=Color.Lerp(blue,Hex("67B9FA"),cyan*.96f);
             for(int i=0;i<RearBlueCenters.Length;i++) {
-                float bend=.022f*Mathf.Sin(i*2.4f)*Mathf.Pow(Mathf.Clamp01(1-y/.45f),1.3f);
-                float foot=.155f+.034f*Mathf.Sin(i*1.9f),span=Mathf.Clamp01((y-foot)/.18f);
-                float line=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,
-                    Mathf.Abs(x-RearBlueCenters[i]-bend)/(RearBlueWidths[i]*1.8f*span+.001f)));
-                float fade=Mathf.SmoothStep(0,1,span)*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,.42f,y)));
-                color=Color.Lerp(color,Hex("345391"),line*fade*cyan*.90f);
+                float foot=.193f+.023f*Mathf.Sin(i*2.17f),top=FishRearPaintGuides.Height(RearBlueCenters[i])+.020f;
+                float along=Mathf.Clamp01((y-foot)/(top-foot));
+                float bend=.014f*Mathf.Sin(i*1.73f)*(1-along)+.009f*Mathf.Sin(i*2.31f)*Mathf.Sin(along*Mathf.PI);
+                float width=RearBlueWidths[i]*Mathf.Pow(along,.72f)+.0002f;
+                float brush=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,1,Mathf.Abs(x-RearBlueCenters[i]-bend)/width));
+                float fade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.16f,along))*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.88f,1,along)));
+                color=Color.Lerp(color,Hex("345391"),brush*fade*cyan*.64f);
             }
-            // Two long, curved partings retain the reference's broad divisions.
             float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.66f,y))*
                 (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.94f,y)));
             float curve=.105f+.055f*Mathf.Sin(Mathf.Clamp01((y-.50f)/.45f)*Mathf.PI);
