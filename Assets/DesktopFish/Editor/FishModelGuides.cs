@@ -324,67 +324,7 @@ namespace DesktopFish.Editor {
 
         public static Vector3 FrontPanel(int panel,int sign,float t,float across) => FrontPanelRaw(panel,sign,t,across);
 
-        // Sparse transverse guides, fitted at the same review scale as the head.
-        // Independent regular surfaces are interpolated between these stations.
-        static readonly Vector3[][] ChestPanelRows={
-            new[]{ // front chest family 18 front
-                new Vector3(0.200978f,0.820000f,0.004561f),new Vector3(0.192882f,0.820000f,0.016063f),new Vector3(0.184591f,0.820000f,0.027528f),new Vector3(0.188165f,0.820000f,0.041146f),new Vector3(0.192535f,0.820000f,0.054908f),
-                new Vector3(0.205534f,0.757500f,0.006120f),new Vector3(0.197837f,0.757500f,0.017975f),new Vector3(0.189733f,0.757500f,0.029751f),new Vector3(0.193281f,0.757500f,0.043822f),new Vector3(0.197946f,0.757500f,0.058113f),
-                new Vector3(0.197137f,0.695000f,0.012219f),new Vector3(0.189582f,0.695000f,0.024880f),new Vector3(0.182242f,0.695000f,0.037565f),new Vector3(0.187131f,0.695000f,0.051670f),new Vector3(0.192715f,0.695000f,0.065856f),
-                new Vector3(0.181438f,0.632501f,0.029772f),new Vector3(0.175050f,0.632501f,0.043512f),new Vector3(0.168981f,0.632501f,0.057262f),new Vector3(0.174095f,0.632501f,0.071367f),new Vector3(0.181257f,0.632501f,0.085536f),
-                new Vector3(0.153268f,0.569999f,0.073541f),new Vector3(0.150122f,0.569999f,0.088678f),new Vector3(0.149604f,0.569999f,0.103076f),new Vector3(0.157026f,0.569999f,0.115243f),new Vector3(0.168004f,0.569999f,0.126409f),
-                new Vector3(0.147626f,0.538750f,0.098585f),new Vector3(0.148049f,0.538750f,0.113866f),new Vector3(0.151587f,0.538750f,0.127096f),new Vector3(0.163047f,0.538750f,0.135112f),new Vector3(0.176195f,0.538750f,0.142016f),
-                new Vector3(0.155184f,0.507501f,0.122775f),new Vector3(0.160972f,0.507501f,0.133764f),new Vector3(0.166992f,0.507501f,0.144507f),new Vector3(0.177330f,0.507501f,0.150644f),new Vector3(0.190006f,0.507501f,0.154286f),
-                new Vector3(0.161411f,0.488750f,0.139021f),new Vector3(0.167020f,0.488750f,0.147800f),new Vector3(0.172797f,0.488750f,0.156338f),new Vector3(0.182414f,0.488750f,0.159328f),new Vector3(0.193319f,0.488750f,0.160456f),
-                new Vector3(0.161148f,0.476251f,0.148886f),new Vector3(0.167785f,0.476251f,0.155292f),new Vector3(0.173722f,0.476251f,0.163124f),new Vector3(0.182594f,0.476251f,0.164985f),new Vector3(0.192727f,0.476251f,0.164277f),
-                new Vector3(0.159151f,0.463749f,0.157509f),new Vector3(0.166072f,0.463749f,0.161884f),new Vector3(0.172276f,0.463749f,0.168566f),new Vector3(0.180750f,0.463749f,0.167934f),new Vector3(0.189252f,0.463749f,0.167212f),
-                new Vector3(0.152520f,0.445000f,0.166222f),new Vector3(0.158381f,0.445000f,0.169298f),new Vector3(0.164289f,0.445000f,0.171732f),new Vector3(0.170484f,0.445000f,0.170228f),new Vector3(0.176654f,0.445000f,0.169071f),
-                new Vector3(0.143898f,0.426250f,0.169418f),new Vector3(0.147926f,0.426250f,0.170676f),new Vector3(0.151717f,0.426250f,0.170189f),new Vector3(0.155358f,0.426250f,0.168609f),new Vector3(0.159143f,0.426250f,0.168078f),
-                new Vector3(0.140583f,0.413750f,0.167109f),new Vector3(0.142034f,0.413750f,0.167106f),new Vector3(0.143481f,0.413750f,0.167051f),new Vector3(0.144928f,0.413750f,0.166996f),new Vector3(0.146343f,0.413750f,0.166469f),
-                new Vector3(0.142499f,0.404764f,0.158252f),new Vector3(0.142561f,0.404764f,0.158245f),new Vector3(0.142623f,0.404764f,0.158238f),new Vector3(0.142685f,0.404764f,0.158231f),new Vector3(0.142748f,0.404764f,0.158224f)
-            },
-            new[]{ // front chest family 18 back
-                new Vector3(0.201391f,0.820000f,0.004636f),new Vector3(0.204947f,0.820000f,0.018251f),new Vector3(0.208116f,0.820000f,0.031795f),new Vector3(0.200306f,0.820000f,0.043348f),new Vector3(0.192687f,0.820000f,0.054935f),
-                new Vector3(0.205714f,0.757500f,0.006155f),new Vector3(0.210999f,0.757500f,0.020568f),new Vector3(0.214339f,0.757500f,0.034598f),new Vector3(0.206265f,0.757500f,0.046380f),new Vector3(0.198200f,0.757500f,0.058163f),
-                new Vector3(0.197351f,0.695000f,0.012244f),new Vector3(0.202774f,0.695000f,0.026411f),new Vector3(0.207146f,0.695000f,0.040456f),new Vector3(0.200177f,0.695000f,0.053185f),new Vector3(0.192715f,0.695000f,0.065856f),
-                new Vector3(0.181880f,0.632501f,0.029786f),new Vector3(0.187716f,0.632501f,0.043913f),new Vector3(0.192845f,0.632501f,0.058018f),new Vector3(0.187062f,0.632501f,0.071778f),new Vector3(0.181660f,0.632501f,0.085549f),
-                new Vector3(0.153606f,0.569999f,0.073446f),new Vector3(0.161588f,0.569999f,0.085454f),new Vector3(0.169532f,0.569999f,0.097473f),new Vector3(0.167799f,0.569999f,0.112213f),new Vector3(0.168358f,0.569999f,0.126309f),
-                new Vector3(0.147626f,0.538750f,0.098585f),new Vector3(0.156894f,0.538750f,0.108044f),new Vector3(0.167576f,0.538750f,0.116571f),new Vector3(0.171654f,0.538750f,0.129446f),new Vector3(0.176445f,0.538750f,0.141852f),
-                new Vector3(0.155184f,0.507501f,0.122775f),new Vector3(0.166028f,0.507501f,0.128371f),new Vector3(0.177525f,0.507501f,0.133271f),new Vector3(0.184165f,0.507501f,0.143352f),new Vector3(0.190254f,0.507501f,0.154021f),
-                new Vector3(0.161480f,0.488750f,0.138922f),new Vector3(0.170954f,0.488750f,0.142118f),new Vector3(0.181519f,0.488750f,0.143738f),new Vector3(0.188046f,0.488750f,0.151192f),new Vector3(0.193426f,0.488750f,0.160302f),
-                new Vector3(0.161159f,0.476251f,0.148864f),new Vector3(0.170622f,0.476251f,0.149521f),new Vector3(0.179953f,0.476251f,0.150445f),new Vector3(0.186430f,0.476251f,0.157178f),new Vector3(0.192861f,0.476251f,0.164005f),
-                new Vector3(0.159191f,0.463749f,0.157379f),new Vector3(0.167231f,0.463749f,0.158147f),new Vector3(0.176111f,0.463749f,0.156208f),new Vector3(0.182701f,0.463749f,0.161648f),new Vector3(0.189363f,0.463749f,0.166855f),
-                new Vector3(0.152537f,0.445000f,0.165985f),new Vector3(0.158736f,0.445000f,0.164439f),new Vector3(0.164987f,0.445000f,0.162168f),new Vector3(0.170891f,0.445000f,0.164643f),new Vector3(0.176681f,0.445000f,0.168702f),
-                new Vector3(0.143859f,0.426250f,0.169132f),new Vector3(0.147476f,0.426250f,0.167369f),new Vector3(0.151122f,0.426250f,0.165825f),new Vector3(0.155099f,0.426250f,0.166708f),new Vector3(0.159124f,0.426250f,0.167943f),
-                new Vector3(0.140548f,0.413750f,0.166595f),new Vector3(0.141989f,0.413750f,0.166443f),new Vector3(0.143433f,0.413750f,0.166341f),new Vector3(0.144876f,0.413750f,0.166240f),new Vector3(0.146329f,0.413750f,0.166263f),
-                new Vector3(0.142499f,0.404764f,0.158245f),new Vector3(0.142561f,0.404764f,0.158242f),new Vector3(0.142623f,0.404764f,0.158238f),new Vector3(0.142686f,0.404764f,0.158234f),new Vector3(0.142748f,0.404764f,0.158231f)
-            },
-            new[]{ // front chest family 19 front
-                new Vector3(0.169622f,0.820000f,0.039732f),new Vector3(0.179239f,0.820000f,0.052575f),new Vector3(0.188857f,0.820000f,0.057538f),new Vector3(0.198474f,0.820000f,0.051055f),new Vector3(0.208091f,0.820000f,0.044084f),
-                new Vector3(0.172298f,0.757500f,0.039595f),new Vector3(0.182148f,0.757500f,0.050240f),new Vector3(0.191999f,0.757500f,0.058690f),new Vector3(0.201849f,0.757500f,0.050067f),new Vector3(0.211700f,0.757500f,0.041198f),
-                new Vector3(0.170515f,0.695000f,0.039176f),new Vector3(0.180074f,0.695000f,0.047030f),new Vector3(0.189633f,0.695000f,0.055356f),new Vector3(0.199192f,0.695000f,0.048702f),new Vector3(0.208752f,0.695000f,0.037182f),
-                new Vector3(0.166010f,0.632499f,0.044632f),new Vector3(0.174781f,0.632499f,0.049805f),new Vector3(0.183552f,0.632499f,0.055859f),new Vector3(0.192323f,0.632499f,0.051185f),new Vector3(0.201094f,0.632499f,0.038538f),
-                new Vector3(0.161619f,0.570001f,0.062901f),new Vector3(0.167907f,0.570001f,0.063874f),new Vector3(0.174195f,0.570001f,0.065409f),new Vector3(0.180484f,0.570001f,0.067929f),new Vector3(0.186772f,0.570001f,0.050579f),
-                new Vector3(0.162346f,0.538750f,0.060960f),new Vector3(0.167675f,0.538750f,0.077741f),new Vector3(0.173005f,0.538750f,0.078583f),new Vector3(0.178334f,0.538750f,0.079337f),new Vector3(0.183664f,0.538750f,0.080091f),
-                new Vector3(0.168859f,0.507501f,0.088984f),new Vector3(0.174307f,0.507501f,0.099590f),new Vector3(0.179755f,0.507501f,0.102795f),new Vector3(0.185204f,0.507501f,0.101371f),new Vector3(0.190652f,0.507501f,0.099450f),
-                new Vector3(0.184042f,0.488751f,0.111071f),new Vector3(0.187834f,0.488751f,0.113716f),new Vector3(0.191626f,0.488751f,0.115719f),new Vector3(0.195418f,0.488751f,0.116165f),new Vector3(0.199210f,0.488751f,0.113510f),
-                new Vector3(0.204688f,0.476250f,0.120093f),new Vector3(0.206106f,0.476250f,0.120388f),new Vector3(0.207523f,0.476250f,0.119859f),new Vector3(0.208940f,0.476250f,0.119373f),new Vector3(0.210357f,0.476250f,0.118953f),
-                new Vector3(0.217469f,0.470537f,0.119383f),new Vector3(0.217530f,0.470537f,0.119370f),new Vector3(0.217591f,0.470537f,0.119358f),new Vector3(0.217653f,0.470537f,0.119346f),new Vector3(0.217714f,0.470537f,0.119333f)
-            },
-            new[]{ // front chest family 19 back
-                new Vector3(0.169622f,0.820000f,0.039230f),new Vector3(0.179239f,0.820000f,0.032136f),new Vector3(0.188857f,0.820000f,0.025173f),new Vector3(0.198474f,0.820000f,0.030913f),new Vector3(0.208091f,0.820000f,0.043146f),
-                new Vector3(0.172298f,0.757500f,0.039595f),new Vector3(0.182148f,0.757500f,0.030940f),new Vector3(0.191999f,0.757500f,0.022010f),new Vector3(0.201849f,0.757500f,0.030681f),new Vector3(0.211700f,0.757500f,0.041198f),
-                new Vector3(0.170515f,0.695000f,0.038473f),new Vector3(0.180074f,0.695000f,0.027886f),new Vector3(0.189633f,0.695000f,0.020651f),new Vector3(0.199192f,0.695000f,0.029406f),new Vector3(0.208752f,0.695000f,0.036329f),
-                new Vector3(0.166010f,0.632499f,0.043811f),new Vector3(0.174781f,0.632499f,0.030912f),new Vector3(0.183552f,0.632499f,0.026127f),new Vector3(0.192323f,0.632499f,0.031761f),new Vector3(0.201094f,0.632499f,0.037729f),
-                new Vector3(0.161619f,0.570001f,0.061444f),new Vector3(0.167907f,0.570001f,0.042980f),new Vector3(0.174195f,0.570001f,0.044315f),new Vector3(0.180484f,0.570001f,0.046217f),new Vector3(0.186772f,0.570001f,0.049040f),
-                new Vector3(0.162346f,0.538750f,0.057748f),new Vector3(0.167675f,0.538750f,0.058166f),new Vector3(0.173005f,0.538750f,0.058584f),new Vector3(0.178334f,0.538750f,0.059100f),new Vector3(0.183664f,0.538750f,0.078718f),
-                new Vector3(0.168859f,0.507501f,0.087847f),new Vector3(0.174307f,0.507501f,0.087421f),new Vector3(0.179755f,0.507501f,0.086871f),new Vector3(0.185204f,0.507501f,0.088080f),new Vector3(0.190652f,0.507501f,0.098827f),
-                new Vector3(0.184042f,0.488751f,0.110433f),new Vector3(0.187834f,0.488751f,0.108684f),new Vector3(0.191626f,0.488751f,0.106237f),new Vector3(0.195418f,0.488751f,0.110057f),new Vector3(0.199210f,0.488751f,0.112679f),
-                new Vector3(0.204688f,0.476250f,0.119429f),new Vector3(0.206106f,0.476250f,0.119370f),new Vector3(0.207523f,0.476250f,0.119484f),new Vector3(0.208940f,0.476250f,0.119093f),new Vector3(0.210357f,0.476250f,0.118830f),
-                new Vector3(0.217467f,0.470537f,0.119371f),new Vector3(0.217529f,0.470537f,0.119365f),new Vector3(0.217591f,0.470537f,0.119358f),new Vector3(0.217654f,0.470537f,0.119352f),new Vector3(0.217716f,0.470537f,0.119345f)
-            }
-        };
-        public static Vector3 ChestPanel(int panel,int sign,float t,float across) => SamplePanel(ChestPanelRows[panel],sign,t,across);
+
 
         // The outer cheek lock turns back toward its inner edge. Its frontmost
         // depth profile alone omits the visible side return in oblique views.

@@ -470,19 +470,31 @@ namespace DesktopFish.Editor
                 if(!cheekReturn||sign>0)ReverseFaces(body,first);
                 body.region=oldRegion;
             }
-            public void GuidedChestPanel(int panel,int sign,int bone,int surface) {
-                int rows=panel==0?26:18;const int cols=4;
-                int start=body.p.Count,oldRegion=body.region;body.region=0;
-                int head=ids["J_Bip_C_Head"];
-                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=row/(float)rows,u=col/(float)cols;
-                    Vector3 p=AuthorPoint(FishModelGuides.ChestPanel(panel*2+surface,sign,t,u));
-                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
-                    float paintT=Mathf.InverseLerp(.82f,.405f,FishModelGuides.ChestPanel(panel*2+surface,sign,t,u).y);
-                    body.Add(p,Color.white*.98f,bone,new Vector2(.75f+panel/12f+.004f+u*.075f,
-                        .02f+.94f*paintT),head,anchored);
+            public void GuidedChestPanel(int panel,int bone) {
+                int head=ids["J_Bip_C_Head"],start=body.p.Count,oldRegion=body.region;body.region=0;
+                const int sides=16;var ys=FishChestHairGuides.Stations(panel);
+                Func<float,float,Vector3> surface=(height,around)=>FishChestHairGuides.Surface(panel,height,around);
+                for(int row=0;row<ys.Length;row++)for(int col=0;col<=sides;col++) {
+                    float u=col/(float)sides,y=ys[row];Vector3 final=surface(y,u),author=AuthorPoint(final);
+                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                    float paintT=Mathf.InverseLerp(.82f,.405f,final.y),paintU=(1+Mathf.Cos(2*Mathf.PI*u))*.5f;
+                    int vertex=body.Add(author,Color.white*.98f,bone,new Vector2(.75f+(panel>=2?1:0)/12f+.004f+paintU*.075f,.02f+.94f*paintT),head,anchored);
+                    if(row==0) {
+                        float neighbor=ys[1];Vector3 center=Vector3.zero;
+                        for(int j=0;j<sides;j++)center+=AuthorPoint(surface(neighbor,j/(float)sides))/sides;
+                        Vector3 n=(author-center).normalized;
+                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
+                    // The final thin ring and pole use their actual mesh normals;
+                    // derivatives are unstable where a flat section closes.
+                    } else if(row<ys.Length-2) {
+                        Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
+                        Vector3 across=AuthorPoint(surface(y,u+.001f))-AuthorPoint(surface(y,u-.001f));
+                        Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
+                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                    }
                 }
-                int first=body.tri.Count;Grid(body,start,rows,cols);if(surface==0)ReverseFaces(body,first);
+                Grid(body,start,ys.Length-1,sides);
+                for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
                 body.region=oldRegion;
             }
             public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,bool fork=false,int[] seam=null) {
@@ -2123,11 +2135,11 @@ namespace DesktopFish.Editor
                 // the same contour. Their combined visible sections form one
                 // closed ribbon, preserving both edges without a duplicate wisp.
                 a.GuidedSideCurl(sign<0?2:3,bone,head);
-                // The main S curve and shorter outward fork use two separate
-                // measured section families. Separate outer/inner samples retain
-                // their folded transverse volume without copying source topology.
-                for(int panel=0;panel<2;panel++)for(int surface=0;surface<2;surface++)
-                    a.GuidedChestPanel(panel,sign,bone,surface);
+                // Independently measured left/right S locks and outward forks
+                // use closed sparse section lofts, retaining transverse volume
+                // without mirrored sections or copied source topology.
+                a.GuidedChestPanel(sign<0?0:1,bone);
+                a.GuidedChestPanel(sign<0?3:2,bone);
                 for(int panel=0;panel<7;panel++)a.GuidedFrontPanel(panel,sign,head,panel%3);
                 a.GuidedFrontPanel(7,sign,head,sign);
                 // Corresponding Ref rays locate these two underlying locks.

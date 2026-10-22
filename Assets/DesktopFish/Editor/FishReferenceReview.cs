@@ -382,6 +382,7 @@ namespace DesktopFish.Editor
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             var curlFaces=new System.Collections.Generic.Dictionary<int,int[]>();
+            var chestFaces=new System.Collections.Generic.Dictionary<int,int[]>();
             var envelopeFaces=new System.Collections.Generic.Dictionary<int,System.Collections.Generic.List<int>>{
                 {15,new System.Collections.Generic.List<int>()},{16,new System.Collections.Generic.List<int>()}};
             var innerTips=new System.Collections.Generic.List<Landmark>();
@@ -525,6 +526,16 @@ namespace DesktopFish.Editor
                         for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
                         var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
                         FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/rear-lock-"+slot+"-"+component,.8f,new Vector3(0,-.056f,0));
+                        filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
+                    }
+                    if(slot==15&&new[]{17,18,19,20}.Contains(index-1)) {
+                        var members=new System.Collections.Generic.HashSet<int>(group);var selected=new System.Collections.Generic.List<int>();
+                        for(int k=0;k<triangles.Length;k+=3)if(members.Contains(triangles[k]))selected.AddRange(new[]{triangles[k],triangles[k+1],triangles[k+2]});
+                        chestFaces[index-1]=selected.ToArray();
+                        var isolated=UnityEngine.Object.Instantiate(baked);
+                        for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
+                        var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+                        FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/chest-lock-"+(index-1),.8f,new Vector3(0,-.056f,0));
                         filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
                     if(slot==15&&(index-1==18||index-1==19)) {
@@ -724,6 +735,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
+            ReviewChestLoftGuides(points,baked.uv,chestFaces);
             ReviewRearEnvelope(points,baked.uv,envelopeFaces);
             ReviewSideCurlGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
@@ -741,6 +753,28 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
+        static void ReviewChestLoftGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();var envelope=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
+            foreach(var entry in faces.OrderBy(p=>p.Key)) {
+                int component=entry.Key;var triangles=entry.Value;
+                var visible=triangles.Distinct().Where(i=>texture.GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f).Select(i=>points[i]).ToArray();
+                Vector3 root=visible.OrderByDescending(p=>p.y).First(),tip=visible.OrderBy(p=>p.y).First();
+                samples.Add(new Landmark{name="chest-"+component+"-root",position=root});float phase=float.NaN;
+                var heights=new[]{.70f,.66f,.62f,.58f,.54f,.50f,.46f,.42f,.40f,.38f,.36f,.35f,.34f,.33f,.32f,.31f,.30f,.29f,.28f,.275f,tip.y+.003f};
+                foreach(float y in heights.Where(y=>y>tip.y+.001f&&y<root.y-.001f).Distinct().OrderByDescending(y=>y)) {
+                    var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0004f);
+                    if(cuts.Count<2)continue;var ring=PhaseAlignedCurlRing(cuts,ref phase);
+                    string key="chest-"+component+"-"+y.ToString("F5",System.Globalization.CultureInfo.InvariantCulture);
+                    envelope.Add(new Landmark{name=key+"-minimum",position=new Vector3(cuts.Min(p=>p.x),y,cuts.Min(p=>p.z))});
+                    envelope.Add(new Landmark{name=key+"-maximum",position=new Vector3(cuts.Max(p=>p.x),y,cuts.Max(p=>p.z))});
+                    for(int col=0;col<16;col++)samples.Add(new Landmark{name="chest-"+component+"-ring-"+col,position=ring[col]});
+                }
+                samples.Add(new Landmark{name="chest-"+component+"-tip",position=tip});
+            }
+            File.WriteAllText("work/reference-review/chest-loft-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/chest-loft-envelope.json",JsonUtility.ToJson(new FaceSectionReport{samples=envelope.ToArray()},true));
+        }
+
         static void ReviewRearEnvelope(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,System.Collections.Generic.List<int>> faces) {
             var samples=new System.Collections.Generic.List<Landmark>();int row=0;
             foreach(float y in new[]{.53f,.49f,.45f,.41f,.37f,.33f}) {
