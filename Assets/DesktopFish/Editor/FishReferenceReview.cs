@@ -180,6 +180,7 @@ namespace DesktopFish.Editor
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
             ReviewFrontPaint(baked,snapshot,camera);
+            ReviewOuterCurtainClay(baked,snapshot,camera);
             ReviewRearCrown(baked,snapshot.transform);
             ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
@@ -542,6 +543,14 @@ namespace DesktopFish.Editor
                         for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
                         var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
                         FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/rear-lock-"+slot+"-"+component,.8f,new Vector3(0,-.056f,0));
+                        if(slot==15&&new[]{3,7,10,6,2}.Contains(component)) {
+                            var grey=UnityEngine.Object.Instantiate(isolated);grey.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),grey.vertexCount).ToArray();
+                            var renderer=snapshot.GetComponent<MeshRenderer>();var mats=renderer.sharedMaterials;
+                            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=Texture2D.whiteTexture;material.SetFloat("_OutlineWidth",0);
+                            renderer.sharedMaterials=Enumerable.Repeat(material,mats.Length).ToArray();filter.sharedMesh=grey;
+                            FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/outer-clay-"+component,.8f,new Vector3(0,-.056f,0));
+                            renderer.sharedMaterials=mats;filter.sharedMesh=isolated;UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(grey);
+                        }
                         filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
                     if(slot==15&&new[]{17,18,19,20}.Contains(index-1)) {
@@ -1001,6 +1010,25 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/lower-rear-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var intervals=new System.Collections.Generic.List<Landmark>();
+            for(int row=0;row<=246;row++) {
+                float registered=row<=60?.50f-row*.005f:.195f-(row-61)*.00025f;
+                float y=(registered-.07f)/1.25f;if(y<tipY)break;
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.00008f).OrderBy(q=>q.x).ToArray();
+                var bands=new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
+                foreach(var q in cuts){if(bands.Count==0||q.x-bands.Last().Last().x>.0002f)bands.Add(new System.Collections.Generic.List<Vector3>());bands.Last().Add(q);}
+                int band=0;
+                foreach(var region in bands.Where(g=>g.Last().x-g.First().x>.00008f)) {
+                    float lo=region.First().x,hi=region.Last().x;
+                    for(int col=0;col<5;col++) {
+                        float x=Mathf.Lerp(lo,hi,col/4f),near=region.Min(q=>Mathf.Abs(q.x-x));
+                        var point=region.Where(q=>Mathf.Abs(q.x-x)<=near+.00005f).OrderBy(q=>q.z).First();point.x=x;point.y=y;
+                        intervals.Add(new Landmark{name="outer-"+row+"-"+band+"-"+col,position=point});
+                    }
+                    band++;
+                }
+            }
+            File.WriteAllText("work/reference-review/outer-intervals-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=intervals.ToArray()},true));
         }
 
         static void ReviewInnerRearGuides(Vector3[] points,Vector2[] uv,int[] triangles,int component) {
@@ -1309,6 +1337,22 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name=elevation+"/"+angle,position=center+direction*farthest});
             }
             File.WriteAllText("work/reference-review/rear-crown-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewOuterCurtainClay(Mesh baked,GameObject snapshot,Camera camera) {
+            var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();var tri=baked.GetTriangles(15);var used=tri.Distinct().ToArray();
+            int[] parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int k=0;k<tri.Length;k+=3){parents[root(tri[k+1])]=root(tri[k]);parents[root(tri[k+2])]=root(tri[k]);}
+            foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))){int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);}
+            var groups=used.GroupBy(root).OrderByDescending(g=>g.Count()).ToArray();var members=new System.Collections.Generic.HashSet<int>(new[]{3,7,10,6,2}.SelectMany(c=>groups[c]));
+            var selected=new System.Collections.Generic.List<int>();for(int k=0;k<tri.Length;k+=3)if(members.Contains(tri[k]))selected.AddRange(new[]{tri[k],tri[k+1],tri[k+2]});
+            var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
+            var clay=UnityEngine.Object.Instantiate(baked);for(int slot=0;slot<clay.subMeshCount;slot++)clay.SetTriangles(slot==15?selected.ToArray():Array.Empty<int>(),slot,false);
+            clay.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),clay.vertexCount).ToArray();
+            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=Texture2D.whiteTexture;material.SetFloat("_OutlineWidth",0);
+            filter.sharedMesh=clay;renderer.sharedMaterials=Enumerable.Repeat(material,original.Length).ToArray();
+            FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/outer-clay-total",.8f,new Vector3(0,-.056f,0));
+            filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(clay);UnityEngine.Object.DestroyImmediate(material);
         }
 
         static void ReviewFrontPaint(Mesh baked,GameObject snapshot,Camera camera) {
