@@ -1328,6 +1328,7 @@ namespace DesktopFish.Editor
             }
             PaintApron(pixels);
             PaintIris(pixels);
+            PaintBib(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
@@ -1383,6 +1384,49 @@ namespace DesktopFish.Editor
             float distance=Mathf.Sqrt(Mathf.Pow((x-cx)/rx,2)+Mathf.Pow((y-cy)/ry,2));
             return 1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.97f,1.03f,distance));
         }
+        static Vector2 BibPaintUV(float u,float v) {
+            return new Vector2((936+80*u)/1024f,(1704+112*v-128)/1024f);
+        }
+        // Independent cloth painting: broad pintuck shading and readable oval
+        // buttons replace small faceted spheres, without copying source pixels.
+        static void PaintBib(Color[] pixels) {
+            for(int py=1696;py<1824;py++) {
+                float v=Mathf.Clamp01((py+.5f-1704)/112),y=Mathf.Lerp(.416f,.514f,v);
+                float width=FishBibSurfaceGuides.Point(y,1).x-FishBibSurfaceGuides.Point(y,-1).x;
+                var creases=new float[6];for(int i=0;i<6;i++)creases[i]=FishBibSurfaceGuides.CreaseU(i,y);
+                for(int px=928;px<1024;px++) {
+                    float u=Mathf.Clamp01((px+.5f-936)/80)*2-1;
+                    float shade=0,light=0;
+                    for(int i=0;i<6;i++) {
+                        float d=(u-creases[i])*width*.5f;
+                        float falloff=.60f+.40f*Mathf.Sin(Mathf.PI*v);
+                        shade+=Mathf.Exp(-d*d/.000022f)*.035f*falloff;
+                        shade+=Mathf.Exp(-d*d/.0000018f)*.012f;
+                        light+=Mathf.Exp(-(d-.003f)*(d-.003f)/.000012f)*.027f*falloff;
+                    }
+                    float hem=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.015f,.09f,v));
+                    float gathers=0;
+                    foreach(float center in new[]{-.72f,-.36f,.37f,.74f}) {
+                        float d=u-center-.06f*v;
+                        gathers+=Mathf.Exp(-d*d/.00065f)*.065f*(1-Mathf.SmoothStep(0,1,v/.16f));
+                    }
+                    Color color=White*(.985f-shade+light-hem*.035f-gathers);color.a=1;
+                    foreach(var oval in FishBibSurfaceGuides.Buttons) {
+                        Vector3 c=oval[0];float cx=FishBibSurfaceGuides.Across(c.x,y);
+                        float dx=(u-cx)*width*.5f/(oval[2].x-oval[1].x)*2;
+                        float dy=(y-c.y)/(oval[4].y-oval[3].y)*2;
+                        float r=Mathf.Sqrt(dx*dx+dy*dy);
+                        float edge=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1.10f,r));
+                        Color button=Color.Lerp(Hex("25334F"),Hex("3D4F74"),Mathf.Clamp01(dy*.5f+.5f)*.48f);
+                        float glint=Mathf.Exp(-((dx+.28f)*(dx+.28f)/.12f+(dy-.35f)*(dy-.35f)/.14f));
+                        button=Color.Lerp(button,Hex("8EABC7"),glint*.32f);
+                        color=Color.Lerp(color,button,edge);
+                    }
+                    color.a=1;pixels[py*PaintWidth+px]=color;
+                }
+            }
+        }
+
         static void PaintIris(Color[] pixels) {
             for(int y=1696;y<2016;y++)for(int x=576;x<896;x++) {
                 float u=(x+.5f-736)/145f,v=(y+.5f-1856)/145f,r=Mathf.Sqrt(u*u+v*v);
@@ -1525,8 +1569,49 @@ namespace DesktopFish.Editor
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
         public static void RenderIdleSkinningAndBuild() { BuildWithSkinningReview(false); }
         public static void RenderIdleHandSkinningAndBuild() { BuildWithSkinningReview(true); }
-        // Localized regression for hair topology/attachments: head-look extrema,
-        // different secondary-sway phases and the raised working posture.
+        // Targeted regression for upper garment geometry and its attachments.
+        public static void RenderIdleGarmentCheckAndBuild() {
+            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion=new FishMotion(companion.model){randomActions=false};
+            var skins=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
+            var snapshots=new List<MeshFilter>();
+            foreach(var skin in skins) {
+                var obj=new GameObject("Garment regression snapshot");obj.transform.SetParent(skin.transform,false);
+                var filter=obj.AddComponent<MeshFilter>();filter.sharedMesh=new Mesh();snapshots.Add(filter);
+                obj.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;skin.enabled=false;
+            }
+            var camera=companion.view;var target=new RenderTexture(360,480,24){antiAliasing=4};camera.targetTexture=target;
+            var frame=new Texture2D(360,480,TextureFormat.RGBA32,false);
+            var sheet=new Texture2D(1440,960,TextureFormat.RGBA32,false);
+            var gestures=new[]{FishMotion.Gesture.None,FishMotion.Gesture.Bow,FishMotion.Gesture.Wave,FishMotion.Gesture.Cheer};
+            Vector2 min=Vector2.one,max=Vector2.zero;
+            for(int pose=0;pose<8;pose++) {
+                motion.Play(gestures[pose/2],0);
+                motion.Tick(pose%2==0?.25f:.7f,1,0,0,pose<2?"working":"idle",false);
+                for(int i=0;i<skins.Length;i++) {
+                    var mesh=snapshots[i].sharedMesh;skins[i].BakeMesh(mesh);
+                    foreach(var point in mesh.vertices) {
+                        Vector3 p=camera.WorldToViewportPoint(skins[i].transform.TransformPoint(point));
+                        if(float.IsNaN(p.x)||float.IsNaN(p.y)||float.IsInfinity(p.x)||float.IsInfinity(p.y))
+                            throw new InvalidOperationException("Non-finite garment regression pose "+pose);
+                        min=Vector2.Min(min,p);max=Vector2.Max(max,p);
+                    }
+                }
+                camera.Render();RenderTexture.active=target;frame.ReadPixels(new Rect(0,0,360,480),0,0);frame.Apply();
+                sheet.SetPixels((pose%4)*360,(1-pose/4)*480,360,480,frame.GetPixels());
+            }
+            if(min.x<.02f||min.y<.02f||max.x>.98f||max.y>.98f)
+                throw new InvalidOperationException("Garment regression outside viewport: "+min+" / "+max);
+            sheet.Apply();File.WriteAllBytes("work/rebuilt-garment-regression.png",sheet.EncodeToPNG());
+            File.WriteAllText("work/garment-motion-validation.json","{\n  \"sampled_poses\": 8,\n  \"scope\": \"working, bow, wave and cheer upper garment samples\",\n  \"finite_and_viewport_passed\": true,\n  \"intersection_test\": false\n}\n");
+            Debug.Log("Targeted garment validation passed: 8 poses; viewport "+min+" / "+max);
+            camera.targetTexture=null;RenderTexture.active=null;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);UnityEngine.Object.DestroyImmediate(sheet);
+            foreach(var snapshot in snapshots){UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);UnityEngine.Object.DestroyImmediate(snapshot.gameObject);}
+            RenderIdle();Build();
+        }
+        // Localized head-look, secondary-sway and working hair checks.
         public static void RenderIdleHairCheckAndBuild() { RenderHairCheckAndBuild(false); }
         public static void RenderIdleHeadSkinAndBuild() { RenderHairCheckAndBuild(true); }
         static void RenderHairCheckAndBuild(bool includeFace) {
@@ -2239,10 +2324,6 @@ namespace DesktopFish.Editor
                 SkirtLeaf(a,V(sign*.144f,.251f,0),V(sign*.154f,.258f,0),.0034f,hips);
                 SkirtLeaf(a,V(sign*.144f,.256f,0),V(sign*.133f,.263f,0),.0038f,hips);
             }
-            for(int i=0;i<3;i++) {
-                float y=.427f+i*.020f;Vector3 p=FishModelGuides.Bib(y,0)+Vector3.forward*.0015f;
-                a.Sphere(a.body,AuthorGarmentPoint(p),V(.005f,.0048f,.0018f),Ink,chest,8,4);
-            }
 
             foreach(float y in new[]{.184f,.195f}) {
                 int start=a.body.p.Count;const int sides=72,rows=1;
@@ -2537,12 +2618,11 @@ namespace DesktopFish.Editor
         }
 
         static void GuidedBib(Author a,int bone) {
-            int start=a.body.p.Count;const int rows=12,cols=10;
+            int start=a.body.p.Count;const int rows=12,cols=14;
             for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
                 float t=row/(float)rows,u=col/(float)cols*2-1;
-                Vector3 p=FishModelGuides.Bib(Mathf.Lerp(.416f,.514f,t),u);
-                Color color=White*(.97f+.025f*Mathf.Cos(u*Mathf.PI*3)*Mathf.Sin(t*Mathf.PI));color.a=1;
-                a.body.Add(AuthorGarmentPoint(p),color,bone);
+                Vector3 p=FishBibSurfaceGuides.Point(Mathf.Lerp(.416f,.514f,t),u);
+                a.body.Add(AuthorGarmentPoint(p),Color.white,bone,BibPaintUV((u+1)*.5f,t));
             }
             Grid(a.body,start,rows,cols);
             foreach(int sign in new[]{-1,1}) {
@@ -2551,9 +2631,9 @@ namespace DesktopFish.Editor
                 int band=a.body.p.Count,first=a.body.tri.Count;const int bandRows=12;
                 for(int row=0;row<=bandRows;row++)for(int col=0;col<=2;col++) {
                     float y=Mathf.Lerp(.414f,.514f,row/(float)bandRows),r=col/2f;
-                    Vector3 inner=FishModelGuides.Bib(y,1);inner.x-=.002f;inner.z-=.001f;
-                    Vector3 outer=FishModelGuides.BibLace(y,0);outer.x+=.002f;
-                    Vector3 p=Vector3.Lerp(inner,outer,r);p.x*=sign;
+                    Vector3 inner=FishBibSurfaceGuides.Point(y,sign);inner.x-=sign*.002f;inner.z-=.001f;
+                    Vector3 outer=FishModelGuides.BibLace(y,0);outer.x=(outer.x+.002f)*sign;
+                    Vector3 p=Vector3.Lerp(inner,outer,r);
                     a.body.Add(AuthorGarmentPoint(p),Navy*.95f,bone);
                 }
                 Grid(a.body,band,bandRows,2);if(sign<0)ReverseFaces(a.body,first);

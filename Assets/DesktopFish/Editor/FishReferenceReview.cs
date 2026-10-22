@@ -186,6 +186,7 @@ namespace DesktopFish.Editor
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
+            ReviewBibSurface(baked,snapshot,camera);
             ReviewCollarRibbonGuides(baked,snapshot.transform);
             ReviewFootGuides(baked,snapshot.transform);
             ReviewHemGuides(baked,snapshot.transform);
@@ -1426,6 +1427,81 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name="gold-stud-"+sign+"-"+row,position=bounds.center});
             }
             File.WriteAllText("work/reference-review/bib-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewBibSurface(Mesh baked,GameObject snapshot,Camera camera) {
+            var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();
+            var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();var uv=baked.uv;
+            var triangles=baked.GetTriangles(37);var texture=GuideTexture(37);var samples=new System.Collections.Generic.List<Landmark>();
+            var creases=new System.Collections.Generic.List<Landmark>();
+            foreach(float registeredY in new[]{.416f,.428f,.440f,.452f,.464f,.476f,.488f,.500f,.512f}) {
+                float y=(registeredY-.07f)/1.25f;
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,37,(p,st)=>p.z>0&&Mathf.Abs(p.x)<.12f,maxStep:.00015f);
+                var white=VisibleSection(points,uv,triangles,Vector3.up,y,37,(p,st)=>{
+                    Color c=texture.GetPixelBilinear(st.x,st.y);
+                    return p.z>0&&Mathf.Abs(p.x)<.12f&&Mathf.Min(c.r,Mathf.Min(c.g,c.b))>.60f&&Mathf.Max(c.r,Mathf.Max(c.g,c.b))-Mathf.Min(c.r,Mathf.Min(c.g,c.b))<.25f;
+                },maxStep:.00015f);
+                if(white.Count==0)throw new InvalidOperationException("Missing white bib section: "+registeredY);
+                float lo=white.Min(p=>p.x),hi=white.Max(p=>p.x);
+                var tonal=new System.Collections.Generic.List<Tuple<Vector3,float>>();
+                VisibleSection(points,uv,triangles,Vector3.up,y,37,(p,st)=>{
+                    Color c=texture.GetPixelBilinear(st.x,st.y);
+                    if(p.z>0&&p.x>=lo&&p.x<=hi&&Mathf.Max(c.r,Mathf.Max(c.g,c.b))-Mathf.Min(c.r,Mathf.Min(c.g,c.b))<.15f)
+                        tonal.Add(Tuple.Create(p,c.grayscale));return false;
+                },maxStep:.0001f);
+                float[] centers={-.78f,-.39f,-.14f,.14f,.39f,.78f};
+                for(int crease=0;crease<centers.Length;crease++) {
+                    float target=centers[crease],width=Mathf.Abs(target)>.5f?.14f:.095f;
+                    var band=tonal.Where(q=>Mathf.Abs(Mathf.InverseLerp(lo,hi,q.Item1.x)*2-1-target)<width&&q.Item2>.45f).ToArray();
+                    if(band.Length==0||band.Max(q=>q.Item2)-band.Min(q=>q.Item2)<.025f)continue;
+                    float minimum=band.Min(q=>q.Item2);var dark=band.Where(q=>q.Item2<minimum+.010f).ToArray();
+                    Vector3 center=Vector3.zero;foreach(var q in dark)center+=q.Item1/dark.Length;
+                    creases.Add(new Landmark{name="bib-crease-"+crease,position=center});
+                }
+                for(int col=0;col<15;col++) {
+                    float x=Mathf.Lerp(lo,hi,col/14f),near=cuts.Min(p=>Mathf.Abs(p.x-x));
+                    var p=cuts.Where(q=>Mathf.Abs(q.x-x)<=near+.000075f).OrderByDescending(q=>q.z).First();p.x=x;
+                    samples.Add(new Landmark{name="bib-surface-"+col,position=p});
+                }
+            }
+            File.WriteAllText("work/reference-review/bib-surface-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/bib-crease-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=creases.ToArray()},true));
+            var buttons=new System.Collections.Generic.List<Vector3>();
+            for(float y=.279f;y<=.340f;y+=.00025f)VisibleSection(points,uv,triangles,Vector3.up,y,37,(p,st)=>{
+                Color c=texture.GetPixelBilinear(st.x,st.y);
+                if(p.z>0&&Mathf.Abs(p.x)<.014f&&c.grayscale<.35f)buttons.Add(p);return false;
+            },maxStep:.0001f);
+            var groups=new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
+            foreach(var p in buttons.OrderBy(p=>p.y)) {
+                if(groups.Count==0||p.y-groups.Last().Last().y>.001f)groups.Add(new System.Collections.Generic.List<Vector3>());
+                groups.Last().Add(p);
+            }
+            if(groups.Count!=3)throw new InvalidOperationException("Expected three bib button islands, found "+groups.Count);
+            var anchors=new System.Collections.Generic.List<Landmark>();int index=0;
+            foreach(var group in groups) {
+                float x0=group.Min(p=>p.x),x1=group.Max(p=>p.x),y0=group.Min(p=>p.y),y1=group.Max(p=>p.y);
+                Vector3 c=new Vector3((x0+x1)*.5f,(y0+y1)*.5f,group.Max(p=>p.z));
+                anchors.Add(new Landmark{name="bib-button-"+index+"-center",position=c});
+                anchors.Add(new Landmark{name="bib-button-"+index+"-left",position=new Vector3(x0,c.y,c.z)});
+                anchors.Add(new Landmark{name="bib-button-"+index+"-right",position=new Vector3(x1,c.y,c.z)});
+                anchors.Add(new Landmark{name="bib-button-"+index+"-bottom",position=new Vector3(c.x,y0,c.z)});
+                anchors.Add(new Landmark{name="bib-button-"+index+"-top",position=new Vector3(c.x,y1,c.z)});index++;
+            }
+            File.WriteAllText("work/reference-review/bib-button-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=anchors.ToArray()},true));
+
+            // Diagnose shape/normal shading separately from source paint.
+            // Temporary snapshots/materials only; original assets are untouched.
+            var original=renderer.sharedMaterials;
+            for(int mode=0;mode<2;mode++) {
+                var mesh=UnityEngine.Object.Instantiate(baked);mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
+                var materials=original.Select(m=>{
+                    var n=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));n.mainTexture=mode==0?Texture2D.whiteTexture:m.mainTexture;
+                    n.SetFloat("_Flat",mode);n.SetFloat("_OutlineWidth",0);return n;
+                }).ToArray();filter.sharedMesh=mesh;renderer.sharedMaterials=materials;
+                FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib-"+(mode==0?"clay":"paint-flat"),.8f,new Vector3(0,-.056f,0));
+                filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(mesh);
+                foreach(var material in materials)UnityEngine.Object.DestroyImmediate(material);
+            }
         }
 
         static void ReviewEyeProfiles(Mesh baked,Transform snapshot) {
