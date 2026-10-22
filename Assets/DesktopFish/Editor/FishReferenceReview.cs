@@ -166,6 +166,7 @@ namespace DesktopFish.Editor
             ReviewFaceSections(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
+            ReviewRearCrown(baked,snapshot.transform);
             ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
@@ -862,6 +863,36 @@ namespace DesktopFish.Editor
                 rays.Add(new Landmark{name="view-"+probe.z+"-pixel-"+pixel.x+"-"+pixel.y+"-slot-"+bestSlot+"-component-"+component,position=hit});
             }
             File.WriteAllText("work/reference-review/fringe-coverage-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=rays.ToArray()},true));
+        }
+
+        // Sample the visible outer dome with sparse radial probes. This keeps
+        // rear/top curvature distinct from the height-only envelope bounds.
+        static void ReviewRearCrown(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var samples=new System.Collections.Generic.List<Landmark>();
+            Vector3 center=new Vector3(0,.56f,-.04f);
+            foreach(int elevation in new[]{0,15,30,45,60,75,90})foreach(int angle in Enumerable.Range(0,18).Select(i=>i*20)) {
+                float phi=elevation*Mathf.Deg2Rad,theta=angle*Mathf.Deg2Rad;
+                Vector3 direction=new Vector3(Mathf.Sin(theta)*Mathf.Cos(phi),Mathf.Sin(phi),Mathf.Cos(theta)*Mathf.Cos(phi));
+                float farthest=-1;
+                foreach(int slot in new[]{10,11,15,16}) {
+                    var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                    for(int i=0;i<triangles.Length;i+=3) {
+                        int ai=triangles[i],bi=triangles[i+1],ci=triangles[i+2];
+                        Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a,h=Vector3.Cross(direction,ac);
+                        float det=Vector3.Dot(ab,h);if(Mathf.Abs(det)<1e-9f)continue;
+                        Vector3 delta=center-a;float u=Vector3.Dot(delta,h)/det;if(u<0||u>1)continue;
+                        Vector3 q=Vector3.Cross(delta,ab);float v=Vector3.Dot(direction,q)/det;if(v<0||u+v>1)continue;
+                        float distance=Vector3.Dot(ac,q)/det;if(distance<=farthest||distance<=0)continue;
+                        Vector2 st=uv[ai]*(1-u-v)+uv[bi]*u+uv[ci]*v;
+                        if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        farthest=distance;
+                    }
+                }
+                if(farthest<0){Debug.Log("Missing rear dome probe "+elevation+"/"+angle);continue;}
+                samples.Add(new Landmark{name=elevation+"/"+angle,position=center+direction*farthest});
+            }
+            File.WriteAllText("work/reference-review/rear-crown-rays.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewFrontCrown(Mesh baked,Transform snapshot) {

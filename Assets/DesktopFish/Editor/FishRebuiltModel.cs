@@ -1864,9 +1864,15 @@ namespace DesktopFish.Editor
             // and outer curls. Forked mid-side ends use separate branch
             // contours so their opening is not filled by a convex section.
             int oldRearEnd=a.body.p.Count;
+            // Refit the retained join below the dome and anchor its upper ring to the head.
+            for(int i=rearStart;i<oldRearEnd;i++) {
+                a.body.regions[i]=8;float y=FitPoint(a.body.p[i]).y;
+                var w=a.body.weights[i];float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.76f,y));
+                if(weight>0&&w.boneIndex0!=head){w.boneIndex1=head;w.weight1=Mathf.Lerp(w.weight1,1,weight);w.weight0=1-w.weight1;a.body.weights[i]=w;}
+            }
             var upperPoints=a.body.p.Select(p=> {
                 if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
-                return FishModelGuides.Point(FitPoint(p),2);
+                return FishModelGuides.Point(FitPoint(p),8);
             }).ToArray();
             var upperFaces=new List<int>();
             for(int i=0;i<a.body.tri.Count;i+=3)if(a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd))
@@ -1904,6 +1910,9 @@ namespace DesktopFish.Editor
                         if(a.body.p[v].y<.55f)keep=false;
                     }
                 }
+                if(keep&&a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd)) {
+                    if(a.body.tri.GetRange(i,3).Any(v=>upperPoints[v].y>.79f))keep=false;
+                }
                 // Two side tips and the fork trunks only need their outward
                 // sheets under the two-sided material. Remove hidden returns
                 // that otherwise end as dark inner walls at the new seam.
@@ -1926,6 +1935,25 @@ namespace DesktopFish.Editor
             // Two adjoining locks are split into a trunk and separate fork tips.
             for(int panel=0;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray());
             for(int panel=0;panel<FishRearForkGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray(),true,forkSeams.TryGetValue(panel,out var seam)?seam:null);
+            // One low-density upper dome replaces the overlapping crown pipes.
+            int domeStart=a.body.p.Count,oldRegion=a.body.region;a.body.region=0;
+            const int domeRows=12,domeCols=40;
+            for(int row=0;row<=domeRows;row++)for(int col=0;col<=domeCols;col++) {
+                float angle=col*360f/domeCols;
+                float front=Mathf.SmoothStep(0,1,Mathf.Cos(angle*Mathf.Deg2Rad));
+                Vector3 final=FishRearCrownGuides.Surface(Mathf.Lerp(-5+35*front,90,row/(float)domeRows),angle);
+                final-= (final-V(0,.77f,-.05f)).normalized*(.003f*front*(1-row/(float)domeRows)+
+                    .0014f*(1-Mathf.SmoothStep(0,1,row/2f)));
+                Vector3 author=AuthorPoint(final);
+                int vertex=a.body.Add(author,Color.white*.97f,head,RearPaintFinalUV(final));
+                Vector3 normal=FishRearCrownGuides.Normal(final);
+                float derivative;FitHeight(author.y,out derivative);normal.y*=derivative;
+                a.body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,1);
+            }
+            Grid(a.body,domeStart,domeRows,domeCols);
+            for(int row=0;row<=domeRows;row++)a.body.smoothNormalPairs.Add(new Vector2Int(domeStart+row*(domeCols+1),domeStart+row*(domeCols+1)+domeCols));
+            for(int col=1;col<=domeCols;col++)a.body.smoothNormalPairs.Add(new Vector2Int(domeStart+domeRows*(domeCols+1),domeStart+domeRows*(domeCols+1)+col));
+            a.body.region=oldRegion;
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
                 // An outer lower curl and a higher folded ribbon describe

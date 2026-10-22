@@ -806,6 +806,7 @@ namespace DesktopFish.Editor {
             return value;
         }
         public static Vector3 Point(Vector3 p,int region) {
+            if(region==8)return FishRearCrownGuides.Point(Point(p,2));
             if(region>=3)return AccessoryPoint(p,region);
             if(region==1) {p.x*=Sample(SkinWidth,p.y).y;return p;}
             if(region==2) {
@@ -831,8 +832,9 @@ namespace DesktopFish.Editor {
         }
         public static void Apply(Mesh mesh,int[] regions) {
             var old=mesh.vertices;var mapped=new Vector3[old.Length];var normals=mesh.normals;
+            var uv=mesh.uv;var colors=mesh.colors;
             SourceBounds.Clear();
-            for(int i=0;i<old.Length;i++)if(regions[i]>=3) {
+            for(int i=0;i<old.Length;i++)if(regions[i]>=3&&regions[i]<=7) {
                 Bounds b;if(!SourceBounds.TryGetValue(regions[i],out b))b=new Bounds(old[i],Vector3.zero);
                 b.Encapsulate(old[i]);SourceBounds[regions[i]]=b;
             }
@@ -843,6 +845,13 @@ namespace DesktopFish.Editor {
                 Vector3 y=(Point(p+Vector3.up*e,region)-Point(p-Vector3.up*e,region))/(2*e);
                 Vector3 z=(Point(p+Vector3.forward*e,region)-Point(p-Vector3.forward*e,region))/(2*e);
                 Vector3 n=normals[i];normals[i]=(Vector3.Cross(y,z)*n.x+Vector3.Cross(z,x)*n.y+Vector3.Cross(x,y)*n.z).normalized;
+                if(region==8) {
+                    Vector3 target=FishRearCrownGuides.Normal(mapped[i]);
+                    if(Vector3.Dot(normals[i],target)<0)target=-target;
+                    normals[i]=Vector3.Slerp(normals[i],target,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.76f,mapped[i].y))).normalized;
+                    uv[i]=new Vector2(Mathf.Clamp01(.5f+mapped[i].x/.82f),(1152+Mathf.Clamp01((1.03f-mapped[i].y)/.96f)*511)/1664f);
+                    colors[i]=Color.Lerp(colors[i],Color.white*.97f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.65f,.75f,mapped[i].y)));
+                }
             }
             var shapes=new List<Tuple<string,float,Vector3[]>>();
             for(int s=0;s<mesh.blendShapeCount;s++) {
@@ -850,7 +859,7 @@ namespace DesktopFish.Editor {
                 for(int i=0;i<old.Length;i++)delta[i]=Point(old[i]+delta[i],regions[i])-mapped[i];
                 shapes.Add(Tuple.Create(mesh.GetBlendShapeName(s),mesh.GetBlendShapeFrameWeight(s,0),delta));
             }
-            mesh.ClearBlendShapes();mesh.vertices=mapped;mesh.normals=normals;
+            mesh.ClearBlendShapes();mesh.vertices=mapped;mesh.normals=normals;mesh.uv=uv;mesh.colors=colors;
             foreach(var s in shapes)mesh.AddBlendShapeFrame(s.Item1,s.Item2,s.Item3,new Vector3[old.Length],new Vector3[old.Length]);
             mesh.RecalculateBounds();
         }

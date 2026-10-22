@@ -4,8 +4,8 @@
   "sparse_reference_controls": true,
   "triangle_budget": 20000,
   "paint_size": [1024, 1664],
-  "body_vertices": 13001,
+  "body_vertices": 12954,
   "face_vertices": 1756,
-  "triangles": 19875,
+  "triangles": 19876,
   "bones": 51
 }
