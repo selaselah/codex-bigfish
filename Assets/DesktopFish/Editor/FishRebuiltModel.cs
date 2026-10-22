@@ -1624,9 +1624,9 @@ namespace DesktopFish.Editor
                     for(int i=0;i<6;i++) {
                         float d=(u-creases[i])*width*.5f;
                         float falloff=.60f+.40f*Mathf.Sin(Mathf.PI*v);
-                        shade+=Mathf.Exp(-d*d/.000022f)*.035f*falloff;
-                        shade+=Mathf.Exp(-d*d/.0000018f)*.012f;
-                        light+=Mathf.Exp(-(d-.003f)*(d-.003f)/.000012f)*.027f*falloff;
+                        shade+=Mathf.Exp(-d*d/.000022f)*.025f*falloff;
+                        shade+=Mathf.Exp(-d*d/.0000018f)*.010f;
+                        light+=Mathf.Exp(-(d-.003f)*(d-.003f)/.000012f)*.016f*falloff;
                     }
                     float hem=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.015f,.09f,v));
                     float gathers=0;
@@ -1635,15 +1635,17 @@ namespace DesktopFish.Editor
                         gathers+=Mathf.Exp(-d*d/.00065f)*.065f*(1-Mathf.SmoothStep(0,1,v/.16f));
                     }
                     Color color=White*(.985f-shade+light-hem*.035f-gathers);color.a=1;
+                    // Preserve the measured centers; broaden the painted ovals
+                    // so their dark cores survive the actual small pet view.
                     foreach(var oval in FishBibSurfaceGuides.Buttons) {
                         Vector3 c=oval[0];float cx=FishBibSurfaceGuides.Across(c.x,y);
-                        float dx=(u-cx)*width*.5f/(oval[2].x-oval[1].x)*2;
-                        float dy=(y-c.y)/(oval[4].y-oval[3].y)*2;
+                        float dx=(u-cx)*width*.5f/(1.25f*(oval[2].x-oval[1].x))*2;
+                        float dy=(y-c.y)/(1.55f*(oval[4].y-oval[3].y))*2;
                         float r=Mathf.Sqrt(dx*dx+dy*dy);
                         float edge=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1.10f,r));
-                        Color button=Color.Lerp(Hex("25334F"),Hex("3D4F74"),Mathf.Clamp01(dy*.5f+.5f)*.48f);
+                        Color button=Color.Lerp(Hex("1F2949"),Hex("354367"),Mathf.Clamp01(dy*.5f+.5f)*.48f);
                         float glint=Mathf.Exp(-((dx+.28f)*(dx+.28f)/.12f+(dy-.35f)*(dy-.35f)/.14f));
-                        button=Color.Lerp(button,Hex("8EABC7"),glint*.32f);
+                        button=Color.Lerp(button,Hex("8EABC7"),glint*.15f);
                         color=Color.Lerp(color,button,edge);
                     }
                     color.a=1;pixels[py*PaintWidth+px]=color;
@@ -2971,24 +2973,26 @@ namespace DesktopFish.Editor
 
         static void ChestRibbon(Author a,int bone) {
             foreach(int sign in new[]{-1,1}) {
-                const int rows=8,cols=3;
-                foreach(bool front in new[]{true,false}) {
+                foreach(int piece in new[]{0,1,2}) {
+                    int rows=FishRibbonGuides.Count(sign,piece)-1,cols=piece==0?4:1;
                     int start=a.body.p.Count,triangles=a.body.tri.Count;
                     for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
-                        float t=i/(float)rows,v=j/(float)cols;
-                        Vector3 p=FishModelGuides.RibbonLoop(t,v,front);p.x*=sign;
+                        float x=FishRibbonGuides.Station(sign,piece,i),v=j/(float)cols;
+                        Vector3 p=FishRibbonGuides.Point(sign,piece,x,v);
+                        float t=Mathf.InverseLerp(FishRibbonGuides.Station(sign,0,0),FishRibbonGuides.Station(sign,0,FishRibbonGuides.Count(sign,0)-1),x);
                         float crease=Mathf.Exp(-Mathf.Pow((v-.35f)/.15f,2))*Mathf.Sin(t*Mathf.PI);
-                        Color color=Color.Lerp(Hex("2C3F80"),Hex("142650"),crease*.9f)*(front?1:.81f);color.a=1;
+                        Color color=Color.Lerp(Hex("2C3F80"),Hex("142650"),crease*.9f)*(piece==0?1:.81f);color.a=1;
                         a.body.Add(AuthorGarmentPoint(p),color,bone);
                     }
-                    Grid(a.body,start,rows,cols);if(front==(sign>0))ReverseFaces(a.body,triangles);
+                    Grid(a.body,start,rows,cols);
+                    if((sign>0)==(piece!=2))ReverseFaces(a.body,triangles);
                 }
                 // A broad painted fold is represented by a shallow strip so
                 // the index-only simplifier cannot erase its color boundary.
                 int foldStart=a.body.p.Count,foldTriangles=a.body.tri.Count;
                 for(int i=0;i<=5;i++)for(int j=0;j<=2;j++) {
                     float t=i/5f,u=Mathf.Lerp(.08f,.64f,t),width=.115f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.7f);
-                    Vector3 p=FishModelGuides.RibbonLoop(u,.43f+(j-1)*width,true);p.x*=sign;p.z+=.0012f;
+                    Vector3 p=FishRibbonGuides.Fold(sign,u,.43f+(j-1)*width);p.z+=.0012f;
                     a.body.Add(AuthorGarmentPoint(p),Hex("172650"),bone);
                 }
                 Grid(a.body,foldStart,5,2);if(sign>0)ReverseFaces(a.body,foldTriangles);

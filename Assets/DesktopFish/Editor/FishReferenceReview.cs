@@ -199,6 +199,7 @@ namespace DesktopFish.Editor
             ReviewBibSurface(baked,snapshot,camera);
             ReviewSideLaceSurface(baked,snapshot,camera);
             ReviewCollarRibbonGuides(baked,snapshot.transform);
+            ReviewRibbonVolume(baked,snapshot.transform);
             ReviewFootGuides(baked,snapshot.transform);
             ReviewHemGuides(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
@@ -1601,6 +1602,52 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/foot-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        // UV-seamed physical pieces distinguish the main folded cloth from
+        // its upper/lower returns and the overlapping hanging tails.
+        static void ReviewRibbonVolume(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var all=baked.GetTriangles(29);
+            var parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> find=null;find=i=>parents[i]==i?i:parents[i]=find(parents[i]);
+            for(int i=0;i<all.Length;i+=3){parents[find(all[i+1])]=find(all[i]);parents[find(all[i+2])]=find(all[i]);}
+            var islands=all.Distinct().GroupBy(find).Select(g=>g.ToArray()).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();var log=new System.Collections.Generic.List<string>();
+            foreach(int sign in new[]{-1,1}) {
+                Func<int[],bool> side=g=>g.Average(i=>points[i].x)*sign>0;
+                var main=islands.Where(side).Where(g=>g.Length>20&&g.Max(i=>points[i].x)-g.Min(i=>points[i].x)>.04f).Single();
+                var upper=islands.Where(side).Where(g=>g.Max(i=>points[i].x)-g.Min(i=>points[i].x)>.04f&&g.Min(i=>points[i].y)>.359f).Single();
+                var lower=islands.Where(side).Where(g=>g.Length<=12&&g.Max(i=>points[i].x)-g.Min(i=>points[i].x)>.04f&&g.Max(i=>points[i].y)<.354f).Single();
+                Func<int[],int[]> faces=g=>{var ids=new System.Collections.Generic.HashSet<int>(g);return Enumerable.Range(0,all.Length/3).Where(k=>ids.Contains(all[k*3])).SelectMany(k=>new[]{all[k*3],all[k*3+1],all[k*3+2]}).ToArray();};
+                var mainFaces=faces(main);
+                foreach(string piece in new[]{"main","upper","lower"}) {
+                    var group=piece=="main"?main:piece=="upper"?upper:lower;var selected=faces(group);
+                    float tipX=group.Max(i=>points[i].x*sign),mainTip=main.Max(i=>points[i].x*sign),lowerTip=lower.Max(i=>points[i].x*sign);
+                    var visibleMain=main.Where(i=>GuideTexture(29).GetPixelBilinear(baked.uv[i].x,baked.uv[i].y).a>=.5f).ToArray();
+                    var corner=visibleMain.OrderBy(i=>points[i].y).First();float cornerX=points[corner].x*sign;
+                    var stations=new[]{.003f,.008f,.015f,.025f,.035f,cornerX-.0000002f,lowerTip-.000001f,.050f,mainTip-.000001f}.Where(x=>x<tipX+.0000001f).Distinct().OrderBy(x=>x).ToArray();
+                    log.Add(sign+"/"+piece+" lower-main-corner="+points[corner].ToString("F7"));
+                    foreach(float x in stations) {
+                        var cuts=VisibleSection(points,baked.uv,selected,Vector3.right,x*sign,29,maxStep:.00006f);
+                        if(cuts.Count==0)throw new InvalidOperationException("Missing ribbon section "+piece+" x="+x);
+                        if(piece=="main") {
+                            float low=cuts.Min(p=>p.y),high=cuts.Max(p=>p.y);
+                            for(int col=0;col<=4;col++) {
+                                float y=Mathf.Lerp(low,high,col/4f),nearest=cuts.Min(p=>Mathf.Abs(p.y-y));
+                                var p=cuts.Where(p=>Mathf.Abs(p.y-y)<=nearest+.00006f).OrderByDescending(p=>p.z).First();p.y=y;
+                                samples.Add(new Landmark{name=sign+"/main/"+x.ToString("F7",System.Globalization.CultureInfo.InvariantCulture)+"/"+col,position=p});
+                            }
+                        } else {
+                            var seam=VisibleSection(points,baked.uv,mainFaces,Vector3.right,x*sign,29,maxStep:.00006f);
+                            var edge=piece=="upper"?seam.OrderByDescending(p=>p.y).First():seam.OrderBy(p=>p.y).First();
+                            var far=cuts.OrderByDescending(p=>(p-edge).sqrMagnitude).First();
+                            samples.Add(new Landmark{name=sign+"/"+piece+"/"+x.ToString("F7",System.Globalization.CultureInfo.InvariantCulture)+"/far",position=far});
+                        }
+                    }
+                    log.Add(sign+"/"+piece+" source-piece-points="+group.Length+" measured-rows="+stations.Length+" last-X="+stations.Last().ToString("F7"));
+                }
+            }
+            File.WriteAllText("work/reference-review/ribbon-volume-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllLines("work/reference-review/ribbon-volume-sections.txt",log);
         }
 
         static void ReviewCollarRibbonGuides(Mesh baked,Transform snapshot) {

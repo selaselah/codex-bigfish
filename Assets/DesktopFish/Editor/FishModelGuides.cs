@@ -379,28 +379,6 @@ namespace DesktopFish.Editor {
             return Vector3.Lerp(front,new Vector3(g.y,front.y,g.z),blend);
         }
 
-        static readonly Vector3[][] RibbonLoopFront={
-            new[]{new Vector3(0.004000f,0.512823f,0.057726f),new Vector3(0.004000f,0.514248f,0.056451f),new Vector3(0.004000f,0.515674f,0.056124f),new Vector3(0.004000f,0.517099f,0.054769f),new Vector3(0.004000f,0.518524f,0.051673f)},
-            new[]{new Vector3(0.010000f,0.507530f,0.060701f),new Vector3(0.010000f,0.511602f,0.057059f),new Vector3(0.010000f,0.515674f,0.056124f),new Vector3(0.010000f,0.519745f,0.052254f),new Vector3(0.010000f,0.523817f,0.043408f)},
-            new[]{new Vector3(0.018750f,0.503118f,0.066506f),new Vector3(0.018750f,0.508618f,0.062550f),new Vector3(0.018750f,0.514117f,0.055849f),new Vector3(0.018750f,0.519617f,0.051567f),new Vector3(0.018750f,0.525116f,0.041587f)},
-            new[]{new Vector3(0.031250f,0.499725f,0.073287f),new Vector3(0.031250f,0.506821f,0.066769f),new Vector3(0.031250f,0.513917f,0.059328f),new Vector3(0.031250f,0.521013f,0.054114f),new Vector3(0.031250f,0.528109f,0.041579f)},
-            new[]{new Vector3(0.043750f,0.498800f,0.075957f),new Vector3(0.043750f,0.506638f,0.068802f),new Vector3(0.043750f,0.514477f,0.059797f),new Vector3(0.043750f,0.522316f,0.055563f),new Vector3(0.043750f,0.530155f,0.041490f)},
-            new[]{new Vector3(0.056250f,0.495226f,0.071197f),new Vector3(0.056250f,0.503912f,0.069626f),new Vector3(0.056250f,0.512597f,0.061714f),new Vector3(0.056250f,0.521282f,0.054302f),new Vector3(0.056250f,0.529967f,0.041477f)},
-            new[]{new Vector3(0.063750f,0.516757f,0.049178f),new Vector3(0.063750f,0.519717f,0.048558f),new Vector3(0.063750f,0.522676f,0.047882f),new Vector3(0.063750f,0.525636f,0.045243f),new Vector3(0.063750f,0.528595f,0.040389f)},
-            new[]{new Vector3(0.065625f,0.522280f,0.043688f),new Vector3(0.065625f,0.523563f,0.042962f),new Vector3(0.065625f,0.524847f,0.041947f),new Vector3(0.065625f,0.526131f,0.040786f),new Vector3(0.065625f,0.527415f,0.039500f)},
-            new[]{new Vector3(0.066200f,0.524719f,0.042034f),new Vector3(0.066200f,0.524783f,0.041997f),new Vector3(0.066200f,0.524847f,0.041947f),new Vector3(0.066200f,0.524911f,0.041889f),new Vector3(0.066200f,0.524976f,0.041824f)},
-        };
-        static readonly Vector3[][] RibbonLoopBack={
-            new[]{new Vector3(0.004000f,0.511449f,0.049199f),new Vector3(0.004000f,0.513052f,0.046974f),new Vector3(0.004000f,0.514656f,0.044999f),new Vector3(0.004000f,0.516259f,0.043341f),new Vector3(0.004000f,0.517862f,0.043614f)},
-            new[]{new Vector3(0.010000f,0.505494f,0.056998f),new Vector3(0.010000f,0.510075f,0.050643f),new Vector3(0.010000f,0.514656f,0.044999f),new Vector3(0.010000f,0.519236f,0.040263f),new Vector3(0.010000f,0.523817f,0.041043f)},
-            new[]{new Vector3(0.018750f,0.501119f,0.059872f),new Vector3(0.018750f,0.507118f,0.051735f),new Vector3(0.018750f,0.513118f,0.044046f),new Vector3(0.018750f,0.519117f,0.039167f),new Vector3(0.018750f,0.525116f,0.040870f)},
-            new[]{new Vector3(0.031250f,0.497698f,0.060773f),new Vector3(0.031250f,0.505301f,0.052101f),new Vector3(0.031250f,0.512903f,0.042984f),new Vector3(0.031250f,0.520506f,0.036084f),new Vector3(0.031250f,0.528109f,0.040517f)},
-            new[]{new Vector3(0.043750f,0.497306f,0.060250f),new Vector3(0.043750f,0.505519f,0.049830f),new Vector3(0.043750f,0.513731f,0.041678f),new Vector3(0.043750f,0.521943f,0.035142f),new Vector3(0.043750f,0.530155f,0.040864f)},
-            new[]{new Vector3(0.056250f,0.495226f,0.069907f),new Vector3(0.056250f,0.503912f,0.055669f),new Vector3(0.056250f,0.512597f,0.044705f),new Vector3(0.056250f,0.521282f,0.036851f),new Vector3(0.056250f,0.529967f,0.040806f)},
-            new[]{new Vector3(0.063750f,0.516757f,0.048381f),new Vector3(0.063750f,0.519717f,0.044182f),new Vector3(0.063750f,0.522676f,0.040660f),new Vector3(0.063750f,0.525636f,0.037231f),new Vector3(0.063750f,0.528595f,0.039644f)},
-            new[]{new Vector3(0.065625f,0.522280f,0.043398f),new Vector3(0.065625f,0.523563f,0.041857f),new Vector3(0.065625f,0.524847f,0.040255f),new Vector3(0.065625f,0.526131f,0.038882f),new Vector3(0.065625f,0.527415f,0.038636f)},
-            new[]{new Vector3(0.066200f,0.524719f,0.040412f),new Vector3(0.066200f,0.524783f,0.040335f),new Vector3(0.066200f,0.524847f,0.040255f),new Vector3(0.066200f,0.524911f,0.040186f),new Vector3(0.066200f,0.524976f,0.040174f)},
-        };
         static readonly Vector3[][] RibbonTailRows={
             new[]{new Vector3(0.005248f,0.475000f,0.086062f),new Vector3(0.006481f,0.475000f,0.086237f),new Vector3(0.007714f,0.475000f,0.086446f),new Vector3(0.008947f,0.475000f,0.086655f),new Vector3(0.010179f,0.475000f,0.086865f)},
             new[]{new Vector3(0.005386f,0.480000f,0.081941f),new Vector3(0.012632f,0.480000f,0.083115f),new Vector3(0.019878f,0.480000f,0.083734f),new Vector3(0.027123f,0.480000f,0.081425f),new Vector3(0.034369f,0.480000f,0.078682f)},
@@ -430,7 +408,6 @@ namespace DesktopFish.Editor {
             Vector3 a=Vector3.Lerp(rows[i][j],rows[i][j+1],f-j),b=Vector3.Lerp(rows[i+1][j],rows[i+1][j+1],f-j);
             return Vector3.Lerp(a,b,u);
         }
-        public static Vector3 RibbonLoop(float t,float v,bool front) => SectionPatch(front?RibbonLoopFront:RibbonLoopBack,t,v);
         public static Vector3 CollarFold(float t,float v) => SectionPatch(CollarRows,t,v);
         public static Vector3 RibbonTail(float t,float v) {
             float y=Mathf.Lerp(RibbonTailRows[0][0].y,RibbonTailRows[RibbonTailRows.Length-1][0].y,t);int i=0;
