@@ -2762,15 +2762,31 @@ namespace DesktopFish.Editor
             // Separate open outer and inner shells retain the pale lining seen
             // through the lower front opening, instead of painting a solid oval.
             foreach(bool inner in new[]{false,true}) {
-                int rows=inner?6:9,cols=inner?4:6;
+                // Spend transverse samples on the visible rolled lip. The final
+                // index-only reduction still enforces the complete 20k budget.
+                int rows=inner?6:9,cols=inner?6:12;
                 int start=a.body.p.Count,triangles=a.body.tri.Count;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
                     float t=row/(float)rows,v=col/(float)cols;
                     Vector3 p=FishModelGuides.FinShell(sign,inner,t,row==rows?0:v);
-                    float sheen=Mathf.Exp(-Mathf.Pow((t-.56f)/.32f,2)-Mathf.Pow((v-.28f)/.26f,2));
+                    // A narrow painted fold follows the front lip, not the whole oval.
+                    float sheen=Mathf.Exp(-Mathf.Pow((t-.53f)/.36f,2)-Mathf.Pow((v-.20f)/.13f,2));
                     Color color=inner?Color.Lerp(Hex("AFB9DE"),Hex("E3E5F8"),Mathf.Sin(v*Mathf.PI)):
-                        Color.Lerp(Hex("2E437C"),Hex("627AB2"),sheen*.58f);
-                    a.body.Add(AuthorPoint(p),color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.70f)/.30f)));
+                        Color.Lerp(Hex("333F88"),Hex("B7BFEB"),sheen*.90f);
+                    Vector3 author=AuthorPoint(p);
+                    int vertex=a.body.Add(author,color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.70f)/.30f)));
+                    // Evaluate the smooth guide tangent before polygon reduction.
+                    // The collapsed tip keeps its mesh-derived normal.
+                    if(row<rows) {
+                        Vector3 along=FishModelGuides.FinShell(sign,inner,Mathf.Min(1,t+.001f),v)-FishModelGuides.FinShell(sign,inner,Mathf.Max(0,t-.001f),v);
+                        Vector3 across=FishModelGuides.FinShell(sign,inner,t,Mathf.Min(1,v+.001f))-FishModelGuides.FinShell(sign,inner,t,Mathf.Max(0,v-.001f));
+                        Vector3 normal=Vector3.Cross(across.normalized,along.normalized).normalized;
+                        if((sign>0)!=inner)normal=-normal;
+                        if(normal.sqrMagnitude>.5f) {
+                            float derivative;FitHeight(author.y,out derivative);normal.y*=derivative;
+                            a.body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,.90f);
+                        }
+                    }
                 }
                 Grid(a.body,start,rows,cols);
                 if((sign>0)!=inner)ReverseFaces(a.body,triangles);

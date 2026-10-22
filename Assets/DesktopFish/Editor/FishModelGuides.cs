@@ -762,17 +762,31 @@ namespace DesktopFish.Editor {
                 new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),
             },
         };
+        // Monotone Hermite segments retain each measured extremum without
+        // the flat spots introduced by clamping a Catmull-Rom overshoot.
+        static Vector3 FinCurve(Vector3 p0,Vector3 a,Vector3 b,Vector3 p3,float t) {
+            Vector3 result=Vector3.zero;
+            for(int k=0;k<3;k++) {
+                float before=a[k]-p0[k],delta=b[k]-a[k],after=p3[k]-b[k];
+                float m0=before*delta>0?2*before*delta/(before+delta):0;
+                float m1=after*delta>0?2*after*delta/(after+delta):0;
+                if(p0==a)m0=delta;if(p3==b)m1=delta;
+                result[k]=(2*t*t*t-3*t*t+1)*a[k]+(t*t*t-2*t*t+t)*m0+
+                    (-2*t*t*t+3*t*t)*b[k]+(t*t*t-t*t)*m1;
+            }
+            return result;
+        }
         public static Vector3 FinShell(int sign,bool inner,float t,float v) {
             var rows=FinShellRows[(sign>0?0:2)+(inner?1:0)];int count=rows.Length/7;
             float f=t*(count-1);int row=Mathf.Min(count-2,(int)f);float u=f-row;
             Func<int,Vector3> section=col=>{
                 Vector3 p0=rows[Mathf.Max(0,row-1)*7+col],p1=rows[row*7+col],p2=rows[(row+1)*7+col],p3=rows[Mathf.Min(count-1,row+2)*7+col];
-                Vector3 p=.5f*((2*p1)+(-p0+p2)*u+(2*p0-5*p1+4*p2-p3)*u*u+(-p0+3*p1-3*p2+p3)*u*u*u);
-                for(int k=0;k<3;k++)p[k]=Mathf.Clamp(p[k],Mathf.Min(p1[k],p2[k]),Mathf.Max(p1[k],p2[k]));return p;
+                return FinCurve(p0,p1,p2,p3,u);
             };
             float across=v*6;int c=Mathf.Min(5,(int)across);Vector3 a=section(c),b=section(c+1);
-            if((a-b).sqrMagnitude<.0002f*.0002f)b=a;
-            return Vector3.Lerp(a,b,across-c);
+            if((a-b).sqrMagnitude<.0002f*.0002f)return a;
+            Vector3 p0=section(Mathf.Max(0,c-1)),p3=section(Mathf.Min(6,c+2));float w=across-c;
+            return FinCurve(p0,a,b,p3,w);
         }
 
         static readonly Dictionary<int,Bounds> SourceBounds=new Dictionary<int,Bounds>();
