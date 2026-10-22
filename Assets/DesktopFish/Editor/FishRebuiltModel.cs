@@ -531,6 +531,36 @@ namespace DesktopFish.Editor
                 Grid(body,start,stations.Length-1,cols);
                 body.region=region;
             }
+            public void GuidedSideCurl(int panel,int bone,int head) {
+                int start=body.p.Count,region=body.region;body.region=0;const int sides=8;
+                var ys=FishSideCurlGuides.Stations(panel);
+                // The measured upper tip belongs under a different scalp mass.
+                // Embed only the hidden attachment into the rebuilt crown.
+                Func<float,float,Vector3> surface=(height,around)=>{
+                    Vector3 p=FishSideCurlGuides.Surface(panel,height,around);
+                    float embed=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.94f,p.y));
+                    p.x*=1-.10f*embed;p.y-=.014f*embed;p.z-=.008f*embed;return p;
+                };
+                for(int row=0;row<ys.Length;row++)for(int col=0;col<=sides;col++) {
+                    float u=col/(float)sides,y=ys[row];Vector3 final=surface(y,u),author=AuthorPoint(final);
+                    float headWeight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                    int vertex=body.Add(author,Color.white*.97f,bone,RearPaintFinalUV(final),head,headWeight);
+                    if(row==0||row==ys.Length-1) {
+                        float neighbor=ys[row==0?1:ys.Length-2];Vector3 center=Vector3.zero;
+                        for(int j=0;j<8;j++)center+=AuthorPoint(surface(neighbor,j/8f))/8;
+                        Vector3 n=(author-center).normalized;
+                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
+                    } else {
+                        Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
+                        Vector3 across=AuthorPoint(surface(y,u+.001f))-AuthorPoint(surface(y,u-.001f));
+                        Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
+                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                    }
+                }
+                Grid(body,start,ys.Length-1,sides);
+                for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+                body.region=region;
+            }
             public void HairMantle(int head) {
                 const int rows=14,cols=40;
                 // Concentrate the unchanged station budget near the crown arc.
@@ -2017,13 +2047,7 @@ namespace DesktopFish.Editor
                 // An outer lower curl and a higher folded ribbon describe
                 // different silhouettes. Their depth follows the back curtain,
                 // instead of putting three parallel wisps in front of the shoulder.
-                a.HairPanel(new[]{V(sign*.180f,.90f,-.055f),V(sign*.230f,.86f,-.075f),
-                    V(sign*.240f,.73f,-.075f),V(sign*.240f,.655f,-.075f),
-                    V(sign*.240f,.58f,-.080f),V(sign*.240f,.50f,-.090f),V(sign*.290f,.410f,-.135f),
-                    V(sign*.310f,.350f,-.145f),V(sign*.374f,.253f,-.215f),V(sign*.350f,.220f,-.230f),
-                    V(sign*.326f,.187f,-.245f),V(sign*.280f,.185f,-.225f),V(sign*.255f,.175f,-.215f)},
-                    .028f,bone,true,2,rootScale:1.30f,sideTurn:sign*50,rootTurn:sign*55,fullness:.85f,
-                    tipStart:.78f,tipPower:.65f,paintStart:.25f,surfaceThickness:true);
+                a.GuidedSideCurl(sign<0?0:1,bone,head);
                 a.HairPanel(new[]{V(sign*.170f,.90f,-.033f),V(sign*.230f,.84f,-.040f),
                     V(sign*.235f,.73f,-.045f),V(sign*.260f,.655f,-.060f),
                     V(sign*.275f,.590f,-.080f),V(sign*.330f,.560f,-.110f),V(sign*.340f,.525f,-.130f),

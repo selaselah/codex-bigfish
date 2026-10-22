@@ -381,6 +381,7 @@ namespace DesktopFish.Editor
             var chestTips=new System.Collections.Generic.List<Landmark>();
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
+            var curlFaces=new System.Collections.Generic.Dictionary<int,int[]>();
             var innerTips=new System.Collections.Generic.List<Landmark>();
             var rearPanels=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,31,32,37}) {
@@ -466,6 +467,11 @@ namespace DesktopFish.Editor
                             }
                         }
                         frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
+                    }
+                    if(slot==15&&(index-1==8||index-1==11)) {
+                        var members=new System.Collections.Generic.HashSet<int>(group);
+                        curlFaces[index-1]=Enumerable.Range(0,triangles.Length/3).Where(i=>members.Contains(triangles[i*3]))
+                            .SelectMany(i=>new[]{triangles[i*3],triangles[i*3+1],triangles[i*3+2]}).ToArray();
                     }
                     if(slot==15&&(index==1||index==2)) {
                         var members=new System.Collections.Generic.HashSet<int>(group);
@@ -711,6 +717,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
+            ReviewOuterCurlGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
@@ -726,6 +733,37 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
+        static void ReviewOuterCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
+            foreach(int component in new[]{8,11}) {
+                var triangles=faces[component];
+                var visible=triangles.Distinct().Where(i=>texture.GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f).ToArray();
+                Vector3 tip=visible.Select(i=>points[i]).OrderBy(p=>p.y).First();
+                Vector3 root=visible.Select(i=>points[i]).OrderByDescending(p=>p.y).First();
+                samples.Add(new Landmark{name="curl-"+component+"-root",position=root});
+                foreach(float y in new[]{.725f,.715f,.69f,.65f,.60f,.55f,.50f,.45f,.40f,.35f,.30f,.27f,.24f,.21f,.18f,.15f,.12f,tip.y+.003f}
+                    .Where(y=>y>tip.y+.001f&&y<root.y-.001f).Distinct().OrderByDescending(y=>y)) {
+                    var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0004f);
+                    if(cuts.Count<2)continue;
+                    Vector3 center=Vector3.zero;foreach(var q in cuts)center+=q/cuts.Count;
+                    float xx=0,zz=0,xz=0;foreach(var q in cuts){var d=q-center;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
+                    float angle=.5f*Mathf.Atan2(2*xz,xx-zz);Vector3 axis=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
+                    Vector3 normal=new Vector3(axis.z,0,-axis.x);
+                    if(Vector3.Dot(normal,new Vector3(center.x,0,center.z))<0){axis=-axis;normal=-normal;}
+                    float lo=cuts.Min(q=>Vector3.Dot(q-center,axis)),hi=cuts.Max(q=>Vector3.Dot(q-center,axis));
+                    for(int col=0;col<8;col++) {
+                        int quarter=col<=4?col:8-col;float d=Mathf.Lerp(lo,hi,quarter/4f);
+                        float nearest=cuts.Min(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d));
+                        var band=cuts.Where(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d)<=nearest+.0002f);
+                        float depth=col<=4?band.Max(q=>Vector3.Dot(q-center,normal)):band.Min(q=>Vector3.Dot(q-center,normal));
+                        samples.Add(new Landmark{name="curl-"+component+"-ring-"+col,position=center+axis*d+normal*depth});
+                    }
+                }
+                samples.Add(new Landmark{name="curl-"+component+"-tip",position=tip});
+            }
+            File.WriteAllText("work/reference-review/outer-curl-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
         // Sparse color-boundary heights, not copied reference pixels or UVs.
         static void ReviewRearPaint(Mesh baked,Transform snapshot) {
             var p=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
