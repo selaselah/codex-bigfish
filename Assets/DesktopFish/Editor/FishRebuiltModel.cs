@@ -723,18 +723,76 @@ namespace DesktopFish.Editor
                 }
                 body.region=oldRegion;
             }
+            public void GuidedSplitInner(int head) {
+                int oldRegion=body.region;body.region=0;
+                float cut=FishInnerRearForkGuides.Cut;
+                Func<float,float,Vector3> surface=(y,u)=>{
+                    Vector3 old=FishRearHairGuides.Surface(5,y,u);
+                    if(y<.51f)old=Vector3.Lerp(old,FishInnerRearForkGuides.Surface(0,y,u),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.51f,.49f,y)));
+                    return FishRearCrownGuides.Point(old);
+                };
+                Func<Vector3,int> add=p=>body.Add(AuthorPoint(p),Color.white*.94f,head,RearPaintFinalUV(p));
+                const int columns=4;
+                float[] us={0,cut*.5f,cut,(1+cut)*.5f,1};
+                float[] ys=new[]{FishRearHairGuides.Top(5),.78f,.75f,.72f,.69f,.66f,.63f,.6075f,.5625f}.Concat(FishInnerRearForkGuides.Stations(0)).ToArray();
+                int start=body.p.Count;
+                for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++)add(surface(ys[row],us[col]));
+                Grid(body,start,ys.Length-1,columns);
+                int shared=start+(ys.Length-1)*(columns+1);
+                for(int branch=0;branch<2;branch++) {
+                    var rows=FishInnerRearForkGuides.Stations(branch+1);
+                    int[] previous=Enumerable.Range(0,3).Select(c=>shared+branch*2+c).ToArray();
+                    for(int row=0;row<rows.Length;row++) {
+                        var current=new int[5];float y=rows[row];
+                        for(int col=0;col<5;col++) {
+                            float u=col/4f;Vector3 final=FishInnerRearForkGuides.Surface(branch+1,y,u);int vertex=add(final);current[col]=vertex;
+                            if(row<rows.Length-1) {
+                                Vector3 along=AuthorPoint(FishInnerRearForkGuides.Surface(branch+1,y-.0002f,u))-AuthorPoint(FishInnerRearForkGuides.Surface(branch+1,y+.0002f,u));
+                                Vector3 across=AuthorPoint(FishInnerRearForkGuides.Surface(branch+1,y,Mathf.Min(1,u+.001f)))-AuthorPoint(FishInnerRearForkGuides.Surface(branch+1,y,Mathf.Max(0,u-.001f)));
+                                Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
+                                if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                            }
+                        }
+                        // Zip the actual two-segment common edge to four lower
+                        // segments. Both branches share the same trunk vertices.
+                        int upper=0,lower=0,segments=previous.Length-1;
+                        while(upper<segments||lower<4) {
+                            if(upper<segments&&(lower==4||(upper+1)/(float)segments<=(lower+1)/4f)) {
+                                body.Face(previous[upper],previous[upper+1],current[lower]);upper++;
+                            } else {body.Face(previous[upper],current[lower+1],current[lower]);lower++;}
+                        }
+                        previous=current;
+                    }
+                }
+                body.region=oldRegion;
+            }
             public void GuidedRearPanel(int panel,int head,bool fork=false) {
+                if(!fork&&panel==5){GuidedSplitInner(head);return;}
                 int start=body.p.Count,region=body.region;body.region=0;
                 float[] stations=fork?FishRearForkGuides.Stations(panel):FishRearHairGuides.Stations(panel);
-                bool sideUnderlay=!fork&&(panel==5||panel==10);
+                bool sideUnderlay=!fork&&(panel==5||panel==10),inner=!fork&&panel>=6&&panel<=10;
+                Func<float,float,Vector3> surface=(y,u)=>{
+                    Vector3 old=FishRearHairGuides.Surface(panel,y,u);
+                    if(!inner||y>=.42f)return old;
+                    return Vector3.Lerp(old,FishInnerRearGuides.Surface(panel-6,y,u),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.42f,.395f,y)));
+                };
+
                 if(sideUnderlay)stations=new[]{FishRearHairGuides.Top(panel),.78f,.75f,.72f,.69f,.66f,.63f}.Concat(stations.Where(y=>y<.63f)).ToArray();
-                int cols=fork?FishRearForkGuides.Columns(panel):sideUnderlay?4:2;
+                if(inner)stations=stations.Where(y=>y>.42001f).Concat(FishInnerRearGuides.Stations(panel-6)).ToArray();
+                int cols=fork?FishRearForkGuides.Columns(panel):sideUnderlay||inner?4:2;
                 int bone=fork?ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"]:head;
                 for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
-                    Vector3 final=fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):FishRearHairGuides.Surface(panel,stations[row],col/(float)cols);
+                    Vector3 final=fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):surface(stations[row],col/(float)cols);
                     if(sideUnderlay)final=FishRearCrownGuides.Point(final);
                     Vector3 p=AuthorPoint(final);float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                     int vertex=body.Add(p,Color.white*(!fork?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
+                    if(inner&&stations[row]<.42f&&row>0&&row<stations.Length-1) {
+                        float y=stations[row],u=col/(float)cols;
+                        Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
+                        Vector3 across=AuthorPoint(surface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(surface(y,Mathf.Max(0,u-.001f)));
+                        Vector3 normal=Vector3.Cross(across.normalized,along.normalized).normalized;
+                        if(normal.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,.88f);
+                    }
 
                 }
                 Grid(body,start,stations.Length-1,cols);body.region=region;
@@ -1641,6 +1699,7 @@ namespace DesktopFish.Editor
         public static void RenderIdleLaceStudy() { RenderAngles(false,false,false,false,true); }
         public static void RenderIdleFrontStudy() { RenderAngles(false,false,false,false,false,true); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
+        public static void RenderIdleRearLayerStudy() { RenderAngles(false,false,false,false,false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
@@ -1800,7 +1859,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -1877,6 +1936,33 @@ namespace DesktopFish.Editor
                     RenderHeadStudy(camera,"work/rebuilt-front-"+(mode==0?"clay":"paint-flat"),1,Vector3.zero);UnityEngine.Object.DestroyImmediate(mat);
                 }
                 renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(only);
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            }
+            if(includeRearLayers) {
+                var bind=skins[0].sharedMesh.vertices;var uv=completeBody.uv;int[] parents=Enumerable.Range(0,bind.Length).ToArray();
+                Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+                var rearFaces=new List<int>();
+                for(int k=0;k<bodyTriangles.Length;k+=3) {
+                    bool rear=true;
+                    for(int c=0;c<3;c++) {
+                        int i=bodyTriangles[k+c];Vector3 p=bind[i];float t=Mathf.Clamp01((1.03f-p.y)/.96f);
+                        if(Mathf.Abs(uv[i].x-Mathf.Clamp01(.5f+p.x/.82f))>.00001f||Mathf.Abs(uv[i].y-(LegacyPaintHeight+t*(RearPaintHeight-1))/PaintHeight)>.00001f)rear=false;
+                    }
+                    if(!rear)continue;rearFaces.Add(k);parents[root(bodyTriangles[k+1])]=root(bodyTriangles[k]);parents[root(bodyTriangles[k+2])]=root(bodyTriangles[k]);
+                }
+                foreach(var group in rearFaces.GroupBy(k=>root(bodyTriangles[k]))) {
+                    var indices=group.SelectMany(k=>new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]}).ToArray();
+                    float top=indices.Max(i=>bind[i].y),bottom=indices.Min(i=>bind[i].y);
+                    if(top<.80f||top>.84f||bottom>.20f)continue;
+                    int component=indices.Average(i=>bind[i].x)<0?0:5;
+                    var only=UnityEngine.Object.Instantiate(completeBody);only.triangles=indices;
+                    only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();bodySnapshot.sharedMesh=only;
+                    foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                    var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
+                    var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=Texture2D.whiteTexture;material.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=material;
+                    RenderBodyStudy(camera,"work/rebuilt-inner-clay-"+component,1,Vector3.zero);
+                    renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(only);
+                }
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             }
             if(includeLaceReview) {

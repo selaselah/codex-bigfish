@@ -643,12 +643,24 @@ namespace DesktopFish.Editor
                         filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
                     if(slot==16) {
-                        int component=index-1;string prefix="component-"+component;
+                        int component=index-1;
+                        string prefix="component-"+component;
                         innerTips.Add(new Landmark{name=prefix+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
                         var membership=new System.Collections.Generic.HashSet<int>(group);
                         var selected=new System.Collections.Generic.List<int>();
                         for(int i=0;i<triangles.Length;i+=3)if(membership.Contains(triangles[i]))
                             selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                        if(component>=0&&component<=5) {
+                            ReviewInnerRearGuides(points,baked.uv,selected.ToArray(),component);
+                            var clayFilter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var mats=renderer.sharedMaterials;
+                            var clay=UnityEngine.Object.Instantiate(baked);
+                            for(int sub=0;sub<clay.subMeshCount;sub++)clay.SetTriangles(sub==16?selected.ToArray():Array.Empty<int>(),sub,false);
+                            clay.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),clay.vertexCount).ToArray();
+                            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=Texture2D.whiteTexture;material.SetFloat("_OutlineWidth",0);
+                            clayFilter.sharedMesh=clay;renderer.sharedMaterials=Enumerable.Repeat(material,mats.Length).ToArray();
+                            FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/inner-clay-"+component,.8f,new Vector3(0,-.056f,0));
+                            clayFilter.sharedMesh=baked;renderer.sharedMaterials=mats;UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(clay);
+                        }
                         foreach(float y in new[]{.075f,.10f,.13f,.18f,.24f,.30f,.40f}) {
                             var cuts=new System.Collections.Generic.List<Vector3>();
                             for(int i=0;i<selected.Count;i+=3)for(int j=0;j<3;j++) {
@@ -989,6 +1001,59 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/lower-rear-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewInnerRearGuides(Vector3[] points,Vector2[] uv,int[] triangles,int component) {
+            const int slot=16;var used=triangles.Distinct().ToArray();float bottom=used.Min(i=>points[i].y);
+            System.Collections.Generic.List<Vector3> first=null;float tipY=bottom;
+            for(int step=1;step<=200;step++) {
+                tipY=bottom+step*.00005f;first=VisibleSection(points,uv,triangles,Vector3.up,tipY,slot,maxStep:.0001f);
+                if(first.Count>0)break;
+            }
+            if(first==null||first.Count==0)throw new InvalidOperationException("No alpha-visible inner rear tip "+component);
+            var samples=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(slot);
+            var heights=new[]{.420f,.395f,.370f,.345f,.320f,.295f,.270f,.245f,.225f,.210f,.195f,.180f,.170f,.160f}
+                .Select(y=>(y-.07f)/1.25f).Concat(new[]{tipY+.004f,tipY+.001f,tipY})
+                .Where(y=>y>=tipY).Distinct().OrderByDescending(y=>y);
+            foreach(float y in heights) {
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,slot,maxStep:.0001f);if(cuts.Count==0)continue;
+                float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
+                for(int col=0;col<5;col++) {
+                    float x=Mathf.Lerp(lo+.0000001f,hi-.0000001f,col/4f),z=float.PositiveInfinity;
+                    for(int k=0;k<triangles.Length;k+=3) {
+                        int ai=triangles[k],bi=triangles[k+1],ci=triangles[k+2];Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a;
+                        float det=ab.x*ac.y-ab.y*ac.x;if(Mathf.Abs(det)<1e-12f)continue;
+                        float dx=x-a.x,dy=y-a.y,u=(dx*ac.y-dy*ac.x)/det,v=(ab.x*dy-ab.y*dx)/det;
+                        if(u<-.000001f||v<-.000001f||u+v>1.000001f)continue;
+                        Vector2 st=uv[ai]+(uv[bi]-uv[ai])*u+(uv[ci]-uv[ai])*v;if(texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        z=Mathf.Min(z,(a+ab*u+ac*v).z);
+                    }
+                    if(float.IsInfinity(z)){float nearest=cuts.Min(q=>Mathf.Abs(q.x-x));z=cuts.Where(q=>Mathf.Abs(q.x-x)<=nearest+.0001f).Min(q=>q.z);}
+                    samples.Add(new Landmark{name="inner-"+component+"-col-"+col,position=new Vector3(x,y,z)});
+                }
+            }
+            File.WriteAllText("work/reference-review/inner-rear-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            if(component==0) {
+                var fork=new System.Collections.Generic.List<Landmark>();
+                for(int row=0;row<=330;row++) {
+                    float registered=row<=124?.82f-row*.005f:.195f-(row-125)*.00025f;
+                    float y=(registered-.07f)/1.25f;if(y<tipY)break;
+                    var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,slot,maxStep:.00008f).OrderBy(q=>q.x).ToArray();
+                    var bands=new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
+                    foreach(var q in cuts){if(bands.Count==0||q.x-bands.Last().Last().x>.0002f)bands.Add(new System.Collections.Generic.List<Vector3>());bands.Last().Add(q);}
+                    int band=0;
+                    foreach(var region in bands.Where(g=>g.Last().x-g.First().x>.00008f)) {
+                        float lo=region.First().x,hi=region.Last().x;
+                        for(int col=0;col<5;col++) {
+                            float x=Mathf.Lerp(lo,hi,col/4f),near=region.Min(q=>Mathf.Abs(q.x-x));
+                            var point=region.Where(q=>Mathf.Abs(q.x-x)<=near+.00005f).OrderBy(q=>q.z).First();point.x=x;point.y=y;
+                            fork.Add(new Landmark{name="fork-"+row+"-"+band+"-"+col,position=point});
+                        }
+                        band++;
+                    }
+                }
+                File.WriteAllText("work/reference-review/inner-rear-0-fork-scan.json",JsonUtility.ToJson(new FaceSectionReport{samples=fork.ToArray()},true));
+            }
         }
 
         // Sparse color-boundary heights, not copied reference pixels or UVs.
