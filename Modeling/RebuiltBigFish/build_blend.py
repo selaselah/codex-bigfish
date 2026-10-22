@@ -86,6 +86,15 @@ for index, item in enumerate(data['meshes']):
     mat.node_tree.links.new(color_node.outputs['Color'], multiply.inputs[1])
     mat.node_tree.links.new(paint.outputs['Color'], multiply.inputs[2])
     mat.node_tree.links.new(multiply.outputs[0], shader.inputs['Base Color'])
+    if not index:
+        # A binary alpha node is recognized by glTF as MASK, and matches
+        # Unity's clip in both the color and outline passes.
+        cutoff = nodes.new('ShaderNodeMath')
+        cutoff.operation = 'GREATER_THAN'
+        cutoff.inputs[1].default_value = .5
+        mat.node_tree.links.new(paint.outputs['Alpha'], cutoff.inputs[0])
+        mat.node_tree.links.new(cutoff.outputs[0], shader.inputs['Alpha'])
+        mat.surface_render_method = 'DITHERED'
     if index:
         # A color-to-surface connection is Blender's unlit material convention.
         # glTF exports it as KHR_materials_unlit, preserving vertex-color eyes
@@ -203,6 +212,12 @@ def float_vectors(accessor_id):
 
 assert len(document['meshes']) == len(data['meshes'])
 assert len(document['images']) == 1
+assert document['materials'][0]['alphaMode'] == 'MASK'
+assert abs(document['materials'][0].get('alphaCutoff', .5) - .5) < 1e-6
+assert sum(len(item['triangles']) // 3 for item in data['meshes']) <= 20000
+exported_triangles = sum(document['accessors'][primitive['indices']]['count'] // 3
+                         for mesh in document['meshes'] for primitive in mesh['primitives'])
+assert exported_triangles == sum(len(item['triangles']) // 3 for item in data['meshes'])
 assert len(document['skins'][0]['joints']) == len(data['bones'])
 blended_vertices = 0
 checked_normals = 0
@@ -221,6 +236,11 @@ for mesh in document['meshes']:
         attributes = primitive['attributes']
         assert {'COLOR_0', 'TEXCOORD_0', 'JOINTS_0', 'WEIGHTS_0', 'NORMAL'} <= attributes.keys()
         positions = float_vectors(attributes['POSITION'])
+        for position, uv in zip(positions, float_vectors(attributes['TEXCOORD_0'])):
+            candidates = indices_by_position[tuple(round(c, 6) for c in position)]
+            assert any(abs(uv[0] - source['uv'][i]['x']) < 2e-6 and
+                       abs(uv[1] - (1 - source['uv'][i]['y'])) < 2e-6
+                       for i in candidates), 'Authored GLB texture coordinates changed'
         for position, normal in zip(positions, float_vectors(attributes['NORMAL'])):
             exported_normals += 1
             assert all(math.isfinite(c) for c in normal)
@@ -267,6 +287,6 @@ assert 'KHR_materials_unlit' in document['materials'][1].get('extensions', {})
 assert blended_vertices > 0, "Smooth hair-root weights must survive the GLB export"
 assert checked_normals > .99 * exported_normals
 assert checked_morph_deltas > 0, "Facial morph targets must survive the GLB export"
-print(f'Saved and validated Blender/GLB: packed paint, UVs, vertex colors, rig, '
+print(f'Saved and validated Blender/GLB: {exported_triangles} triangles, MASK alpha, packed paint, UVs, vertex colors, rig, '
       f'{blended_vertices} blended vertices, {checked_normals}/{exported_normals} shading normals, '
       f'{checked_morph_deltas} expression deltas and neutral expressions.')

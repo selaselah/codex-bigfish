@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 namespace DesktopFish.Editor
 {
     // All vertices, colors, binding positions and expression deltas originate here.
-    // This generator does not load, sample, retopologize or trace a source 3D asset.
+    // Sparse measured control guides constrain the surfaces; no source mesh topology is loaded.
     public static class FishRebuiltModel
     {
         const string Folder = "Assets/DesktopFish/Rebuilt";
@@ -17,6 +17,8 @@ namespace DesktopFish.Editor
             Navy = Hex("252E5D"), White = Hex("FFFCF3"), Gold = Hex("E2C47D"), Ink = Hex("233150");
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out Color c); return c; }
         static Vector3 V(float x, float y, float z) => new Vector3(x, y, z);
+        [Serializable] sealed class PartBudget {public string name;public int triangles;}
+        [Serializable] sealed class BudgetDump {public string partCountStage="authored, before compaction and reduction";public int limit=20000,total;public PartBudget[] parts;}
         [Serializable] sealed class BoneDump { public string name; public int parent; public Vector3 position; }
         [Serializable] sealed class ShapeDump { public string name; public Vector3[] deltas; }
         [Serializable] sealed class MeshDump {
@@ -38,6 +40,8 @@ namespace DesktopFish.Editor
         sealed class Geo
         {
             public readonly List<Vector3> p = new List<Vector3>();
+            public int region;
+            public readonly List<int> regions=new List<int>();
             public readonly List<Color> colors = new List<Color>();
             public readonly List<Vector2> uv = new List<Vector2>();
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
@@ -46,7 +50,10 @@ namespace DesktopFish.Editor
             public readonly List<Vector2Int> smoothNormalPairs = new List<Vector2Int>();
             public readonly Dictionary<int,List<int>> splitNormalCorners = new Dictionary<int,List<int>>();
             public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
-                p.Add(v); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
+                // Cloth shading scales RGB only. Cutout coverage belongs to the
+                // atlas, so glTF vertex alpha must not shrink the lace edge.
+                color.a=1;
+                p.Add(v);regions.Add(region); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
                 weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
                     boneIndex1 = secondaryBone < 0 ? bone : secondaryBone, weight1 = secondaryWeight });
                 return p.Count - 1;
@@ -57,14 +64,14 @@ namespace DesktopFish.Editor
                 // been authored, so existing vertex indices and skinning stay stable.
                 foreach(var edge in splitNormalCorners.OrderBy(e=>e.Key)) {
                     int source=edge.Key,target=p.Count;
-                    p.Add(p[source]);colors.Add(colors[source]);uv.Add(uv[source]);weights.Add(weights[source]);
+                    p.Add(p[source]);regions.Add(regions[source]);colors.Add(colors[source]);uv.Add(uv[source]);weights.Add(weights[source]);
                     foreach(int corner in edge.Value)tri[corner]=target;
                 }
                 if (p.Any(v => float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
                     float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z)))
                     throw new InvalidOperationException("Non-finite authored mesh vertex: " + name);
                 var mesh = new Mesh { name = name, indexFormat = p.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
-                mesh.SetVertices(p); mesh.SetColors(colors); mesh.SetUVs(0,uv); mesh.SetTriangles(tri, 0);
+                mesh.SetVertices(p); mesh.SetColors(colors); mesh.SetUVs(0,uv.Select(v=>new Vector2(v.x,(v.y*1024+128)/1152)).ToList()); mesh.SetTriangles(tri, 0);
                 mesh.boneWeights = weights.ToArray();
                 mesh.bindposes = bones.Select(b => b.worldToLocalMatrix * root.localToWorldMatrix).ToArray();
                 mesh.RecalculateNormals();
@@ -134,6 +141,9 @@ namespace DesktopFish.Editor
             public readonly List<Transform> bones = new List<Transform>();
             public readonly Dictionary<string, int> ids = new Dictionary<string, int>();
             public readonly Geo body = new Geo(), face = new Geo();
+            public readonly List<PartBudget> budgets=new List<PartBudget>();
+            int lastTriangle;
+            public void Mark(string name){budgets.Add(new PartBudget{name=name,triangles=(body.tri.Count-lastTriangle)/3});lastTriangle=body.tri.Count;}
             readonly List<Tuple<int, Vector3, string>> features = new List<Tuple<int, Vector3, string>>();
             readonly Dictionary<int,Vector3> closedLashes = new Dictionary<int,Vector3>();
             readonly Dictionary<int,Vector3> smilingLashes = new Dictionary<int,Vector3>();
@@ -142,7 +152,9 @@ namespace DesktopFish.Editor
                 bone.SetParent(parent < 0 ? root.transform : bones[parent], false); bone.position = position;
                 ids[name] = bones.Count; bones.Add(bone); return bones.Count - 1;
             }
-            public void Sphere(Geo g, Vector3 c, Vector3 r, Color color, int bone, int n = 16, int rows = 12) {
+            public void Sphere(Geo g, Vector3 c, Vector3 r, Color color, int bone, int n = 12, int rows = 8) {
+                if(r.y<.10f){ n=Mathf.Min(n,12);rows=Mathf.Min(rows,8); }
+                if(Mathf.Max(r.x,Mathf.Max(r.y,r.z))<.012f){n=Mathf.Min(n,8);rows=Mathf.Min(rows,4);}
                 int start = g.p.Count;
                 for (int y = 0; y <= rows; y++) for (int x = 0; x <= n; x++) {
                     float a = x * Mathf.PI * 2 / n, b = y * Mathf.PI / rows;
@@ -179,7 +191,8 @@ namespace DesktopFish.Editor
                 float tipPaintEase = 1, Vector3[] edgeA = null, Vector3[] edgeB = null, float paintOffset = 0,
                 float cheekInset = -1, float frontLift = 0, float wrapDepth = 0, Vector3[] paintGuide = null,
                 bool surfaceThickness = false, float rootTurn = 0) {
-                int start=body.p.Count; int rows=samples>0?samples:controls.Length>4?36:24;
+                int start=body.p.Count; int rows=HairRows(samples>0?samples:controls.Length>4?36:24);
+                sides=Mathf.Min(sides,8);
                 var path=Curve(controls,rows);
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
                 var boundaryB=edgeB==null?null:Curve(edgeB,rows);
@@ -419,7 +432,7 @@ namespace DesktopFish.Editor
                 }
             }
             public void HairMantle(int head) {
-                const int rows=16,cols=40;
+                const int rows=14,cols=40;
                 int[] breaks={0,8,15,20,25,32,40};
                 float[] tips={.125f,.098f,.090f,.088f,.100f,.130f};
                 for(int layer=0;layer<1;layer++) {
@@ -473,7 +486,7 @@ namespace DesktopFish.Editor
                 }
             }
             public void Disk(Geo g, Vector2 center, Vector2 size, Color color, int bone,
-                float offset, string feature = "", int steps = 40) {
+                float offset, string feature = "", int steps = 28) {
                 int start = g.p.Count;
                 // Concentric rings follow the cheek surface. A single triangle fan
                 // cuts through the curved face and needs an excessive depth offset.
@@ -527,7 +540,7 @@ namespace DesktopFish.Editor
                     features.Add(Tuple.Create(i, V(xy.Average(p => p.x), .700f, 0), feature));
             }
             public void Iris(float x,int bone) {
-                int start=face.p.Count; const int rows=8,cols=32;
+                int start=face.p.Count; const int rows=5,cols=28;
                 // One shared center and closed rings avoid repeated center/seam
                 // vertices. Thirty-two sides retain the desktop eye contour.
                 for(int row=0;row<=rows;row++)for(int j=0;j<(row==0?1:cols);j++) {
@@ -666,6 +679,9 @@ namespace DesktopFish.Editor
                 AssetDatabase.Refresh();
                 var textureImporter=(TextureImporter)AssetImporter.GetAtPath(Folder+"/HairPaint.png");
                 textureImporter.sRGBTexture=true;textureImporter.mipmapEnabled=true;
+                textureImporter.npotScale=TextureImporterNPOTScale.None;textureImporter.maxTextureSize=2048;
+                textureImporter.alphaSource=TextureImporterAlphaSource.FromInput;textureImporter.alphaIsTransparency=true;
+                textureImporter.mipMapsPreserveCoverage=true;textureImporter.alphaTestReferenceValue=.5f;
                 textureImporter.textureCompression=TextureImporterCompression.Uncompressed;
                 textureImporter.wrapMode=TextureWrapMode.Clamp;textureImporter.SaveAndReimport();
                 var paint=AssetDatabase.LoadAssetAtPath<Texture2D>(Folder+"/HairPaint.png");
@@ -676,7 +692,9 @@ namespace DesktopFish.Editor
                     var mesh = geo.Build(part == 0 ? "Authored body" : "Authored expressions", root.transform, bones.ToArray());
                     if (part == 1) { Expressions(mesh); ShapeEyes(mesh); }
                     FitProportions(mesh);
+                    FishModelGuides.Apply(mesh,geo.regions.ToArray());
                     mesh=CompactMesh(mesh);
+                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500);
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
                         var deltas = new Vector3[mesh.vertexCount];
@@ -705,15 +723,19 @@ namespace DesktopFish.Editor
                     skin.sharedMaterial = mat; skin.updateWhenOffscreen = true;
                     EditorUtility.SetDirty(mesh); EditorUtility.SetDirty(mat);
                 }
+                int totalTriangles=exports.Sum(m=>m.triangles.Length)/3;
+                if(totalTriangles>20000)throw new InvalidOperationException("Rebuilt model exceeds 20,000-triangle budget: "+totalTriangles);
                 root.AddComponent<FishRigProfile>();
                 Directory.CreateDirectory("work");
                 File.WriteAllText("work/rebuilt-geometry.json",JsonUtility.ToJson(new ModelDump {
                     bones=bones.Select(b=>new BoneDump {name=b.name,parent=bones.IndexOf(b.parent),position=b.position}).ToArray(),
                     meshes=exports.ToArray()
                 }));
+                File.WriteAllText("work/rebuilt-budget.json",JsonUtility.ToJson(new BudgetDump { total=exports.Sum(m=>m.triangles.Length)/3,
+                    parts=budgets.Concat(new[]{new PartBudget{name="face-expressions",triangles=exports[1].triangles.Length/3}}).ToArray()},true));
                 AssetDatabase.SaveAssets();
                 PrefabUtility.SaveAsPrefabAsset(root, Folder + "/BigFish.prefab");
-                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
+                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"sparse_reference_controls\": true,\n  \"triangle_budget\": 20000,\n  \"paint_size\": [1024, 1152],\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
                 return root;
             }
         }
@@ -818,6 +840,8 @@ namespace DesktopFish.Editor
             float depth = Mathf.Sqrt(Mathf.Max(.05f, 1 - sourceX * sourceX / (.214f * .214f) - (y - .773f) * (y - .773f) / (.187f * .187f)));
             var p=ShapeHeadPoint(V(sourceX,y,.166f*depth));p.x=x;p.z+=offset;return p;
         }
+        static int HairRows(int authored) => Mathf.Max(8,Mathf.CeilToInt(authored*.68f));
+
         static Vector3 Bezier(Vector3[] p, float t) => Mathf.Pow(1 - t, 3) * p[0] +
             3 * (1 - t) * (1 - t) * t * p[1] + 3 * (1 - t) * t * t * p[2] + t * t * t * p[3];
         static Vector3[] Curve(Vector3[] points, int steps) {
@@ -833,8 +857,9 @@ namespace DesktopFish.Editor
         // repeating the same highlights. The upper-right swatch stays neutral white.
         static void WriteHairPaint() {
             const int size=1024;
-            var texture=new Texture2D(size,size,TextureFormat.RGBA32,false);
-            var pixels=new Color[size*size];
+            const int laceHeight=128;
+            var texture=new Texture2D(size,size+laceHeight,TextureFormat.RGBA32,false);
+            var pixels=new Color[size*(size+laceHeight)];
             float[] brushCenters={.08f,.48f,.88f};
             float[] brushStarts={.56f,.68f,.61f};
             float[] brushWidths={.43f,.35f,.40f};
@@ -935,11 +960,31 @@ namespace DesktopFish.Editor
                 baseColor=Color.Lerp(baseColor,Hex("8BA6D5"),glints*.60f);
                 baseColor=Color.Lerp(baseColor,cyan?Hex("94DBE7"):Hex("7989BB"),fineTip*(cyan?.035f:.10f));
                 baseColor.a=1;
-                pixels[y*size+x]=(ax>.98f&&ay>.98f)?Color.white:baseColor;
+                pixels[(y+laceHeight)*size+x]=(ax>.98f&&ay>.98f)?Color.white:baseColor;
+            }
+            // Authored cutout tiles: continuous curved sheets retain volume,
+            // while rounded lace scallops are resolved in the alpha channel.
+            int[] scallops={16,20,24,12};
+            for(int y=0;y<laceHeight;y++)for(int x=0;x<size;x++) {
+                int tile=x/256;float u=(x%256-8)/239f,r=(y-16)/96f;
+                float wave=Mathf.Repeat(u*scallops[tile],1)*2-1;
+                float edge=.78f+.20f*Mathf.Sqrt(Mathf.Max(0,1-wave*wave));
+                float alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.012f,edge+.012f,r));
+                float fold=.94f+.06f*Mathf.Cos(u*scallops[tile]*Mathf.PI*2);
+                pixels[y*size+x]=new Color(fold,fold,fold,alpha);
             }
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
+        }
+        static Vector2 LaceUV(int tile,float u,float r) {
+            return new Vector2((tile*256+8+239*u)/1024f,(16+96*r-128)/1024f);
+        }
+        static Vector3 AuthorPoint(Vector3 final) {
+            float lo=-.5f,hi=1.5f;
+            for(int i=0;i<28;i++) {float mid=(lo+hi)*.5f,d;if(FitHeight(mid,out d)<final.y)lo=mid;else hi=mid;}
+            final.y=(lo+hi)*.5f;if(final.y<.585f)final.y=.585f-(.585f-final.y)/.88f;
+            return final;
         }
         static float PaintSpot(float u,float t,float x,float y,float rx,float ry,float tilt) {
             float dx=(u-x-tilt*(t-y))/rx,dy=(t-y)/ry;
@@ -962,27 +1007,30 @@ namespace DesktopFish.Editor
             int chest = a.Bone("J_Bip_C_Chest", spine, V(0, .48f, 0));
             int neck = a.Bone("J_Bip_C_Neck", chest, V(0, .55f, 0));
             int head = a.Bone("J_Bip_C_Head", neck, V(0, .773f, 0));
-            a.Sphere(a.body, V(0, .773f, 0), V(.214f, .187f, .166f), Skin, head, 48, 28);
-            for(int row=0;row<=28;row++)a.body.smoothNormalPairs.Add(new Vector2Int(row*49,row*49+48));
+            a.body.region=1;
+            a.Sphere(a.body, V(0, .773f, 0), V(.214f, .187f, .166f), Skin, head, 32, 20);
+            for(int row=0;row<=20;row++)a.body.smoothNormalPairs.Add(new Vector2Int(row*33,row*33+32));
             for(int i=0;i<a.body.p.Count;i++) {
                 Vector3 p=a.body.p[i];
                 // Exact coincident pole positions let cleanup remove the
                 // collapsed fan faces after the jaw stretches forward.
-                if(i>=28*49)p=V(0,.773f-.187f,0);
+                if(i>=20*33)p=V(0,.773f-.187f,0);
                 p=ShapeHeadPoint(p);
                 float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.126f)/.048f,2)
                     -Mathf.Pow((p.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
                 a.body.colors[i]=Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f);
                 a.body.p[i]=p;
             }
+            a.body.region=0;
             a.Sphere(a.body, V(0, .555f, 0), V(.028f, .035f, .029f), Skin, neck);
             a.Sphere(a.body, V(0, .460f, 0), V(.120f, .108f, .080f), Navy, chest);
-            BuildHair(a, head);
-            BuildFace(a, head);
-            BuildDress(a, hips, chest);
-            BuildLimbs(a, hips, chest);
-            BuildAccessories(a, head, chest, hips);
-            BuildChestForks(a);
+            a.Mark("head-and-torso");
+            a.body.region=2;BuildHair(a, head);a.body.region=0;a.Mark("hair");
+            a.face.region=1;BuildFace(a, head);
+            BuildDress(a, hips, chest);a.Mark("dress-apron-lace-gold");
+            BuildLimbs(a, hips, chest);a.Mark("limbs-hands-shoes");
+            BuildAccessories(a, head, chest, hips);a.Mark("headband-bows-fins-ribbon");
+            BuildChestForks(a);a.Mark("chest-lock-tips");
             // Shape the default upper garment as one volume. The chest share
             // of the sleeve roots follows it; bone/skin attachment data stays fixed.
             for(int i=0;i<a.body.p.Count;i++) {
@@ -1032,6 +1080,13 @@ namespace DesktopFish.Editor
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
         public static void RenderIdleSkinningAndBuild() { BuildWithSkinningReview(false); }
         public static void RenderIdleHandSkinningAndBuild() { BuildWithSkinningReview(true); }
+        public static void RenderIdleLowPolyValidationAndBuild() {
+            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion=new FishMotion(companion.model){randomActions=false};
+            FishBuild.ValidateMotion(companion,motion,companion.model.GetComponentsInChildren<SkinnedMeshRenderer>());
+            RenderAngles(false,true,false,true);Build();
+        }
         static void BuildWithSkinningReview(bool includeHands) {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
@@ -1369,7 +1424,7 @@ namespace DesktopFish.Editor
             int rearStart=a.body.p.Count;
             a.HairMantle(head);
             int mantleEnd=a.body.p.Count;
-            int start=a.body.p.Count; const int rings=14,sides=40;
+            int start=a.body.p.Count; const int rings=10,sides=28;
             for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
                 float theta=x*Mathf.PI*2/sides,front=(Mathf.Cos(theta)+1)*.5f;
                 float phi=y/(float)rings*Mathf.Lerp(2.05f,1.10f,front);
@@ -1383,7 +1438,7 @@ namespace DesktopFish.Editor
             }
             // Radial locks wrap the back of the head. Each has its own transverse
             // direction, so it retains width in a side view and curls at the hem.
-            int radialStart=a.body.p.Count;
+            int radialStart=a.body.p.Count;int radialRows=HairRows(44),radialStride=(radialRows+1)*9;
             for(int i=0;i<9;i++) {
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
                 Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
@@ -1432,7 +1487,7 @@ namespace DesktopFish.Editor
                     Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
                     float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,sectionCenter.y));
                     shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
-                    int lockIndex=(i-radialStart)/405,group=Mathf.Min(lockIndex,8-lockIndex);
+                    int lockIndex=(i-radialStart)/radialStride,group=Mathf.Min(lockIndex,8-lockIndex);
                     float side=1-group/4f;
                     float theta=Mathf.Atan2(p.x,p.z);
                     float angularSide=Mathf.Clamp01((Mathf.PI-Mathf.Abs(theta))/(Mathf.PI-1.12f));
@@ -1457,16 +1512,16 @@ namespace DesktopFish.Editor
             // Join the visible upper surfaces across lock boundaries. Closed
             // panel edges include inner faces, so their ordinary averaged mesh
             // normals make dark channels even when neighboring edges coincide.
-            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=1;row<44;row++)
+            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=1;row<radialRows;row++)
                 for(int j=0;j<=4;j++) {
-                    int index=radialStart+lockIndex*405+row*9+j;
+                    int index=radialStart+lockIndex*radialStride+row*9+j;
                     Vector3 p=a.body.p[index];
                     float join=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,p.y))*
                         (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.820f,.900f,p.y)));
                     if(join<=0)continue;
                     Vector3 along=a.body.p[index+9]-a.body.p[index-9];
-                    Vector3 minus=j>0?a.body.p[index-1]:lockIndex<8?a.body.p[index+405+3]:p;
-                    Vector3 plus=j<4?a.body.p[index+1]:lockIndex>0?a.body.p[index-405-3]:p;
+                    Vector3 minus=j>0?a.body.p[index-1]:lockIndex<8?a.body.p[index+radialStride+3]:p;
+                    Vector3 plus=j<4?a.body.p[index+1]:lockIndex>0?a.body.p[index-radialStride-3]:p;
                     Vector3 normal=Vector3.Cross(along,plus-minus).normalized;
                     if(normal.sqrMagnitude<.1f)continue;
                     float weight=join;
@@ -1481,14 +1536,14 @@ namespace DesktopFish.Editor
             // Tiny closed ends need a section derivative rather than the
             // area average of the thin closing faces. Preserve a rounded tip
             // without letting its inward face darken the visible outer edge.
-            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=37;row<=44;row++)
+            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=Mathf.FloorToInt(radialRows*.84f);row<=radialRows;row++)
                 for(int j=0;j<=8;j++) {
-                    int root=radialStart+lockIndex*405,index=root+row*9+j;
-                    Vector3 along=a.body.p[root+Mathf.Min(44,row+1)*9+j]-
+                    int root=radialStart+lockIndex*radialStride,index=root+row*9+j;
+                    Vector3 along=a.body.p[root+Mathf.Min(radialRows,row+1)*9+j]-
                         a.body.p[root+Mathf.Max(0,row-1)*9+j];
                     Vector3 across=a.body.p[root+row*9+(j+1)%8]-a.body.p[root+row*9+(j+7)%8];
                     Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
-                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(37,40,row));
+                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(radialRows*.84f,radialRows*.91f,row));
                     a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
             foreach(int sign in new[]{-1,1}) {
@@ -1710,11 +1765,10 @@ namespace DesktopFish.Editor
         static void BuildDress(Author a, int hips, int chest)
         {
             int dressStart=a.body.p.Count;
-            // Six height intervals retain the gently quadratic skirt drape;
-            // the 72 angular samples still describe all twelve broad pleats.
-            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,6,72);
+            // Four height intervals and 48 angular samples retain the broad drape.
+            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,4,48);
             Lathe(a,hips,.133f,.170f,t=>Mathf.Lerp(.214f,.222f,t),
-                t=>Mathf.Lerp(.134f,.138f,t),White*.96f,2,72);
+                t=>Mathf.Lerp(.134f,.138f,t),White*.96f,2,48);
             Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
             Ruffle(a,hips,.145f,.213f,.130f,.022f,24,Mathf.PI*.65f);
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,2,48);
@@ -1723,7 +1777,7 @@ namespace DesktopFish.Editor
             foreach(int sign in new[]{-1,1}) {
                 // Gathered side lace starts on the bib surface and opens into
                 // broad rounded folds, with enough samples to avoid saw teeth.
-                int first=a.body.p.Count,laceTriangles=a.body.tri.Count; const int rows=48,cols=6;
+                int first=a.body.p.Count,laceTriangles=a.body.tri.Count; const int rows=30,cols=3;
                 for(int y=0;y<=rows;y++)for(int x=0;x<=cols;x++) {
                     float t=y/(float)rows,r=x/(float)cols;
                     float phase=t*Mathf.PI*12+.25f*Mathf.Sin(t*Mathf.PI*2),fold=Mathf.Cos(phase);
@@ -1755,7 +1809,7 @@ namespace DesktopFish.Editor
             }
             a.Sphere(a.body,V(0,.376f,.083f),V(.006f,.003f,.002f),Gold,hips,12,6);
             foreach(float y in new[]{.184f,.195f}) {
-                int start=a.body.p.Count;const int sides=144,rows=2;
+                int start=a.body.p.Count;const int sides=72,rows=1;
                 float width=y<.19f?.0027f:.0021f;
                 for(int row=0;row<=rows;row++)for(int i=0;i<=sides;i++) {
                     float u=row/(float)rows,theta=i/(float)sides*Mathf.PI*2;
@@ -1768,13 +1822,14 @@ namespace DesktopFish.Editor
             }
             // A flat waist edge opens into a fuller oval cloth panel, with a
             // curved lower outline. The gathered lace follows that same edge.
+            a.body.region=5;
             var apronControls=new[]{V(-.078f,.374f,0),V(-.030f,.374f,0),V(.030f,.374f,0),V(.078f,.374f,0),
                 V(.108f,.350f,0),V(.120f,.296f,0),V(.106f,.262f,0),
                 V(.092f,.226f,0),V(.052f,.207f,0),V(0,.207f,0),
                 V(-.052f,.207f,0),V(-.092f,.226f,0),V(-.106f,.262f,0),
                 V(-.120f,.296f,0),V(-.108f,.350f,0),V(-.078f,.374f,0)};
-            var outline=Curve(apronControls,80);
-            int apronStart=a.body.p.Count;const int apronRings=8;
+            var outline=Curve(apronControls,48);
+            int apronStart=a.body.p.Count;const int apronRings=4;
             for(int row=0;row<=apronRings;row++)for(int i=0;i<outline.Length;i++) {
                 float r=row/(float)apronRings;
                 Vector3 p=Vector3.Lerp(V(0,.293f,0),outline[i],r);
@@ -1783,8 +1838,8 @@ namespace DesktopFish.Editor
                 a.body.Add(ApronSurface(p.x,p.y),cloth,hips);
             }
             Grid(a.body,apronStart,apronRings,outline.Length-1);
-            var lacePath=Curve(apronControls.Skip(3).ToArray(),128);
-            int laceStart=a.body.p.Count;const int laceRows=4;
+            var lacePath=Curve(apronControls.Skip(3).ToArray(),80);
+            int laceStart=a.body.p.Count;const int laceRows=2;
             for(int row=0;row<=laceRows;row++)for(int i=0;i<lacePath.Length;i++) {
                 float t=i/(float)(lacePath.Length-1),r=row/(float)laceRows;
                 Vector3 tangent=(lacePath[Mathf.Min(i+1,lacePath.Length-1)]-
@@ -1792,9 +1847,9 @@ namespace DesktopFish.Editor
                 Vector3 outward=V(-tangent.y,tangent.x,0);
                 float fold=Mathf.Cos(t*Mathf.PI*40);
                 float end=Mathf.SmoothStep(0,1,Mathf.Min(t,1-t)/.045f);
-                Vector3 p=lacePath[i]+outward*(.014f+.003f*fold)*r*end;
+                Vector3 p=lacePath[i]+outward*.019f*r*end;
                 p=ApronSurface(p.x,p.y)+Vector3.forward*(Mathf.Sin(r*Mathf.PI)*.004f+fold*r*.002f)*end;
-                a.body.Add(p,Color.Lerp(White*.88f,White,(fold+1)*.5f),hips);
+                a.body.Add(p,White,hips,LaceUV(1,t,r));
             }
             Grid(a.body,laceStart,laceRows,lacePath.Length-1);
             ApronStroke(a,outline,.0011f,White*.85f,hips);
@@ -1817,6 +1872,7 @@ namespace DesktopFish.Editor
                 a.body.p[i]=p;
             }
             ReverseFaces(a.body,whaleTriangles);
+            a.body.region=0;
             // Shape the whole hip-bound garment together, including embroidery,
             // apron artwork and both lace layers. Keep the waist attachment fixed
             // while giving the hem a deeper, longer bell silhouette.
@@ -1852,6 +1908,24 @@ namespace DesktopFish.Editor
             float t=Mathf.InverseLerp(.374f,.207f,y);
             return Mathf.Cos(x/(.078f+.025f*t)*Mathf.PI*5+.4f*Mathf.Sin(t*5))*
                 Mathf.Pow(1-t,1.5f);
+        }
+        static Vector3 UndressPoint(Vector3 p) {
+            float lo=.10f,hi=.45f;
+            for(int i=0;i<26;i++) {float y=(lo+hi)*.5f;if(DressVolume(V(0,y,0)).y<p.y)lo=y;else hi=y;}
+            float sourceY=(lo+hi)*.5f,lower=Mathf.InverseLerp(.375f,.173f,sourceY);
+            float fullness=Mathf.Sin(lower*Mathf.PI);
+            return V(p.x/(1+.055f*fullness),sourceY,p.z/((1+.9f*lower)*(1+.19f*fullness)));
+        }
+        public static Vector3 FitApronToGuides(Vector3 p,Bounds source) {
+            Vector3 old=UndressPoint(AuthorPoint(p));
+            float lift=old.z-ApronSurface(old.x,old.y).z;
+            float t=(p.y-source.min.y)/source.size.y;
+            Vector3 target=p;target.x*=.096f/source.extents.x;
+            target.y=.2353f+(source.max.y-.2353f)*t;
+            target=UndressPoint(AuthorPoint(target));
+            target=DressVolume(ApronSurface(target.x,target.y)+Vector3.forward*lift);
+            if(target.y<.585f)target.y=.585f-(.585f-target.y)*.88f;
+            return FitPoint(target);
         }
         static Vector3 ApronSurface(float x,float y) {
             float t=Mathf.InverseLerp(.173f,.375f,y);
@@ -1910,7 +1984,7 @@ namespace DesktopFish.Editor
 
         static void ChestRibbon(Author a,int bone) {
             foreach(int sign in new[]{-1,1}) {
-                const int rows=10,cols=6;
+                const int rows=6,cols=4;
                 foreach(int surface in new[]{1,-1}) {
                     int start=a.body.p.Count,triangles=a.body.tri.Count;
                     for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
@@ -1945,7 +2019,7 @@ namespace DesktopFish.Editor
         static void ClothPanel(Author a,Vector3 center,float rx,float ry,float bulge,int bone) {
             // A regular grid spends samples across folds and avoids the repeated
             // center vertices and thin triangles of concentric rings.
-            int start=a.body.p.Count; const int rows=16,cols=24;
+            int start=a.body.p.Count; const int rows=8,cols=16;
             for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
                 float u=i/(float)cols*2-1,v=row/(float)rows*2-1;
                 const float power=2/.55f;
@@ -1988,15 +2062,15 @@ namespace DesktopFish.Editor
             Grid(a.body,start,rows,sides);
         }
         static void Ruffle(Author a,int bone,float y,float rx,float rz,float width,int lobes,float phase=0) {
-            int start=a.body.p.Count;const int sides=144,rows=5;
+            int start=a.body.p.Count;const int sides=72,rows=2;
             for(int j=0;j<=rows;j++)for(int i=0;i<=sides;i++) {
                 float theta=i/(float)sides*Mathf.PI*2,t=j/(float)rows;
                 float fold=Mathf.Cos(theta*lobes+phase),opening=Mathf.Sin(t*Mathf.PI*.5f);
                 float gather=Mathf.SmoothStep(0,1,t);
-                float radius=1+width*opening/rx*(1+.20f*fold*gather);
+                float radius=1+width*opening/rx*(1+.08f*fold*gather);
                 float drop=.019f*(1-Mathf.Cos(t*Mathf.PI*.5f))+.0032f*fold*t*t;
                 a.body.Add(V(Mathf.Sin(theta)*rx*radius,y-drop,Mathf.Cos(theta)*rz*radius),
-                    Color.Lerp(White*(.95f-.06f*t),White,(fold+1)*.5f),bone);
+                    Color.Lerp(White*(.95f-.06f*t),White,(fold+1)*.5f),bone,LaceUV(2,i/(float)sides,t));
             }
             int firstTriangle=a.body.tri.Count;
             Grid(a.body,start,rows,sides);
@@ -2022,7 +2096,7 @@ namespace DesktopFish.Editor
                 // weights; the cuff remains rigid with the forearm.
                 float[] sleeveX={.092f,.110f,.130f,.153f,.180f,.205f,.222f,.235f,.248f,.268f,.290f,.309f,.326f,.342f};
                 float[] sleeveRadius={.025f,.040f,.045f,.046f,.041f,.035f,.033f,.032f,.032f,.030f,.028f,.0275f,.0275f,.027f};
-                int sleeveStart=a.body.p.Count,sleeveTriangles=a.body.tri.Count;const int sleeveSides=16;
+                int sleeveStart=a.body.p.Count,sleeveTriangles=a.body.tri.Count;const int sleeveSides=12;
                 for(int row=0;row<sleeveX.Length;row++)for(int j=0;j<=sleeveSides;j++) {
                     float x=sleeveX[row],theta=j/(float)sleeveSides*Mathf.PI*2;
                     float gathering=Mathf.Sin(Mathf.InverseLerp(.11f,.205f,x)*Mathf.PI);
@@ -2048,14 +2122,14 @@ namespace DesktopFish.Editor
                     // Shallow embroidered bands follow the same elliptical
                     // sleeve profile instead of intersecting it as round tubes.
                     int bandStart=a.body.p.Count,bandTriangles=a.body.tri.Count;
-                    const int bandSegments=32;
-                    for(int row=0;row<3;row++) {
-                        float x=centerX+(row-1)*.0018f;
+                    const int bandSegments=24;
+                    for(int row=0;row<2;row++) {
+                        float x=centerX+(row*2-1)*.0018f;
                         int section=1;
                         while(section<sleeveX.Length-1&&sleeveX[section]<x)section++;
                         float radius=Mathf.Lerp(sleeveRadius[section-1],sleeveRadius[section],
                             Mathf.InverseLerp(sleeveX[section-1],sleeveX[section],x));
-                        float relief=row==1?.0007f:.00035f;
+                        float relief=.0008f;
                         var cuff=SleeveSection(x);
                         for(int j=0;j<=bandSegments;j++) {
                             float theta=j/(float)bandSegments*Mathf.PI*2;
@@ -2063,13 +2137,13 @@ namespace DesktopFish.Editor
                                 Mathf.Sin(theta)*(radius*cuff.y+relief)),Gold,elbow);
                         }
                     }
-                    Grid(a.body,bandStart,2,bandSegments);
+                    Grid(a.body,bandStart,1,bandSegments);
                     if(s<0)ReverseFaces(a.body,bandTriangles);
                 }
                 // One soft volume joins wrist and palm. Gradual skin weights
                 // avoid the seam between two independently turning spheres.
                 int palmStart=a.body.p.Count,palmTriangles=a.body.tri.Count;
-                const int palmRings=16,palmSides=16;
+                const int palmRings=8,palmSides=10;
                 for(int row=0;row<=palmRings;row++)for(int j=0;j<=palmSides;j++) {
                     float t=row/(float)palmRings,theta=j/(float)palmSides*Mathf.PI*2;
                     // Keep the wrist and its skinning transition fixed while
@@ -2108,15 +2182,15 @@ namespace DesktopFish.Editor
                         previous=bone;
                     }
                     // One continuous rounded finger replaces three overlapping balls.
-                    int start=a.body.p.Count;const int rings=9,sides=10;
+                    int start=a.body.p.Count;const int rings=7,sides=8;
                     for(int row=0;row<=rings;row++)for(int j=0;j<=sides;j++) {
                         float theta=j/(float)sides*Mathf.PI*2;
                         // Five stem intervals and four angular cap intervals
                         // produce a round fingertip without an elongated point.
-                        float capAngle=Mathf.Max(0,(row-5)/4f)*Mathf.PI*.5f;
-                        float x=row<=5?.366f+(length-fingerRadius)*(row/5f):
+                        float capAngle=Mathf.Max(0,(row-4)/3f)*Mathf.PI*.5f;
+                        float x=row<=4?.366f+(length-fingerRadius)*(row/4f):
                             .366f+length-fingerRadius+Mathf.Sin(capAngle)*fingerRadius;
-                        float radius=row<=5?fingerRadius*Mathf.Lerp(1.10f,1,row/5f):
+                        float radius=row<=4?fingerRadius*Mathf.Lerp(1.10f,1,row/4f):
                             fingerRadius*Mathf.Max(0,Mathf.Cos(capAngle));
                         int primary,secondary;float blend;
                         if(x<.373f) {
@@ -2167,20 +2241,11 @@ namespace DesktopFish.Editor
                     p.y+=fold*.45f;
                     a.body.p[i]=p;
                 }
+                a.body.region=s>0?6:7;
                 ShoeUpper(a,s,foot);
                 int soleStart=a.body.p.Count;
                 a.Sphere(a.body,V(s*.065f,.020f,.023f),V(.047f,.009f,.066f),Hex("19213C"),foot,16,6);
                 int soleEnd=a.body.p.Count;
-                a.Tube(a.body,new[]{V(s*.065f-.027f,.066f,.059f),V(s*.065f,.073f,.067f),V(s*.065f+.027f,.066f,.059f)},.006f,White,foot);
-                Func<float,float,Vector3> shoeSurface=(x,y)=>V(x,y,.022f+.068f*Mathf.Sqrt(Mathf.Max(.01f,
-                    1-Mathf.Pow((x-s*.065f)/.048f,2)-Mathf.Pow((y-.045f)/.031f,2)))+.0018f);
-                float buckleX=s*.089f;
-                var buckle=new[]{new Vector2(-.008f,-.0025f),new Vector2(-.006f,-.0045f),
-                    new Vector2(.006f,-.0045f),new Vector2(.008f,-.0025f),new Vector2(.008f,.0025f),
-                    new Vector2(.006f,.0045f),new Vector2(-.006f,.0045f),new Vector2(-.008f,.0025f),
-                    new Vector2(-.008f,-.0025f)};
-                a.Tube(a.body,buckle.Select(p=>shoeSurface(buckleX+p.x,.059f+p.y)).ToArray(),.0014f,Gold,foot,6);
-                a.Tube(a.body,new[]{shoeSurface(buckleX,.055f),shoeSurface(buckleX,.063f)},.0011f,Gold,foot,4);
                 // The same authored volume map carries the strap and buckle.
                 // Keep the sole shallow while giving the upper a taller heel and toe.
                 for(int i=soleStart;i<a.body.p.Count;i++) {
@@ -2193,6 +2258,19 @@ namespace DesktopFish.Editor
                         .002f+(p.y-.011f)*1.45f+heel-toe;
                     a.body.p[i]=V(s*.067f+(p.x-s*.065f)*1.04f,y,.0235f+(p.z-.023f)*1.55f);
                 }
+                a.body.region=0;
+                // Three visible strap anchors measured from the local reference.
+                // A flat band spans the upper; it is distinct from the white sock.
+                var strap=Enumerable.Range(0,13).Select(i=>{float t=i/12f;return V(s*Mathf.Lerp(.04375f,.09375f,t),.132f,.016f+Mathf.Lerp(.04468f,.04586f,t)+.01554f*4*t*(1-t));}).ToArray();
+                int strapStart=a.body.p.Count,strapTriangles=a.body.tri.Count;
+                for(int row=0;row<=1;row++)for(int i=0;i<strap.Length;i++)
+                    a.body.Add(AuthorPoint(strap[i]+V(0,(row-.5f)*.009f,-(row-.5f)*.004f)),Navy,foot);
+                Grid(a.body,strapStart,1,strap.Length-1);
+                if(s>0)ReverseFaces(a.body,strapTriangles);
+                var buckle=new[]{V(s*.089f,.128f,.067f),V(s*.099f,.128f,.067f),
+                    V(s*.099f,.137f,.063f),V(s*.089f,.137f,.063f),V(s*.089f,.128f,.067f)};
+                a.Tube(a.body,buckle.Select(AuthorPoint).ToArray(),.0012f,Gold,foot,4);
+
             }
         }
 
@@ -2204,7 +2282,7 @@ namespace DesktopFish.Editor
             float[] width={.037f,.043f,.049f,.049f,.047f,.046f,.045f,.038f,.028f,.015f,0};
             float[] depth={.047f,.059f,.090f,.106f,.104f,.101f,.099f,.085f,.063f,.034f,0};
             float[] center={-.015f,-.009f,.010f,.019f,.020f,.020f,.020f,.020f,.020f,.020f,.020f};
-            int start=a.body.p.Count;const int sides=20;
+            int start=a.body.p.Count;const int sides=14;
             for(int row=0;row<height.Length;row++) {
                 for(int i=0;i<=sides;i++) {
                     float angle=(i%sides)*Mathf.PI*2/sides,front=Mathf.Sin(angle);
@@ -2224,33 +2302,27 @@ namespace DesktopFish.Editor
 
         static void BuildAccessories(Author a,int head,int chest,int hips)
         {
-            // White frilled headband wraps over the crown rather than floating above it.
+            // Sparse visible edges, excluding transparent padding in Ref, set
+            // the arch. New two-row strips and painted alpha form the lace.
             int headbandStart=a.body.p.Count;
-            for(int row=0;row<=4;row++)for(int i=0;i<=100;i++) {
-                float angle=Mathf.Lerp(-1.34f,1.34f,i/100f),t=row/4f;
-                float fold=Mathf.Cos(angle*40);
-                float radius=.218f+t*(.047f+.005f*fold);
-                a.body.Add(V(Mathf.Sin(angle)*radius,.765f+Mathf.Cos(angle)*radius,
-                    .045f+Mathf.Sin(t*Mathf.PI)*.015f+t*fold*.006f),
-                    Color.Lerp(White*.83f,White,(fold+1)*.5f),head);
+            for(int row=0;row<=2;row++)for(int i=0;i<=64;i++) {
+                float u=i/64f,t=row/2f,fold=Mathf.Cos(u*Mathf.PI*32);
+                Vector3 p=Vector3.Lerp(FishModelGuides.Headband(u,false),FishModelGuides.Headband(u,true),t);
+                p.z+=Mathf.Sin(t*Mathf.PI)*.006f+fold*t*.0015f;
+                a.body.Add(AuthorPoint(p),White,head,LaceUV(0,u,t));
             }
-            Grid(a.body,headbandStart,4,100);
-            // A narrow continuous binding joins the pleats to the hairline.
-            // It slopes back into the existing ruffle instead of enlarging it.
+            Grid(a.body,headbandStart,2,64);
             int bindingStart=a.body.p.Count;
-            for(int row=0;row<=2;row++)for(int i=0;i<=100;i++) {
-                float angle=Mathf.Lerp(-1.34f,1.34f,i/100f),t=row/2f;
-                float radius=Mathf.Lerp(.219f,.229f,t);
-                float fold=Mathf.Cos(angle*40),ruffleT=.011f/(.047f+.005f*fold);
-                float joinZ=.045f+Mathf.Sin(ruffleT*Mathf.PI)*.015f+ruffleT*fold*.006f;
-                float z=Mathf.Lerp(.065f,joinZ,t)+.002f*Mathf.Sin(t*Mathf.PI);
-                a.body.Add(V(Mathf.Sin(angle)*radius,.765f+Mathf.Cos(angle)*radius,z),
-                    Color.Lerp(White*.92f,White,t),head);
+            for(int row=0;row<=1;row++)for(int i=0;i<=64;i++) {
+                float u=i/64f;
+                Vector3 p=Vector3.Lerp(FishModelGuides.Headband(u,false),FishModelGuides.Headband(u,true),row*.14f);
+                p.z+=.002f;a.body.Add(AuthorPoint(p),White,head);
             }
-            Grid(a.body,bindingStart,2,100);
+            Grid(a.body,bindingStart,1,64);
             foreach(int s in new[]{-1,1}) {
                 HeadFin(a,s,head);
-                Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));
+                a.body.region=s>0?3:4;
+                Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));a.body.region=0;
             }
             ChestRibbon(a,chest);
             a.Sphere(a.body,V(0,.538f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
@@ -2281,7 +2353,7 @@ namespace DesktopFish.Editor
             float[] zs={.028f,.028f,.029f,.033f,.039f,.043f,.044f};
             float[] ry={.042f,.052f,.053f,.044f,.023f,.009f,0};
             float[] rz={.057f,.062f,.056f,.044f,.025f,.009f,0};
-            const int rows=14,cols=8;
+            const int rows=9,cols=6;
             Func<float[],float,float> sample=(values,t)=>{
                 float f=t*(values.Length-1);int k=Mathf.Min(values.Length-2,Mathf.FloorToInt(f));
                 float u=f-k,d=values[k+1]-values[k];
@@ -2294,7 +2366,7 @@ namespace DesktopFish.Editor
             foreach(int half in new[]{1,-1}) {
                 int start=a.body.p.Count,triangles=a.body.tri.Count;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=row/(float)rows,theta=(half>0?col:16-col)*Mathf.PI/cols;
+                    float t=row/(float)rows,theta=(half>0?col:2*cols-col)*Mathf.PI/cols;
                     float sy=Mathf.Sin(theta),sz=Mathf.Cos(theta);
                     float scallop=.0045f*(.5f+.5f*Mathf.Cos(theta*6))*
                         Mathf.Pow(Mathf.Max(0,-sy),2)*Mathf.Sin(t*Mathf.PI);
@@ -2319,7 +2391,7 @@ namespace DesktopFish.Editor
             Color rootColor,Color tipColor,bool paleInset,float thickness,Vector3? surfaceNormal=null)
         {
             Vector3 normal=(surfaceNormal??Vector3.forward).normalized;
-            int rows=paleInset?14:12,cols=paleInset?8:4,mid=rows/2;
+            int rows=paleInset?9:8,cols=paleInset?4:3,mid=rows/2;
             var edgeA=Curve(leading,rows);var edgeB=Curve(trailing,rows);
             if(paleInset)for(int i=0;i<=rows;i++) {
                 float t=i/(float)rows;
@@ -2360,7 +2432,7 @@ namespace DesktopFish.Editor
             int first=a.body.p.Count;
             foreach(int s in new[]{-1,1}) {
                 bool gathered=orientation.HasValue;
-                int rows=gathered?10:12,cols=gathered?6:8;
+                int rows=gathered?6:8,cols=4;
                 foreach(int surface in gathered?new[]{1,-1}:new[]{1}) {
                     int start=a.body.p.Count,triangles=a.body.tri.Count;
                     for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {

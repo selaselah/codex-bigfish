@@ -6,7 +6,7 @@ Shader "DesktopFish/Rebuilt Toon"
         _OutlineWidth ("Outline width", Float) = 0.0012
     }
     SubShader {
-        Tags { "RenderType"="Opaque" }
+        Tags { "RenderType"="TransparentCutout" "Queue"="AlphaTest" }
         Pass {
             Cull Front
             CGPROGRAM
@@ -14,9 +14,11 @@ Shader "DesktopFish/Rebuilt Toon"
             #pragma fragment frag
             #include "UnityCG.cginc"
             float _OutlineWidth;
-            struct app { float4 vertex:POSITION; float3 normal:NORMAL; };
-            float4 vert(app v):SV_POSITION { return UnityObjectToClipPos(v.vertex+float4(v.normal*_OutlineWidth,0)); }
-            fixed4 frag():SV_Target { return fixed4(0.035,0.047,0.095,1); }
+            sampler2D _MainTex;
+            struct app { float4 vertex:POSITION; float3 normal:NORMAL; float2 uv:TEXCOORD0; };
+            struct v2f { float4 pos:SV_POSITION; float2 uv:TEXCOORD0; };
+            v2f vert(app v) { v2f o;o.pos=UnityObjectToClipPos(v.vertex+float4(v.normal*_OutlineWidth,0));o.uv=v.uv;return o; }
+            fixed4 frag(v2f i):SV_Target { clip(tex2D(_MainTex,i.uv).a-.5);return fixed4(0.035,0.047,0.095,1); }
             ENDCG
         }
         Pass {
@@ -44,7 +46,9 @@ Shader "DesktopFish/Rebuilt Toon"
             fixed4 frag(v2f i):SV_Target {
                 float light=dot(normalize(i.normal),normalize(float3(-0.35,0.65,0.80)));
                 float shade=lerp(0.76,1.04,smoothstep(-0.45,0.95,light));
-                float3 albedo=i.color.rgb*tex2D(_MainTex,i.uv).rgb;
+                fixed4 paint=tex2D(_MainTex,i.uv);
+                clip(paint.a-.5);
+                float3 albedo=i.color.rgb*paint.rgb;
                 float ivory=smoothstep(.60,.85,min(albedo.r,min(albedo.g,albedo.b)));
                 shade=lerp(shade,.99,ivory*.75*(1-.55*i.skin));
                 return float4(albedo*lerp(shade,1,_Flat),1);

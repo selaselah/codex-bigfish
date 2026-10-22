@@ -9,7 +9,10 @@ template<class T> T read(std::ifstream& f) { T x; f.read(reinterpret_cast<char*>
 template<class T> void write(std::ofstream& f, T x) { f.write(reinterpret_cast<const char*>(&x),sizeof(x)); }
 int main(int argc,char** argv) {
  try {
-  if(argc!=3) throw std::runtime_error("expected input and output paths");
+  if(argc!=3 && argc!=5) throw std::runtime_error("expected input and output paths");
+  const float ratio=argc==5?std::stof(argv[3]):0.45f;
+  const float tolerance=argc==5?std::stof(argv[4]):0.002f;
+  if(!(ratio>0 && ratio<=1) || !(tolerance>0 && tolerance<=0.01f)) throw std::runtime_error("invalid reduction controls");
   std::ifstream in(argv[1],std::ios::binary);
   if(read<uint32_t>(in)!=0x46495348) throw std::runtime_error("invalid mesh input");
   uint32_t nv=read<uint32_t>(in), ns=read<uint32_t>(in);
@@ -28,7 +31,7 @@ int main(int argc,char** argv) {
    float error=0; size_t count=ni;
    if(reduce && ni) count=meshopt_simplifyWithAttributes(result.data(),indices.data(),ni,
     vertices[0].p,nv,sizeof(Vertex),vertices[0].n,sizeof(Vertex),weights,5,locked.data(),
-    size_t(ni*0.45f)/3*3,0.002f,
+    size_t(ni*ratio)/3*3,tolerance,
     meshopt_SimplifyLockBorder|meshopt_SimplifyErrorAbsolute|meshopt_SimplifySparse|meshopt_SimplifyRegularizeLight,&error);
    else result=indices;
    write(out,error); write(out,uint32_t(count)); out.write(reinterpret_cast<const char*>(result.data()),count*sizeof(uint32_t));

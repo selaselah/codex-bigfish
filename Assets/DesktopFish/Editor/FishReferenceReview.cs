@@ -12,8 +12,40 @@ namespace DesktopFish.Editor
     // into the rebuilt model or its portable deliverables.
     public static class FishReferenceReview
     {
+        static Material[] guideMaterials;
+        static readonly System.Collections.Generic.Dictionary<int,Texture2D> guideTextures=new System.Collections.Generic.Dictionary<int,Texture2D>();
+        static Texture2D GuideTexture(int slot) {
+            if(guideTextures.TryGetValue(slot,out var cached))return cached;
+            var texture=guideMaterials[slot].mainTexture;if(!texture)return null;
+            var rt=RenderTexture.GetTemporary(512,512,0,RenderTextureFormat.ARGB32);
+            var previous=RenderTexture.active;Graphics.Blit(texture,rt);RenderTexture.active=rt;
+            var readable=new Texture2D(512,512,TextureFormat.RGBA32,false);readable.ReadPixels(new Rect(0,0,512,512),0,0);readable.Apply();
+            RenderTexture.active=previous;RenderTexture.ReleaseTemporary(rt);guideTextures[slot]=readable;return readable;
+        }
+        static System.Collections.Generic.List<Vector3> VisibleSection(Vector3[] points,Vector2[] uv,int[] triangles,
+            Vector3 normal,float plane,int slot,Func<Vector3,Vector2,bool> keep=null) {
+            var result=new System.Collections.Generic.List<Vector3>();var texture=GuideTexture(slot);
+            for(int i=0;i<triangles.Length;i+=3) {
+                var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
+                for(int j=0;j<3;j++) {
+                    int ai=triangles[i+j],bi=triangles[i+(j+1)%3];Vector3 a=points[ai],b=points[bi];
+                    float da=Vector3.Dot(a,normal)-plane,db=Vector3.Dot(b,normal)-plane;
+                    if(!((da<=0&&db>0)||(db<=0&&da>0)))continue;
+                    float t=da/(da-db);cuts.Add(Vector3.Lerp(a,b,t));tex.Add(Vector2.Lerp(uv[ai],uv[bi],t));
+                }
+                if(cuts.Count!=2)continue;
+                for(int k=0;k<=24;k++) {
+                    float t=k/24f;Vector3 point=Vector3.Lerp(cuts[0],cuts[1],t);Vector2 st=Vector2.Lerp(tex[0],tex[1],t);
+                    if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                    if(keep==null||keep(point,st))result.Add(point);
+                }
+            }
+            return result;
+        }
         public static void Render()
         {
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);
+            guideTextures.Clear();
             AssetDatabase.Refresh();
             var reference = AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             if (!reference) throw new InvalidOperationException("Local Ref.asset is missing.");
@@ -27,6 +59,7 @@ namespace DesktopFish.Editor
             var skin = model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();
             if (reference.subMeshCount != skin.sharedMaterials.Length || reference.bindposes.Length != skin.bones.Length)
                 throw new InvalidOperationException("Reference does not match the local review rig/material slots.");
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
             skin.sharedMesh = reference;
             skin.localBounds = reference.bounds;
             foreach (var bone in model.GetComponentsInChildren<Transform>(true))
@@ -76,6 +109,8 @@ namespace DesktopFish.Editor
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
+            ReviewHeadEnvelope(baked,snapshot.transform);
+            ReviewFeatureGuides(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
@@ -90,6 +125,8 @@ namespace DesktopFish.Editor
             },true));
             RenderTexture.active = null; camera.targetTexture = null;
             UnityEngine.Object.DestroyImmediate(frame); UnityEngine.Object.DestroyImmediate(target);
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);
+            guideTextures.Clear();
             Debug.Log("Local Ref.asset review rendered; reference left unchanged.");
         }
         static void ReviewCuffSections(Mesh baked,SkinnedMeshRenderer skin,Transform snapshot) {
@@ -244,6 +281,7 @@ namespace DesktopFish.Editor
         static void ReviewAccessoryComponents(Mesh baked,Transform snapshot,Camera camera,Bounds total,Texture2D frame,RenderTexture target) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var parts=new System.Collections.Generic.List<PartBounds>();
+            var visibleParts=new System.Collections.Generic.List<PartBounds>();
             var coverage=new System.Collections.Generic.List<HairSection>();
             var profiles=new System.Collections.Generic.List<Landmark>();
             var chestSections=new System.Collections.Generic.List<HairSection>();
@@ -270,6 +308,40 @@ namespace DesktopFish.Editor
                     var bounds=new Bounds(points[group.First()],Vector3.zero);
                     foreach(int i in group)bounds.Encapsulate(points[i]);
                     parts.Add(new PartBounds{slot=slot,name="component-"+(index++),minimum=bounds.min,maximum=bounds.max});
+                    if(slot==12||slot==37||slot==26||slot==30) {
+                        var members=new System.Collections.Generic.HashSet<int>(group);var visible=new System.Collections.Generic.List<Vector3>();
+                        var tex=GuideTexture(slot);var uv=baked.uv;
+                        for(int ti=0;ti<triangles.Length;ti+=3) {
+                            if(!members.Contains(triangles[ti]))continue;
+                            int ai=triangles[ti],bi=triangles[ti+1],ci=triangles[ti+2];
+                            for(int u=0;u<=6;u++)for(int v=0;v<=6-u;v++) {
+                                float b=u/6f,c=v/6f,a=1-b-c;var st=uv[ai]*a+uv[bi]*b+uv[ci]*c;
+                                Vector3 p=points[ai]*a+points[bi]*b+points[ci]*c;
+                                if(tex&&tex.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                                if(slot==37&&(st.y>=.5f||p.y>.3f))continue;
+                                visible.Add(p);
+                            }
+                        }
+                        if(visible.Count>0) {
+                            var box=new Bounds(visible[0],Vector3.zero);foreach(var p in visible)box.Encapsulate(p);
+                            visibleParts.Add(new PartBounds{slot=slot,name="component-"+(index-1),minimum=box.min,maximum=box.max});
+                        }
+                    }
+                    if(slot==12&&index==1) {
+                        var members=new System.Collections.Generic.HashSet<int>(group);
+                        for(int station=0;station<=24;station++) {
+                            float angle=Mathf.Lerp(-1.60f,1.60f,station/24f);
+                            Vector3 center=new Vector3(0,.54f,0),ray=new Vector3(Mathf.Sin(angle),Mathf.Cos(angle),0);
+                            Vector3 normal=new Vector3(ray.y,-ray.x,0);
+                            var selected=new System.Collections.Generic.List<int>();
+                            for(int j=0;j<triangles.Length;j+=3)if(members.Contains(triangles[j]))selected.AddRange(new[]{triangles[j],triangles[j+1],triangles[j+2]});
+                            var cuts=VisibleSection(points,baked.uv,selected.ToArray(),normal,Vector3.Dot(center,normal),slot,
+                                (p,st)=>Vector3.Dot(p-center,ray)>0);
+                            if(cuts.Count==0)continue;
+                            profiles.Add(new Landmark{name="headband-inner-"+station,position=cuts.OrderBy(p=>Vector3.Dot(p-center,ray)).First()});
+                            profiles.Add(new Landmark{name="headband-outer-"+station,position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
+                        }
+                    }
                     if(slot==11) {
                         int component=index-1;
                         string prefix="component-"+component;
@@ -437,6 +509,7 @@ namespace DesktopFish.Editor
                     }
             }
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
+            File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
             File.WriteAllText("work/reference-review/side-curl-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=sideCurlSections.ToArray()},true));
@@ -446,6 +519,71 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
+        static void ReviewFeatureGuides(Mesh baked,Transform snapshot) {
+            var vertices=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var guides=new System.Collections.Generic.List<Landmark>();
+            Action<string,int,float[],float,float,float> section=(name,slot,heights,minX,maxX,minZ)=> {
+                var triangles=baked.GetTriangles(slot);
+                foreach(float y in heights) {
+                    var cuts=VisibleSection(vertices,baked.uv,triangles,Vector3.up,y,slot,(p,st)=>
+                        p.x>=minX&&p.x<=maxX&&p.z>=minZ&&
+                        (name!="apron"||st.y<.5f)&&(name!="bib"||(st.x>.445f&&st.x<.555f&&st.y>.543f&&st.y<.704f)));
+                    if(cuts.Count==0)continue;
+                    string key=name+"/"+y.ToString("F3",System.Globalization.CultureInfo.InvariantCulture);
+                    guides.Add(new Landmark{name=key+"/left",position=cuts.OrderBy(p=>p.x).First()});
+                    guides.Add(new Landmark{name=key+"/right",position=cuts.OrderByDescending(p=>p.x).First()});
+                    guides.Add(new Landmark{name=key+"/front",position=cuts.OrderByDescending(p=>p.z).First()});
+                    guides.Add(new Landmark{name=key+"/rear",position=cuts.OrderBy(p=>p.z).First()});
+                }
+            };
+            section("apron",37,new[]{.12f,.13f,.14f,.15f,.16f,.18f,.20f,.22f,.24f,.26f,.27f,.28f,.29f},-.2f,.2f,.01f);
+            section("bib",37,new[]{.29f,.31f,.33f,.35f,.37f,.385f},-.075f,.075f,.04f);
+            section("skirt",34,new[]{.05f,.08f,.12f,.16f,.20f,.24f},-.5f,.5f,-1);
+            section("skirt-gold",35,new[]{.05f,.08f,.12f,.16f,.20f,.24f},-.5f,.5f,-1);
+            section("collar-lace",30,new[]{.255f,.28f,.31f,.34f,.37f,.39f},-.2f,.2f,-1);
+            section("headband",12,new[]{.56f,.60f,.65f,.70f,.75f,.78f,.80f},-.21f,.21f,-1);
+            section("clip-right",12,new[]{.55f,.57f,.59f,.60f},.17f,.29f,-1);
+            section("shoe-right",26,new[]{.01f,.02f,.03f,.04f,.05f,.06f},0,.2f,-1);
+            // The reference uses a buckled strap, not crossing laces. Trace three
+            // upper-front stations across the right shoe at its strap height.
+            var shoe=baked.GetTriangles(26);
+            foreach(float x in new[]{.035f,.055f,.075f}) {
+                float y=.044f,front=float.NegativeInfinity;
+                for(int i=0;i<shoe.Length;i+=3) {
+                    var cuts=new System.Collections.Generic.List<Vector3>();
+                    for(int j=0;j<3;j++) {
+                        Vector3 a=vertices[shoe[i+j]],b=vertices[shoe[i+(j+1)%3]];
+                        if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cuts.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));
+                    }
+                    if(cuts.Count!=2)continue;var c=cuts[0];var d=cuts[1];
+                    if(Mathf.Abs(d.x-c.x)<1e-7f||x<Mathf.Min(c.x,d.x)||x>Mathf.Max(c.x,d.x))continue;
+                    front=Mathf.Max(front,Mathf.Lerp(c.z,d.z,(x-c.x)/(d.x-c.x)));
+                }
+                if(!float.IsNegativeInfinity(front))guides.Add(new Landmark{name="shoe-strap/"+x.ToString("F3"),position=new Vector3(x,y,front)});
+            }
+            File.WriteAllText("work/reference-review/feature-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=guides.ToArray()},true));
+        }
+
+        // Sparse control sections only; the generated topology is independently authored.
+        static void ReviewHeadEnvelope(Mesh baked,Transform snapshot) {
+            var vertices=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var rows=new System.Collections.Generic.List<HairSection>();
+            foreach(int group in new[]{0,1}) {
+                int[] slots=group==0?new[]{3}:new[]{10,11,13,15,16,21};
+                int[] triangles=slots.SelectMany(baked.GetTriangles).ToArray();
+                foreach(float y in new[]{.385f,.40f,.42f,.45f,.48f,.52f,.56f,.60f,.64f,.67f,.69f,.71f,.72f,.725f,.73f}) {
+                    var cuts=new System.Collections.Generic.List<Vector3>();
+                    foreach(int slot in slots)cuts.AddRange(VisibleSection(vertices,baked.uv,baked.GetTriangles(slot),Vector3.up,y,slot));
+                    if(cuts.Count==0)continue;
+                    var bounds=new Bounds(cuts[0],Vector3.zero);foreach(var point in cuts)bounds.Encapsulate(point);
+                    rows.Add(new HairSection {slot=group,height=y,minimum=bounds.min,maximum=bounds.max,
+                        inner=cuts.OrderBy(p=>p.x).First(),outer=cuts.OrderByDescending(p=>p.x).First(),
+                        front=cuts.OrderByDescending(p=>p.z).First(),rear=cuts.OrderBy(p=>p.z).First()});
+                }
+            }
+            File.WriteAllText("work/reference-review/head-envelope.json",JsonUtility.ToJson(new HairSectionReport{sections=rows.ToArray()},true));
+        }
+
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var triangles=baked.GetTriangles(3);

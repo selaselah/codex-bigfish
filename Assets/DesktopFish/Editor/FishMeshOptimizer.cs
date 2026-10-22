@@ -29,6 +29,64 @@ namespace DesktopFish.Editor
         }
         public static Report LastReport;
 
+        // Rebuilt meshes already have sparse authored surface grids. This final
+        // index-only pass keeps all retained UV/color/normal/skin data exact.
+        public static Mesh ReduceRebuilt(Mesh source,int targetTriangles) {
+            Directory.CreateDirectory("work");
+            var p=source.vertices;var n=source.normals;var uv=source.uv;var w=source.boneWeights;
+            var indices=source.triangles;if(indices.Length/3<=targetTriangles)return source;
+            var locked=new byte[p.Length];
+            // The absolute body tolerance is larger than tiny button thickness.
+            // Keep small connected ornaments, authored with sparse grids, intact
+            // so a closed bead cannot collapse into opposing coincident sheets.
+            var parent=Enumerable.Range(0,p.Length).ToArray();
+            Func<int,int> component=i=>{while(parent[i]!=i){parent[i]=parent[parent[i]];i=parent[i];}return i;};
+            for(int i=0;i<indices.Length;i+=3) {
+                parent[component(indices[i+1])]=component(indices[i]);
+                parent[component(indices[i+2])]=component(indices[i]);
+            }
+            var bounds=new Dictionary<int,Bounds>();
+            foreach(int i in indices.Distinct()) {
+                int root=component(i);Bounds b;if(!bounds.TryGetValue(root,out b))b=new Bounds(p[i],Vector3.zero);
+                b.Encapsulate(p[i]);bounds[root]=b;
+            }
+            foreach(int i in indices.Distinct())if(bounds[component(i)].size.sqrMagnitude<.025f*.025f)locked[i]=1;
+            for(int i=0;i<p.Length;i++)if(w[i].weight1>.00001f&&w[i].weight1<.99999f)locked[i]=1;
+            for(int i=0;i<indices.Length;i+=3) {
+                int a=indices[i],b=indices[i+1],c=indices[i+2];
+                if(w[a].boneIndex0!=w[b].boneIndex0||w[b].boneIndex0!=w[c].boneIndex0)
+                    locked[a]=locked[b]=locked[c]=1;
+            }
+            string input=Path.GetFullPath("work/rebuilt-reduce-input.bin"),output=Path.GetFullPath("work/rebuilt-reduce-output.bin");
+            using(var writer=new BinaryWriter(File.Create(input))) {
+                writer.Write(0x46495348);writer.Write(p.Length);writer.Write(1);
+                for(int i=0;i<p.Length;i++) {
+                    writer.Write(p[i].x);writer.Write(p[i].y);writer.Write(p[i].z);
+                    writer.Write(n[i].x);writer.Write(n[i].y);writer.Write(n[i].z);
+                    writer.Write(uv[i].x);writer.Write(uv[i].y);
+                }
+                writer.Write(locked);writer.Write(1);writer.Write(indices.Length);foreach(int i in indices)writer.Write(i);
+            }
+            string binary=Path.GetFullPath("Tools/bin/meshopt-reduce");
+            string[] sources={"Tools/meshopt-reduce.cpp","Tools/meshoptimizer/simplifier.cpp","Tools/meshoptimizer/allocator.cpp","Tools/meshoptimizer/meshoptimizer.h"};
+            if(!File.Exists(binary)||sources.Any(f=>File.GetLastWriteTimeUtc(f)>File.GetLastWriteTimeUtc(binary)))
+                RunProcess("/bin/zsh","\""+Path.GetFullPath("Tools/BuildOptimizer.command")+"\"");
+            float ratio=targetTriangles/(indices.Length/3f);
+            RunProcess(binary,"\""+input+"\" \""+output+"\" "+ratio.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+" 0.0028");
+            int[] result;float error;
+            using(var reader=new BinaryReader(File.OpenRead(output))) {
+                if(reader.ReadInt32()!=0x46495348||reader.ReadInt32()!=1)throw new InvalidOperationException("Invalid rebuilt reducer output");
+                error=reader.ReadSingle();int count=reader.ReadInt32();
+                if(count<0||count%3!=0||count>indices.Length)throw new InvalidOperationException("Invalid rebuilt index count");
+                result=Enumerable.Range(0,count).Select(i=>reader.ReadInt32()).ToArray();
+                if(result.Any(i=>i<0||i>=p.Length))throw new InvalidOperationException("Invalid rebuilt vertex index");
+            }
+            var mesh=Extract(source,new List<int>{0},new[]{result});mesh.name=source.name;
+            Debug.Log($"Rebuilt reduction: {indices.Length/3} -> {result.Length/3}; error={error}; locked={locked.Count(x=>x!=0)}");
+            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries"},true));
+            UnityEngine.Object.DestroyImmediate(source);return mesh;
+        }
+
         static bool Protected(string name) => name.Contains("Face") || name.Contains("Eye") ||
             name.Contains("Body_00_SKIN") || new[] { "HAIR_10", "HAIR_11", "HAIR_12" }.Any(name.EndsWith);
 
