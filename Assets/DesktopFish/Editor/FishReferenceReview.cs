@@ -161,6 +161,15 @@ namespace DesktopFish.Editor
             FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/small",.8f,new Vector3(0,-.056f,0),180,240);
+            // Diagnose the assembled front chest silhouette without guessing
+            // whether its visible width comes from paint or a backing layer.
+            foreach(int slot in new[]{10,11,15,17}) {
+                var isolated=UnityEngine.Object.Instantiate(baked);
+                for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?baked.GetTriangles(sub):Array.Empty<int>(),sub,false);
+                snapshot.GetComponent<MeshFilter>().sharedMesh=isolated;
+                FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/front-layer-"+slot,.8f,new Vector3(0,-.056f,0));
+                snapshot.GetComponent<MeshFilter>().sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
+            }
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewRearPaint(baked,snapshot.transform);
@@ -740,6 +749,7 @@ namespace DesktopFish.Editor
                     }
             }
             ReviewChestLoftGuides(points,baked.uv,chestFaces);
+            ReviewChestBackingGuides(points,baked.uv,baked.GetTriangles(17),camera,baked,snapshot);
             ReviewRearEnvelope(points,baked.uv,envelopeFaces);
             ReviewSideCurlGuides(points,baked.uv,curlFaces);
             ReviewSideLockGuides(points,baked.uv,curlFaces);
@@ -757,6 +767,39 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/rear-coverage-sections.json",JsonUtility.ToJson(new HairSectionReport{sections=coverage.ToArray()},true));
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
+        }
+        static void ReviewChestBackingGuides(Vector3[] points,Vector2[] uv,int[] triangles,Camera camera,Mesh baked,Transform snapshot) {
+            var samples=new System.Collections.Generic.List<Landmark>();var bounds=new System.Collections.Generic.List<Landmark>();
+            foreach(int sign in new[]{-1,1}) {
+                var selected=Enumerable.Range(0,triangles.Length/3).Where(i=>
+                    Enumerable.Range(0,3).Average(j=>points[triangles[i*3+j]].x)*sign>0)
+                    .SelectMany(i=>new[]{triangles[i*3],triangles[i*3+1],triangles[i*3+2]}).ToArray();
+                var visible=selected.Distinct().Where(i=>GuideTexture(17).GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f).Select(i=>points[i]).ToArray();
+                float tipY=visible.Min(p=>p.y);
+                // Eight points describe a broad curved sheet with a measured
+                // return. World-X order stays fixed through the lower S bend.
+                foreach(float y in new[]{.70f,.66f,.62f,.58f,.54f,.50f,.46f,.43f,.41f,.39f,.37f,.35f,.33f,.315f,.30f,.29f,.285f,tipY+.0015f}.Where(y=>y>tipY+.0003f).Distinct().OrderByDescending(y=>y)) {
+                    var cuts=VisibleSection(points,uv,selected,Vector3.up,y,17,maxStep:.00015f);
+                    if(cuts.Count<2)continue;float lo=cuts.Min(p=>p.x),hi=cuts.Max(p=>p.x);
+                    for(int column=0;column<8;column++) {
+                        int q=column<=4?column:8-column;float x=Mathf.Lerp(lo,hi,q/4f),nearest=cuts.Min(p=>Mathf.Abs(p.x-x));
+                        var band=cuts.Where(p=>Mathf.Abs(p.x-x)<=nearest+.0001f).ToArray();
+                        float front=band.Max(p=>p.z),back=band.Min(p=>p.z);
+                        float z=q==0||q==4?(front+back)*.5f:column<4?front:back;
+                        samples.Add(new Landmark{name="backing-"+sign+"-ring-"+column,position=new Vector3(x,y,z)});
+                    }
+                    bounds.Add(new Landmark{name="backing-"+sign+"-minimum",position=new Vector3(lo,y,cuts.Min(p=>p.z))});
+                    bounds.Add(new Landmark{name="backing-"+sign+"-maximum",position=new Vector3(hi,y,cuts.Max(p=>p.z))});
+                }
+                Vector3 tip=visible.OrderBy(p=>p.y).First();samples.Add(new Landmark{name="backing-"+sign+"-tip",position=tip});
+                var isolated=UnityEngine.Object.Instantiate(baked);
+                for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==17?selected:Array.Empty<int>(),sub,false);
+                snapshot.GetComponent<MeshFilter>().sharedMesh=isolated;
+                FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/chest-backing-"+sign,.8f,new Vector3(0,-.056f,0));
+                snapshot.GetComponent<MeshFilter>().sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
+            }
+            File.WriteAllText("work/reference-review/chest-backing-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/chest-backing-envelope.json",JsonUtility.ToJson(new FaceSectionReport{samples=bounds.ToArray()},true));
         }
         static void ReviewChestLoftGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
             var samples=new System.Collections.Generic.List<Landmark>();var envelope=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);

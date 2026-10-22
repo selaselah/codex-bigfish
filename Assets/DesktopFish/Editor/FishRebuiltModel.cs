@@ -520,6 +520,32 @@ namespace DesktopFish.Editor
                 for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
                 body.region=oldRegion;
             }
+            public void GuidedChestBacking(int panel,int bone) {
+                int head=ids["J_Bip_C_Head"],oldRegion=body.region;body.region=0;
+                const int columns=4;var ys=FishChestBackingGuides.Stations(panel);
+                Func<float,float,Vector3> surface=(height,around)=>FishChestBackingGuides.Surface(panel,height,around);
+                // Front and return share edge positions, UV and weights. They
+                // keep distinct normals at the thin folded lip, avoiding a
+                // front/back normal cancellation on the broad sheet.
+                for(int side=0;side<2;side++) {
+                    int start=body.p.Count;
+                    for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++) {
+                        float u=side==0?col/8f:1-col/8f,y=ys[row];Vector3 final=surface(y,u),author=AuthorPoint(final);
+                        float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                        float paintT=Mathf.InverseLerp(.82f,.405f,final.y),paintU=col/4f;
+                        int vertex=body.Add(author,Color.white*.98f,bone,new Vector2(.75f+2f/12f+.004f+paintU*.075f,.02f+.94f*paintT),head,anchored);
+                        if(row>0&&row<ys.Length-2) {
+                            Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
+                            float lo=side==0?0:.5f,hi=side==0?.5f:1;
+                            Vector3 across=AuthorPoint(surface(y,Mathf.Clamp(u+.001f,lo,hi)))-AuthorPoint(surface(y,Mathf.Clamp(u-.001f,lo,hi)));
+                            Vector3 n=Vector3.Cross(along.normalized,across.normalized).normalized;
+                            if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                        }
+                    }
+                    int first=body.tri.Count;Grid(body,start,ys.Length-1,columns);if(side==0)ReverseFaces(body,first);
+                }
+                body.region=oldRegion;
+            }
             public void GuidedSideLock(int panel,int bone,bool fork=false) {
                 int head=ids["J_Bip_C_Head"],start=body.p.Count,firstFace=body.tri.Count,oldRegion=body.region;body.region=0;
                 int columns=fork?4:8,sign=fork?(panel==0?1:-1):(panel==0?-1:1);
@@ -1675,7 +1701,22 @@ namespace DesktopFish.Editor
             feetOnly.triangles=footTriangles.ToArray();bodySnapshot.sharedMesh=feetOnly;
             RenderFootStudy(camera,"work/rebuilt-foot-isolated",1,Vector3.zero);
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(feetOnly);
-            if(includeSurfaceStudy)RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+            if(includeSurfaceStudy) {
+                RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+                var chestOnly=UnityEngine.Object.Instantiate(completeBody);var chestTriangles=new List<int>();var st=completeBody.uv;
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x>.751f&&q.x<.996f&&q.y>128f/PaintHeight&&q.y<.55f;
+                }))chestTriangles.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                chestOnly.triangles=chestTriangles.ToArray();bodySnapshot.sharedMesh=chestOnly;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBodyStudy(camera,"work/rebuilt-chest-isolated",1,Vector3.zero);
+                RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+                foreach(string mode in new[]{"clay-lit","paint-flat","albedo-flat","toon-no-outline"})foreach(int angle in new[]{0,35,90,180})
+                    File.Copy("work/rebuilt-surface-"+mode+"-"+angle+".png","work/rebuilt-chest-"+mode+"-"+angle+".png",true);
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(chestOnly);
+                RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+            }
             if(!includeMotion) {
                 if(includeHandReview) {
                     RenderHandDetails(companion,motion,skins,snapshots,camera,"R");
@@ -2054,6 +2095,7 @@ namespace DesktopFish.Editor
                 // without mirrored sections or copied source topology.
                 a.GuidedChestPanel(sign<0?0:1,bone);
                 a.GuidedChestPanel(sign<0?3:2,bone);
+                a.GuidedChestBacking(sign<0?0:1,bone);
                 for(int panel=0;panel<7;panel++)a.GuidedFrontPanel(panel,sign,head,panel%3);
                 a.GuidedFrontPanel(7,sign,head,sign);
                 // Corresponding Ref rays locate these two underlying locks.
