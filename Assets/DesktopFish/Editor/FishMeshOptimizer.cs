@@ -50,7 +50,17 @@ namespace DesktopFish.Editor
                 int root=component(i);Bounds b;if(!bounds.TryGetValue(root,out b))b=new Bounds(p[i],Vector3.zero);
                 b.Encapsulate(p[i]);bounds[root]=b;
             }
-            foreach(int i in indices.Distinct())if(bounds[component(i)].size.sqrMagnitude<.025f*.025f)locked[i]=1;
+            var colors=source.colors;var contrast=new Dictionary<int,Bounds>();
+            foreach(int i in indices.Distinct()) {
+                int root=component(i);var c=colors[i];Vector3 rgb=new Vector3(c.r,c.g,c.b);Bounds b;
+                if(!contrast.TryGetValue(root,out b))b=new Bounds(rgb,Vector3.zero);b.Encapsulate(rgb);contrast[root]=b;
+            }
+            foreach(int i in indices.Distinct()) {
+                int root=component(i);float extent=bounds[root].size.sqrMagnitude;
+                // Preserve small multicolor ornaments as well as tiny beads:
+                // geometry-only error cannot represent a gold-to-blue rim.
+                if(extent<.025f*.025f||(extent<.04f*.04f&&contrast[root].size.sqrMagnitude>.3f*.3f))locked[i]=1;
+            }
             // Front strips carry deliberately sparse measured cross-sections.
             // Keep their thin layered surfaces; body-scale collapse can alter
             // their carefully allocated silhouette and overlap.

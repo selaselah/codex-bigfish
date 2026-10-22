@@ -2030,65 +2030,76 @@ namespace DesktopFish.Editor
         }
 
         static void Collar(Author a,int bone) {
-            int start=a.body.p.Count;const int sides=32;
-            for(int row=0;row<=2;row++)for(int i=0;i<=sides;i++) {
-                float t=row/2f,theta=i/(float)sides*Mathf.PI*2;
+            int start=a.body.p.Count;const int sides=24;
+            for(int row=0;row<=1;row++)for(int i=0;i<=sides;i++) {
+                float t=(float)row,theta=i/(float)sides*Mathf.PI*2;
                 float radius=Mathf.Lerp(.038f,.031f,t);
                 a.body.Add(V(Mathf.Sin(theta)*radius,Mathf.Lerp(.550f,.576f,t),
                     Mathf.Cos(theta)*radius),White*.94f,bone);
             }
-            Grid(a.body,start,2,sides);
+            Grid(a.body,start,1,sides);
             foreach(int sign in new[]{-1,1}) {
-                var neck=Curve(new[]{V(sign*.004f,.575f,.028f),V(sign*.019f,.576f,.029f),
-                    V(sign*.035f,.568f,.012f),V(sign*.032f,.559f,.004f)},12);
-                var edge=Curve(new[]{V(sign*.012f,.542f,.098f),V(sign*.034f,.528f,.090f),
-                    V(sign*.080f,.539f,.061f),V(sign*.083f,.548f,.030f)},12);
-                int first=a.body.p.Count,triangles=a.body.tri.Count;const int cols=4;
-                for(int i=0;i<=12;i++)for(int j=0;j<=cols;j++) {
-                    float t=i/12f,r=j/(float)cols;
-                    Vector3 p=Vector3.Lerp(neck[i],edge[i],r);
-                    p.y+=.002f*Mathf.Sin(r*Mathf.PI);
-                    p.z+=.003f*Mathf.Sin(r*Mathf.PI)*Mathf.Sin(t*Mathf.PI);
-                    Color color=White*Mathf.Lerp(.90f,1,Mathf.Sin(r*Mathf.PI*.70f));color.a=1;
-                    a.body.Add(p,color,bone);
+                int first=a.body.p.Count,triangles=a.body.tri.Count;const int rows=12,cols=4;
+                for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
+                    Vector3 p=FishModelGuides.CollarFold(i/(float)rows,j/(float)cols);p.x*=sign;
+                    Color color=White*Mathf.Lerp(1,.92f,j/(float)cols);color.a=1;
+                    a.body.Add(AuthorGarmentPoint(p),color,bone);
                 }
-                Grid(a.body,first,12,cols);
-                if(sign<0)ReverseFaces(a.body,triangles);
+                Grid(a.body,first,rows,cols);if(sign<0)ReverseFaces(a.body,triangles);
             }
+            int underlap=a.body.p.Count;
+            foreach(Vector3 p in new[]{V(-.004f,.537f,.009f),V(.004f,.537f,.009f),V(-.004f,.513f,.046f),V(.004f,.513f,.046f)})
+                a.body.Add(AuthorGarmentPoint(p),White,bone);
+            a.body.Face(underlap,underlap+2,underlap+1);a.body.Face(underlap+1,underlap+2,underlap+3);
         }
 
         static void ChestRibbon(Author a,int bone) {
             foreach(int sign in new[]{-1,1}) {
-                const int rows=6,cols=4;
-                foreach(int surface in new[]{1,-1}) {
+                const int rows=8,cols=3;
+                foreach(bool front in new[]{true,false}) {
                     int start=a.body.p.Count,triangles=a.body.tri.Count;
                     for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
-                        float u=i/(float)rows,v=j/(float)cols*2-1;
-                        float swell=Mathf.Sin(u*Mathf.PI)*(1-v*v);
-                        float fold=Mathf.Exp(-Mathf.Pow((Mathf.Abs(v)-.34f)/.18f,2))*Mathf.Sin(u*Mathf.PI);
-                        float x=sign*(.005f+.057f*u)*(1-.08f*Mathf.Pow(Mathf.Abs(v),3));
-                        float y=.536f+.004f*u+v*(.006f+.021f*Mathf.Sin(u*Mathf.PI*.55f));
-                        float z=.103f-.012f*u+(surface>0?.006f:-.002f)*swell-surface*.0025f*fold;
-                        Color color=Color.Lerp(Navy,Hex("4B5B8B"),swell*.24f)*(.93f+.16f*(v+1)*.5f-.18f*fold);color.a=1;
-                        a.body.Add(V(x,y,z),color,bone);
+                        float t=i/(float)rows,v=j/(float)cols;
+                        Vector3 p=FishModelGuides.RibbonLoop(t,v,front);p.x*=sign;
+                        float crease=Mathf.Exp(-Mathf.Pow((v-.35f)/.15f,2))*Mathf.Sin(t*Mathf.PI);
+                        Color color=Color.Lerp(Hex("2C3F80"),Hex("142650"),crease*.9f)*(front?1:.81f);color.a=1;
+                        a.body.Add(AuthorGarmentPoint(p),color,bone);
                     }
-                    Grid(a.body,start,rows,cols);
-                    if((surface>0)==(sign>0))ReverseFaces(a.body,triangles);
+                    Grid(a.body,start,rows,cols);if(front==(sign>0))ReverseFaces(a.body,triangles);
                 }
-                // Two broad draped tails keep the notch and center gap readable.
-                int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;const int tailCols=4;
-                for(int i=0;i<=10;i++)for(int j=0;j<=tailCols;j++) {
-                    float t=i/10f,v=j/(float)tailCols*2-1;
-                    float x=sign*(.010f+.010f*t+.007f*t*t+v*(.004f+.012f*t));
-                    float y=.534f-.060f*t+.006f*(1-Mathf.Abs(v))*Mathf.Pow(t,10);
-                    float z=.100f+.005f*Mathf.Sin(t*Mathf.PI)-.004f*v*v;
-                    Color color=Navy*(.90f+.16f*(1-v*v));color.a=1;
-                    a.body.Add(V(x,y,z),color,bone);
+                // A broad painted fold is represented by a shallow strip so
+                // the index-only simplifier cannot erase its color boundary.
+                int foldStart=a.body.p.Count,foldTriangles=a.body.tri.Count;
+                for(int i=0;i<=5;i++)for(int j=0;j<=2;j++) {
+                    float t=i/5f,u=Mathf.Lerp(.08f,.64f,t),width=.115f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.7f);
+                    Vector3 p=FishModelGuides.RibbonLoop(u,.43f+(j-1)*width,true);p.x*=sign;p.z+=.0012f;
+                    a.body.Add(AuthorGarmentPoint(p),Hex("172650"),bone);
                 }
-                Grid(a.body,tailStart,10,tailCols);
-                if(sign>0)ReverseFaces(a.body,tailTriangles);
+                Grid(a.body,foldStart,5,2);if(sign>0)ReverseFaces(a.body,foldTriangles);
+                int tail=a.body.p.Count,first=a.body.tri.Count;const int tailRows=7;
+                for(int i=0;i<=tailRows;i++)for(int j=0;j<=4;j++) {
+                    float t=i/(float)tailRows,v=j/4f;Vector3 p=FishModelGuides.RibbonTail(t,v);p.x*=sign;
+                    Color color=Color.Lerp(Hex("2C3F80"),Navy,.18f*t+.12f*v);color.a=1;
+                    a.body.Add(AuthorGarmentPoint(p),color,bone);
+                }
+                Grid(a.body,tail,tailRows,4);if(sign<0)ReverseFaces(a.body,first);
             }
-            a.Sphere(a.body,V(0,.538f,.104f),V(.010f,.008f,.006f),Navy,bone,12,8);
+            // Registered bounds of the separate central clasp. Broad facets
+            // and a raised gold rim stay readable at desktop scale.
+            var outline=new[]{V(0,1,0),V(.72f,.78f,0),V(1,.45f,0),V(.85f,-.25f,0),V(.52f,-.82f,0),V(0,-1,0),V(-.52f,-.82f,0),V(-.85f,-.25f,0),V(-1,.45f,0),V(-.72f,.78f,0)};
+            int gem=a.body.p.Count;Vector3 center=V(0,.51519f,.06062f);
+            for(int ring=0;ring<3;ring++)foreach(Vector3 q in outline) {
+                float r=new[]{1f,.78f,.65f}[ring];Vector3 p=center+V(q.x*.01179f*r,q.y*.01031f*r,new[]{-.0008f,.0003f,.0012f}[ring]);
+                Color color=ring<2?Gold:Hex("537BA9");
+                if(ring==2)color=Color.Lerp(color,Hex("A7D9EE"),Mathf.Clamp01((q.y-q.x)*.4f+.3f));
+                a.body.Add(AuthorGarmentPoint(p),color,bone);
+            }
+            for(int ring=0;ring<2;ring++)for(int j=0;j<10;j++) {
+                int a0=gem+ring*10+j,b0=gem+ring*10+(j+1)%10,c0=a0+10,d0=b0+10;
+                a.body.Face(a0,c0,b0);a.body.Face(b0,c0,d0);
+            }
+            int middle=a.body.Add(AuthorGarmentPoint(center+Vector3.forward*.002f),Hex("7FBDD8"),bone);
+            for(int j=0;j<10;j++)a.body.Face(middle,gem+20+(j+1)%10,gem+20+j);
         }
 
         static void Lathe(Author a,int bone,float y0,float y1,Func<float,float> rx,Func<float,float> rz,Color color,int rows,int sides) {
@@ -2366,8 +2377,6 @@ namespace DesktopFish.Editor
                 Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));a.body.region=0;
             }
             ChestRibbon(a,chest);
-            a.Sphere(a.body,V(0,.538f,.109f),V(.011f,.009f,.004f),Gold,chest,16,10);
-            a.Sphere(a.body,V(0,.539f,.113f),V(.006f,.005f,.002f),Hex("67AACA"),chest,14,8);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
             int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;
             a.Sweep(a.body,Curve(new[]{V(.02f,.26f,-.095f),V(.19f,.18f,-.12f),V(.22f,.10f,-.12f),V(.31f,.13f,-.065f)},20),

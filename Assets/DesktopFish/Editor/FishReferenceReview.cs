@@ -117,6 +117,7 @@ namespace DesktopFish.Editor
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
+            ReviewCollarRibbonGuides(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
             FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
             ReviewHandBounds(reference,baked,skin,snapshot.transform);
@@ -261,6 +262,7 @@ namespace DesktopFish.Editor
                     File.WriteAllBytes("work/reference-review/"+label+"-"+angle+".png",frame.EncodeToPNG());
                 }
                 if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
+                if(slot==29||slot==30)FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib-cloth-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==3)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-skin",.8f,new Vector3(0,-.056f,0));
                 if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
@@ -709,6 +711,41 @@ namespace DesktopFish.Editor
                     position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
             }
             File.WriteAllText("work/reference-review/front-crown.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
+        static void ReviewCollarRibbonGuides(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{29,30})foreach(float x in new[]{.003f,.008f,.015f,.025f,.035f,.045f,.051f,.0525f,.065f,.08f,.10f}) {
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(slot),Vector3.right,x,slot,(p,st)=>p.z>-.01f&&(slot==29||p.y>.34f));
+                if(cuts.Count==0)continue;
+                // Record separated vertical intervals rather than joining a
+                // tail, loop and collar simply because they share a material.
+                var ordered=cuts.OrderBy(p=>p.y).ToArray();int start=0,band=0;
+                for(int end=1;end<=ordered.Length;end++) {
+                    if(end<ordered.Length&&ordered[end].y-ordered[end-1].y<.001f)continue;
+                    var part=ordered.Skip(start).Take(end-start).ToArray();float low=part.First().y,high=part.Last().y;
+                    for(int row=0;row<25;row++) {
+                        float y=Mathf.Lerp(low,high,row/24f),nearest=part.Min(p=>Mathf.Abs(p.y-y));
+                        var near=part.Where(p=>Mathf.Abs(p.y-y)<=nearest+.0003f).ToArray();
+                        Vector3 front=near.OrderByDescending(p=>p.z).First(),back=near.OrderBy(p=>p.z).First();front.y=back.y=y;
+                        samples.Add(new Landmark{name=slot+"/"+x.ToString("F4")+"/"+band+"/front/"+row,position=front});
+                        samples.Add(new Landmark{name=slot+"/"+x.ToString("F4")+"/"+band+"/back/"+row,position=back});
+                    }
+                    start=end;band++;
+                }
+            }
+            foreach(float y in new[]{.324f,.328f,.332f,.336f,.340f,.344f,.348f}) {
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(29),Vector3.up,y,29,(p,st)=>p.x>.004f&&p.x<.034f);
+                if(cuts.Count==0)continue;
+                float low=cuts.Min(p=>p.x),high=cuts.Max(p=>p.x);
+                for(int col=0;col<5;col++) {
+                    float x=Mathf.Lerp(low,high,col/4f),nearest=cuts.Min(p=>Mathf.Abs(p.x-x));
+                    var p=cuts.Where(p=>Mathf.Abs(p.x-x)<=nearest+.0002f).OrderBy(p=>p.z).First();p.x=x;
+                    samples.Add(new Landmark{name="tail/"+y.ToString("F4")+"/"+col,position=p});
+                }
+            }
+            File.WriteAllText("work/reference-review/collar-ribbon-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewBibGuides(Mesh baked,Transform snapshot) {

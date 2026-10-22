@@ -399,6 +399,66 @@ namespace DesktopFish.Editor {
             return Vector3.Lerp(front,new Vector3(g.y,front.y,g.z),blend);
         }
 
+        static readonly Vector3[][] RibbonLoopFront={
+            new[]{new Vector3(0.004000f,0.512823f,0.057726f),new Vector3(0.004000f,0.514248f,0.056451f),new Vector3(0.004000f,0.515674f,0.056124f),new Vector3(0.004000f,0.517099f,0.054769f),new Vector3(0.004000f,0.518524f,0.051673f)},
+            new[]{new Vector3(0.010000f,0.507530f,0.060701f),new Vector3(0.010000f,0.511602f,0.057059f),new Vector3(0.010000f,0.515674f,0.056124f),new Vector3(0.010000f,0.519745f,0.052254f),new Vector3(0.010000f,0.523817f,0.043408f)},
+            new[]{new Vector3(0.018750f,0.503118f,0.066506f),new Vector3(0.018750f,0.508618f,0.062550f),new Vector3(0.018750f,0.514117f,0.055849f),new Vector3(0.018750f,0.519617f,0.051567f),new Vector3(0.018750f,0.525116f,0.041587f)},
+            new[]{new Vector3(0.031250f,0.499725f,0.073287f),new Vector3(0.031250f,0.506821f,0.066769f),new Vector3(0.031250f,0.513917f,0.059328f),new Vector3(0.031250f,0.521013f,0.054114f),new Vector3(0.031250f,0.528109f,0.041579f)},
+            new[]{new Vector3(0.043750f,0.498800f,0.075957f),new Vector3(0.043750f,0.506638f,0.068802f),new Vector3(0.043750f,0.514477f,0.059797f),new Vector3(0.043750f,0.522316f,0.055563f),new Vector3(0.043750f,0.530155f,0.041490f)},
+            new[]{new Vector3(0.056250f,0.495226f,0.071197f),new Vector3(0.056250f,0.503912f,0.069626f),new Vector3(0.056250f,0.512597f,0.061714f),new Vector3(0.056250f,0.521282f,0.054302f),new Vector3(0.056250f,0.529967f,0.041477f)},
+            new[]{new Vector3(0.063750f,0.516757f,0.049178f),new Vector3(0.063750f,0.519717f,0.048558f),new Vector3(0.063750f,0.522676f,0.047882f),new Vector3(0.063750f,0.525636f,0.045243f),new Vector3(0.063750f,0.528595f,0.040389f)},
+            new[]{new Vector3(0.065625f,0.522280f,0.043688f),new Vector3(0.065625f,0.523563f,0.042962f),new Vector3(0.065625f,0.524847f,0.041947f),new Vector3(0.065625f,0.526131f,0.040786f),new Vector3(0.065625f,0.527415f,0.039500f)},
+            new[]{new Vector3(0.066200f,0.524719f,0.042034f),new Vector3(0.066200f,0.524783f,0.041997f),new Vector3(0.066200f,0.524847f,0.041947f),new Vector3(0.066200f,0.524911f,0.041889f),new Vector3(0.066200f,0.524976f,0.041824f)},
+        };
+        static readonly Vector3[][] RibbonLoopBack={
+            new[]{new Vector3(0.004000f,0.511449f,0.049199f),new Vector3(0.004000f,0.513052f,0.046974f),new Vector3(0.004000f,0.514656f,0.044999f),new Vector3(0.004000f,0.516259f,0.043341f),new Vector3(0.004000f,0.517862f,0.043614f)},
+            new[]{new Vector3(0.010000f,0.505494f,0.056998f),new Vector3(0.010000f,0.510075f,0.050643f),new Vector3(0.010000f,0.514656f,0.044999f),new Vector3(0.010000f,0.519236f,0.040263f),new Vector3(0.010000f,0.523817f,0.041043f)},
+            new[]{new Vector3(0.018750f,0.501119f,0.059872f),new Vector3(0.018750f,0.507118f,0.051735f),new Vector3(0.018750f,0.513118f,0.044046f),new Vector3(0.018750f,0.519117f,0.039167f),new Vector3(0.018750f,0.525116f,0.040870f)},
+            new[]{new Vector3(0.031250f,0.497698f,0.060773f),new Vector3(0.031250f,0.505301f,0.052101f),new Vector3(0.031250f,0.512903f,0.042984f),new Vector3(0.031250f,0.520506f,0.036084f),new Vector3(0.031250f,0.528109f,0.040517f)},
+            new[]{new Vector3(0.043750f,0.497306f,0.060250f),new Vector3(0.043750f,0.505519f,0.049830f),new Vector3(0.043750f,0.513731f,0.041678f),new Vector3(0.043750f,0.521943f,0.035142f),new Vector3(0.043750f,0.530155f,0.040864f)},
+            new[]{new Vector3(0.056250f,0.495226f,0.069907f),new Vector3(0.056250f,0.503912f,0.055669f),new Vector3(0.056250f,0.512597f,0.044705f),new Vector3(0.056250f,0.521282f,0.036851f),new Vector3(0.056250f,0.529967f,0.040806f)},
+            new[]{new Vector3(0.063750f,0.516757f,0.048381f),new Vector3(0.063750f,0.519717f,0.044182f),new Vector3(0.063750f,0.522676f,0.040660f),new Vector3(0.063750f,0.525636f,0.037231f),new Vector3(0.063750f,0.528595f,0.039644f)},
+            new[]{new Vector3(0.065625f,0.522280f,0.043398f),new Vector3(0.065625f,0.523563f,0.041857f),new Vector3(0.065625f,0.524847f,0.040255f),new Vector3(0.065625f,0.526131f,0.038882f),new Vector3(0.065625f,0.527415f,0.038636f)},
+            new[]{new Vector3(0.066200f,0.524719f,0.040412f),new Vector3(0.066200f,0.524783f,0.040335f),new Vector3(0.066200f,0.524847f,0.040255f),new Vector3(0.066200f,0.524911f,0.040186f),new Vector3(0.066200f,0.524976f,0.040174f)},
+        };
+        static readonly Vector3[][] RibbonTailRows={
+            new[]{new Vector3(0.005248f,0.475000f,0.086062f),new Vector3(0.006481f,0.475000f,0.086237f),new Vector3(0.007714f,0.475000f,0.086446f),new Vector3(0.008947f,0.475000f,0.086655f),new Vector3(0.010179f,0.475000f,0.086865f)},
+            new[]{new Vector3(0.005386f,0.480000f,0.081941f),new Vector3(0.012632f,0.480000f,0.083115f),new Vector3(0.019878f,0.480000f,0.083734f),new Vector3(0.027123f,0.480000f,0.081425f),new Vector3(0.034369f,0.480000f,0.078682f)},
+            new[]{new Vector3(0.005011f,0.485000f,0.077629f),new Vector3(0.013852f,0.485000f,0.077775f),new Vector3(0.022694f,0.485000f,0.077984f),new Vector3(0.031536f,0.485000f,0.074387f),new Vector3(0.040378f,0.485000f,0.071011f)},
+            new[]{new Vector3(0.005076f,0.490000f,0.072882f),new Vector3(0.012998f,0.490000f,0.072819f),new Vector3(0.020920f,0.490000f,0.072617f),new Vector3(0.028843f,0.490000f,0.070056f),new Vector3(0.036765f,0.490000f,0.066752f)},
+            new[]{new Vector3(0.005500f,0.498000f,0.064000f),new Vector3(0.011250f,0.498000f,0.063250f),new Vector3(0.017000f,0.498000f,0.062500f),new Vector3(0.022750f,0.498000f,0.061750f),new Vector3(0.028500f,0.498000f,0.061000f)},
+            new[]{new Vector3(0.006000f,0.509000f,0.055000f),new Vector3(0.008500f,0.509000f,0.054500f),new Vector3(0.011000f,0.509000f,0.054000f),new Vector3(0.013500f,0.509000f,0.053500f),new Vector3(0.016000f,0.509000f,0.053000f)},
+        };
+        static readonly Vector3[][] CollarRows={
+            new[]{new Vector3(0.003750f,0.513243f,0.046839f),new Vector3(0.003750f,0.515029f,0.045360f),new Vector3(0.003750f,0.523543f,0.031884f),new Vector3(0.003750f,0.530867f,0.019467f),new Vector3(0.003750f,0.537000f,0.009000f)},
+            new[]{new Vector3(0.010000f,0.514431f,0.045258f),new Vector3(0.010000f,0.516827f,0.042274f),new Vector3(0.010000f,0.525149f,0.026435f),new Vector3(0.010000f,0.531873f,0.014216f),new Vector3(0.010000f,0.537000f,0.007000f)},
+            new[]{new Vector3(0.018750f,0.509017f,0.050326f),new Vector3(0.018750f,0.513386f,0.045871f),new Vector3(0.018750f,0.523837f,0.026703f),new Vector3(0.018750f,0.531375f,0.010886f),new Vector3(0.018750f,0.536000f,0.003000f)},
+            new[]{new Vector3(0.031250f,0.504274f,0.052344f),new Vector3(0.031250f,0.512194f,0.041927f),new Vector3(0.031250f,0.525409f,0.021577f),new Vector3(0.031250f,0.533345f,0.005350f),new Vector3(0.031250f,0.536000f,0.002500f)},
+            new[]{new Vector3(0.043750f,0.502713f,0.049045f),new Vector3(0.043750f,0.510536f,0.039804f),new Vector3(0.043750f,0.518359f,0.029409f),new Vector3(0.043750f,0.526183f,0.011514f),new Vector3(0.043750f,0.534006f,-0.010585f)},
+            new[]{new Vector3(0.056250f,0.505672f,0.042618f),new Vector3(0.056250f,0.512162f,0.033712f),new Vector3(0.056250f,0.518652f,0.022822f),new Vector3(0.056250f,0.525142f,0.010132f),new Vector3(0.056250f,0.531632f,-0.010420f)},
+            new[]{new Vector3(0.063750f,0.508599f,0.036064f),new Vector3(0.063750f,0.514108f,0.026890f),new Vector3(0.063750f,0.519617f,0.017717f),new Vector3(0.063750f,0.525126f,0.006544f),new Vector3(0.063750f,0.530635f,-0.010610f)},
+            new[]{new Vector3(0.065625f,0.509137f,0.034539f),new Vector3(0.065625f,0.514439f,0.025806f),new Vector3(0.065625f,0.519740f,0.016617f),new Vector3(0.065625f,0.525042f,0.006581f),new Vector3(0.065625f,0.530344f,-0.010508f)},
+            new[]{new Vector3(0.081250f,0.518861f,0.012859f),new Vector3(0.081250f,0.521349f,0.008083f),new Vector3(0.081250f,0.523836f,0.002511f),new Vector3(0.081250f,0.526324f,-0.003230f),new Vector3(0.081250f,0.528812f,-0.010925f)},
+            new[]{new Vector3(0.083000f,0.526000f,-0.018000f),new Vector3(0.083000f,0.526000f,-0.018000f),new Vector3(0.083000f,0.526000f,-0.018000f),new Vector3(0.083000f,0.526000f,-0.018000f),new Vector3(0.083000f,0.526000f,-0.018000f)},
+        };
+
+        static Vector3 SectionPatch(Vector3[][] rows,float t,float v) {
+            float x=Mathf.Lerp(rows[0][0].x,rows[rows.Length-1][0].x,t);int i=0;
+            while(i<rows.Length-2&&x>rows[i+1][0].x)i++;
+            float u=Mathf.InverseLerp(rows[i][0].x,rows[i+1][0].x,x);
+            float f=Mathf.Clamp01(v)*4;int j=Mathf.Min(3,(int)f);
+            Vector3 a=Vector3.Lerp(rows[i][j],rows[i][j+1],f-j),b=Vector3.Lerp(rows[i+1][j],rows[i+1][j+1],f-j);
+            return Vector3.Lerp(a,b,u);
+        }
+        public static Vector3 RibbonLoop(float t,float v,bool front) => SectionPatch(front?RibbonLoopFront:RibbonLoopBack,t,v);
+        public static Vector3 CollarFold(float t,float v) => SectionPatch(CollarRows,t,v);
+        public static Vector3 RibbonTail(float t,float v) {
+            float y=Mathf.Lerp(RibbonTailRows[0][0].y,RibbonTailRows[RibbonTailRows.Length-1][0].y,t);int i=0;
+            while(i<RibbonTailRows.Length-2&&y>RibbonTailRows[i+1][0].y)i++;
+            float u=Mathf.InverseLerp(RibbonTailRows[i][0].y,RibbonTailRows[i+1][0].y,y),f=v*4;int j=Mathf.Min(3,(int)f);
+            return Vector3.Lerp(Vector3.Lerp(RibbonTailRows[i][j],RibbonTailRows[i][j+1],f-j),Vector3.Lerp(RibbonTailRows[i+1][j],RibbonTailRows[i+1][j+1],f-j),u);
+        }
+
         // Visible cloth-color boundary and depth sections, sampled locally.
         static readonly Vector4[] BibRows={
             new Vector4(0.416000f,0.056000f,0.117000f,0.108000f),
