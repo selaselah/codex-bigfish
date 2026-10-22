@@ -13,6 +13,7 @@ namespace DesktopFish.Editor
     public static class FishRebuiltModel
     {
         const string Folder = "Assets/DesktopFish/Rebuilt";
+        const int RearDomeColumns=40;
         internal const int PaintWidth=1024, LegacyPaintHeight=1152, RearPaintHeight=512, PaintHeight=2048;
         static readonly Color Skin = Hex("FFF0E9"), Hair = Hex("304C91"), Tip = Hex("58B2D5"),
             Navy = Hex("252E5D"), White = Hex("FFFCF3"), Gold = Hex("E2C47D"), Ink = Hex("233150");
@@ -143,6 +144,7 @@ namespace DesktopFish.Editor
             public readonly Dictionary<string, int> ids = new Dictionary<string, int>();
             public readonly Geo body = new Geo(), face = new Geo();
             public readonly List<PartBudget> budgets=new List<PartBudget>();
+            public readonly List<string> rearAttachmentReport=new List<string>();
             int lastTriangle;
             public void Mark(string name){budgets.Add(new PartBudget{name=name,triangles=(body.tri.Count-lastTriangle)/3});lastTriangle=body.tri.Count;}
             readonly List<Tuple<int, Vector3, string>> features = new List<Tuple<int, Vector3, string>>();
@@ -483,41 +485,69 @@ namespace DesktopFish.Editor
                 int first=body.tri.Count;Grid(body,start,rows,cols);if(surface==0)ReverseFaces(body,first);
                 body.region=oldRegion;
             }
-            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,int[] upperFaces,bool fork=false,int[] seam=null) {
+            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,bool fork=false,int[] seam=null) {
                 int start=body.p.Count,region=body.region;body.region=0;
                 float[] stations=fork?FishRearForkGuides.Stations(panel):FishRearHairGuides.Stations(panel);
+                bool central=!fork&&panel<5;
+                if(central)stations=new[]{.745f}.Concat(stations.Where(y=>y<.72f)).ToArray();
                 if(seam!=null)stations=new[]{seam.Average(i=>upperPoints[i].y)}.Concat(stations).ToArray();
                 int cols=fork?FishRearForkGuides.Columns(panel):panel>=5?2:8;
                 int bone=fork?ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"]:
                     panel>=5?head:ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
+                Func<float,Vector3> capAtX=x=>{
+                    Vector3 nearest=Vector3.zero;float best=float.PositiveInfinity;
+                    // Match the rendered dome's actual bottom polyline, not an
+                    // independently inset analytic surface or an old hair pipe.
+                    for(int edge=RearDomeColumns/4;edge<RearDomeColumns*3/4;edge++) {
+                        Vector3 left=FishRearCrownGuides.Surface(-5,edge*360f/RearDomeColumns),right=FishRearCrownGuides.Surface(-5,(edge+1)*360f/RearDomeColumns);
+                        float t=Mathf.Clamp01((x-left.x)/(right.x-left.x));Vector3 q=Vector3.Lerp(left,right,t);
+                        float error=Mathf.Abs(q.x-x);if(error<best){best=error;nearest=q;}
+                    }
+                    return nearest;
+                };
+                Func<float,Vector3> rootPoint=u=>capAtX(FishRearHairGuides.Surface(panel,.745f,u).x);
+                Func<float,float,Vector3> visibleSurface=(height,u)=>{
+                    Vector3 p=FishRearHairGuides.Surface(panel,height,u);
+                    float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.60f,height));
+                    // Reconstruct the observed outer envelope, not deep ridges
+                    // caused by projecting overlapping inner strips separately.
+                    p.z=Mathf.Lerp(p.z,FishRearEnvelopeGuides.Depth(p.x,height)+panel*.0002f,blend);return p;
+                };
+                Func<float,float,Vector3> outerSurface=(height,u)=>{
+                    if(height<=.66f)return visibleSurface(height,u);
+                    Vector3 top=rootPoint(u),lower=visibleSurface(.66f,u);
+                    if(height>=top.y)return top;
+                    float h=top.y-.66f,t=Mathf.Clamp01((height-.66f)/h),t2=t*t,t3=t2*t;
+                    Vector3 lowerSlope=(visibleSurface(.6602f,u)-visibleSurface(.6598f,u))/.0004f;
+                    Vector3 q=(2*t3-3*t2+1)*lower+(t3-2*t2+t)*h*lowerSlope+(-2*t3+3*t2)*top+(t3-t2)*h*Vector3.up;
+                    // Evaluate one depth graph at the resulting x/y. Separate
+                    // Hermite z curves per overlapping strip create new grooves
+                    // even when their lower and upper borders coincide.
+                    Vector3 border=capAtX(q.x),n=FishRearCrownGuides.Normal(border);
+                    float span=border.y-.66f,f=Mathf.Clamp01((height-.66f)/span),f2=f*f,f3=f2*f;
+                    float z=FishRearEnvelopeGuides.Depth(q.x,.66f)+panel*.0002f;
+                    float slope=(FishRearEnvelopeGuides.Depth(q.x,.6602f)-FishRearEnvelopeGuides.Depth(q.x,.6598f))/.0004f;
+                    q.z=(2*f3-3*f2+1)*z+(f3-2*f2+f)*span*slope+(-2*f3+3*f2)*border.z+(f3-f2)*span*(-n.y/n.z);
+                    q.y=height;return q;
+                };
                 for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
                     Vector3 final=seam!=null&&row==0?upperPoints[seam[col]]:fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):
                         FishRearHairGuides.Surface(panel,stations[row],col/(float)cols);
-                    if(!fork&&panel<5&&final.y>.49f) {
-                        float depth=float.PositiveInfinity;
-                        for(int k=0;k<upperFaces.Length;k+=3) {
-                            Vector3 a=upperPoints[upperFaces[k]],b=upperPoints[upperFaces[k+1]],c=upperPoints[upperFaces[k+2]];
-                            float det=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
-                            if(Mathf.Abs(det)<1e-9f)continue;
-                            float u=((final.x-a.x)*(c.y-a.y)-(final.y-a.y)*(c.x-a.x))/det;
-                            float v=((b.x-a.x)*(final.y-a.y)-(b.y-a.y)*(final.x-a.x))/det;
-                            if(u>=0&&v>=0&&u+v<=1)depth=Mathf.Min(depth,a.z+u*(b.z-a.z)+v*(c.z-a.z));
-                        }
-                        // Match the existing upper volume in the hidden overlap;
-                        // lower measured sections retain their own depth/turn.
-                        if(!float.IsInfinity(depth))final.z=Mathf.Lerp(final.z,depth+.002f,
-                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.49f,.60f,final.y)));
-                    }
+                    // A short Hermite transition shares the exact cap border
+                    // and its tangent; lower measured sections remain authored.
+                    if(central)final=row==0?rootPoint(col/(float)cols):outerSurface(stations[row],col/(float)cols);
                     Vector3 p=AuthorPoint(final);
-                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
+                    float anchored=Mathf.SmoothStep(0,1,central?Mathf.InverseLerp(.64f,.74f,final.y):Mathf.InverseLerp(.64f,.88f,p.y));
                     int vertex=body.Add(p,Color.white*(!fork&&panel>=5?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
-                    if(!fork&&panel<5&&final.y<.53f&&final.y>FishRearHairGuides.Bottom(panel)+.0003f) {
+                    if(central&&row==0) {
+                        Vector3 n=FishRearCrownGuides.Normal(final);float derivative;FitHeight(p.y,out derivative);n.y*=derivative;
+                        body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
+                    } else if(central&&final.y>FishRearHairGuides.Bottom(panel)+.0003f) {
                         float u=col/(float)cols,y=stations[row];
-                        Vector3 along=AuthorPoint(FishRearHairGuides.Surface(panel,y-.0003f,u))-AuthorPoint(FishRearHairGuides.Surface(panel,y+.0003f,u));
-                        Vector3 across=AuthorPoint(FishRearHairGuides.Surface(panel,y,Mathf.Min(1,u+.001f)))-AuthorPoint(FishRearHairGuides.Surface(panel,y,Mathf.Max(0,u-.001f)));
+                        Vector3 along=AuthorPoint(outerSurface(y-.0003f,u))-AuthorPoint(outerSurface(y+.0003f,u));
+                        Vector3 across=AuthorPoint(outerSurface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(outerSurface(y,Mathf.Max(0,u-.001f)));
                         Vector3 normal=Vector3.Cross(across.normalized,along.normalized).normalized;
-                        if(normal.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,
-                            .88f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.53f,.47f,final.y)));
+                        if(normal.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,.88f);
                     }
                     if(seam!=null&&row==0) {
                         int source=seam[col];body.p[vertex]=body.p[source];
@@ -528,7 +558,44 @@ namespace DesktopFish.Editor
                 }
                 // The reference's flat strips are represented by one curved
                 // two-sided sheet, spending triangles on the visible outline.
-                Grid(body,start,stations.Length-1,cols);
+                if(central) {
+                    // Include every intermediate cap corner in the attachment
+                    // border. Merely sampling points on that polyline leaves a
+                    // narrow chord gap when a child edge skips a parent corner.
+                    var roots=new List<KeyValuePair<float,int>>();
+                    for(int col=0;col<=cols;col++)roots.Add(new KeyValuePair<float,int>(col/(float)cols,start+col));
+                    Action<int,Vector3> setRoot=(index,final)=>{
+                        Vector3 p=AuthorPoint(final);body.p[index]=p;body.uv[index]=RearPaintFinalUV(final);
+                        Vector3 n=FishRearCrownGuides.Normal(final);float derivative;FitHeight(p.y,out derivative);n.y*=derivative;
+                        body.normalBlends[index]=new Vector4(n.x,n.y,n.z,1);
+                    };
+                    for(int edge=RearDomeColumns/4+1;edge<RearDomeColumns*3/4;edge++) {
+                        Vector3 q=FishRearCrownGuides.Surface(-5,edge*360f/RearDomeColumns);
+                        for(int col=0;col<cols;col++) {
+                            float left=rootPoint(col/(float)cols).x,right=rootPoint((col+1)/(float)cols).x;
+                            if(q.x<=left||q.x>=right)continue;
+                            float u=(col+Mathf.InverseLerp(left,right,q.x))/cols;
+                            var nearby=roots.OrderBy(p=>Mathf.Abs(p.Key-u)).First();
+                            if(Mathf.Abs(nearby.Key-u)<.001f)setRoot(nearby.Value,q);
+                            else {
+                                int index=body.Add(AuthorPoint(q),Color.white*.97f,bone,RearPaintFinalUV(q),head,1);
+                                setRoot(index,q);roots.Add(new KeyValuePair<float,int>(u,index));
+                            }
+                            break;
+                        }
+                    }
+                    roots=roots.OrderBy(p=>p.Key).ToList();
+                    foreach(var root in roots)rearAttachmentReport.Add(RearAttachmentLine("root",panel,FitPoint(body.p[root.Value])));
+                    int upper=0,lower=0;
+                    while(upper<roots.Count-1||lower<cols) {
+                        if(upper<roots.Count-1&&(lower==cols||roots[upper+1].Key<=(lower+1)/(float)cols)) {
+                            body.Face(roots[upper].Value,roots[upper+1].Value,start+cols+1+lower);upper++;
+                        } else {
+                            body.Face(roots[upper].Value,start+cols+2+lower,start+cols+1+lower);lower++;
+                        }
+                    }
+                    Grid(body,start+cols+1,stations.Length-2,cols);
+                } else Grid(body,start,stations.Length-1,cols);
                 body.region=region;
             }
             public void GuidedSideCurl(int panel,int bone,int head) {
@@ -1930,11 +1997,11 @@ namespace DesktopFish.Editor
                     float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.91f,RearHairParameter(row/(float)radialRows)));
                     a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
-            // Replace the lower central curtain, preserving the joined crown
-            // and outer curls. Forked mid-side ends use separate branch
+            // Replace the central upper pipes and lower curtain, preserving
+            // side curls. Forked mid-side ends use separate branch
             // contours so their opening is not filled by a convex section.
             int oldRearEnd=a.body.p.Count;
-            // Refit the retained join below the dome and anchor its upper ring to the head.
+            // Refit retained side joins below the dome and anchor their upper rings to the head.
             for(int i=rearStart;i<oldRearEnd;i++) {
                 a.body.regions[i]=8;float y=FitPoint(a.body.p[i]).y;
                 var w=a.body.weights[i];float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.76f,y));
@@ -1973,11 +2040,15 @@ namespace DesktopFish.Editor
                             if((v-radialStart)%radialStride/9>seamRow)keep=false;
                             continue;
                         }
+                        // The old scalp proxy left a rear-only band after
+                        // crown clipping. The measured dome and attached sheets
+                        // now cover it; keeping that band creates a hidden ledge.
+                        if(v>=mantleEnd&&v<radialStart){keep=false;continue;}
                         int mantleColumn=v<mantleEnd?(v-rearStart)%41:-1;
                         bool mantleEdge=mantleColumn>=0&&(mantleColumn<=4||mantleColumn>=36);
                         bool outerLock=lockIndex>=0&&(lockIndex<2||lockIndex>6);
-                        if(outerLock||mantleEdge||(v>=mantleEnd&&v<radialStart))continue;
-                        if(a.body.p[v].y<.55f)keep=false;
+                        if(outerLock||mantleEdge)continue;
+                        keep=false; // Extended central sheets replace this old upper layer.
                     }
                 }
                 if(keep&&a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd)) {
@@ -1999,24 +2070,23 @@ namespace DesktopFish.Editor
             a.body.tri.Clear();a.body.tri.AddRange(crownTriangles);
             foreach(var key in a.body.splitNormalCorners.Keys.ToArray())
                 a.body.splitNormalCorners[key]=a.body.splitNormalCorners[key].Where(cornerMap.ContainsKey).Select(c=>cornerMap[c]).ToList();
-            // A short overlap at the shoulder closes the connection to the
-            // existing upper mass. Five outer and six inner sections retain
-            // different tip lengths and rear depths without closed tube backs.
+            // Five measured outer sheets reach the actual cap border. Sparse
+            // side underlays close coverage holes without restoring the old
+            // overlapping central pipes. Lower tips retain independent depths.
             // Two adjoining locks are split into a trunk and separate fork tips.
-            for(int panel=0;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray());
-            for(int panel=0;panel<FishRearForkGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray(),true,forkSeams.TryGetValue(panel,out var seam)?seam:null);
+            for(int panel=0;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints);
+            for(int panel=0;panel<FishRearForkGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,true,forkSeams.TryGetValue(panel,out var seam)?seam:null);
             // One low-density upper dome replaces the overlapping crown pipes.
             int domeStart=a.body.p.Count,oldRegion=a.body.region;a.body.region=0;
-            const int domeRows=12,domeCols=40;
+            const int domeRows=12,domeCols=RearDomeColumns;
             for(int row=0;row<=domeRows;row++)for(int col=0;col<=domeCols;col++) {
                 float angle=col*360f/domeCols;
                 float front=Mathf.SmoothStep(0,1,Mathf.Cos(angle*Mathf.Deg2Rad));
                 Vector3 final=FishRearCrownGuides.Surface(Mathf.Lerp(-5+35*front,90,row/(float)domeRows),angle);
                 final-=(final-V(0,.77f,-.05f)).normalized*(.003f*front*(1-row/(float)domeRows));
-                // Match the low cap edge to the actual retained triangles,
-                // not only to their analytic envelope. Chord error otherwise
-                // leaves a narrow shadow-producing ledge in lit exports.
-                if(row<2&&front<.5f) {
+                // Side cap edges follow retained side geometry. The central
+                // back edge is shared by the new outer-sheet attachments.
+                if(row<2&&front<.5f&&Mathf.Cos(angle*Mathf.Deg2Rad)>-.5f) {
                     Vector3 edge=FishRearCrownGuides.Surface(-5+35*front,angle);
                     Vector3 origin=V(0,edge.y,-.05f),ray=(edge-origin).normalized;
                     float hit=0;
@@ -2033,6 +2103,7 @@ namespace DesktopFish.Editor
                         final+=ray*(hit-radius-.00025f)*(1-row/2f)*(1-front*2);
                 }
                 Vector3 author=AuthorPoint(final);
+                if(row==0&&col>=domeCols/4&&col<=domeCols*3/4)a.rearAttachmentReport.Add(RearAttachmentLine("cap",col,final));
                 int vertex=a.body.Add(author,Color.white*.97f,head,RearPaintFinalUV(final));
                 Vector3 normal=FishRearCrownGuides.Normal(final);
                 float derivative;FitHeight(author.y,out derivative);normal.y*=derivative;
@@ -2074,6 +2145,12 @@ namespace DesktopFish.Editor
                 V(.10f,1.10f,-.090f),V(.12f,1.03f,-.095f)},24),
                 t=>.013f*tuftProfile(t),t=>.0075f*tuftProfile(t),t=>Hair,head,8);
             for(int row=0;row<24;row++)a.body.smoothNormalPairs.Add(new Vector2Int(tuftStart+row*9,tuftStart+row*9+8));
+            File.WriteAllLines("work/rear-attachment.csv",new[]{"kind,panel,x,y,z"}.Concat(a.rearAttachmentReport));
+        }
+
+        static string RearAttachmentLine(string kind,int panel,Vector3 p) {
+            var culture=System.Globalization.CultureInfo.InvariantCulture;
+            return kind+","+panel+","+p.x.ToString("R",culture)+","+p.y.ToString("R",culture)+","+p.z.ToString("R",culture);
         }
 
         // Height-based shaping keeps the uneven inner hem in one consistent

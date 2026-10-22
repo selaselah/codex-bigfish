@@ -382,6 +382,8 @@ namespace DesktopFish.Editor
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             var curlFaces=new System.Collections.Generic.Dictionary<int,int[]>();
+            var envelopeFaces=new System.Collections.Generic.Dictionary<int,System.Collections.Generic.List<int>>{
+                {15,new System.Collections.Generic.List<int>()},{16,new System.Collections.Generic.List<int>()}};
             var innerTips=new System.Collections.Generic.List<Landmark>();
             var rearPanels=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,31,32,37}) {
@@ -403,6 +405,11 @@ namespace DesktopFish.Editor
                     var bounds=new Bounds(points[group.First()],Vector3.zero);
                     foreach(int i in group)bounds.Encapsulate(points[i]);
                     parts.Add(new PartBounds{slot=slot,name="component-"+(index++),minimum=bounds.min,maximum=bounds.max});
+                    if(slot==16||slot==15&&new[]{0,1,2,3,4,5,6,7,9,10,13}.Contains(index-1)) {
+                        var membership=new System.Collections.Generic.HashSet<int>(group);
+                        for(int face=0;face<triangles.Length;face+=3)if(membership.Contains(triangles[face]))
+                            envelopeFaces[slot].AddRange(new[]{triangles[face],triangles[face+1],triangles[face+2]});
+                    }
                     if(slot==12||slot==37||slot==26||slot==30) {
                         var members=new System.Collections.Generic.HashSet<int>(group);var visible=new System.Collections.Generic.List<Vector3>();
                         var tex=GuideTexture(slot);var uv=baked.uv;
@@ -717,6 +724,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
+            ReviewRearEnvelope(points,baked.uv,envelopeFaces);
             ReviewSideCurlGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
@@ -733,6 +741,37 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
+        static void ReviewRearEnvelope(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,System.Collections.Generic.List<int>> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();int row=0;
+            foreach(float y in new[]{.53f,.49f,.45f,.41f,.37f,.33f}) {
+                var visible=new System.Collections.Generic.List<Vector3>();
+                foreach(var entry in faces)visible.AddRange(VisibleSection(points,uv,entry.Value.ToArray(),Vector3.up,y,entry.Key,maxStep:.0004f));
+                float lo=visible.Min(p=>p.x)+.000001f,hi=visible.Max(p=>p.x)-.000001f;
+                for(int col=0;col<=20;col++) {
+                    float x=Mathf.Lerp(lo,hi,col/20f),z=float.PositiveInfinity;
+                    foreach(var entry in faces) {
+                        int[] triangles=entry.Value.ToArray();var texture=GuideTexture(entry.Key);
+                        for(int i=0;i<triangles.Length;i+=3) {
+                            var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
+                            for(int j=0;j<3;j++) {
+                                int ai=triangles[i+j],bi=triangles[i+(j+1)%3];Vector3 a=points[ai],b=points[bi];
+                                if(!((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)))continue;
+                                float t=(y-a.y)/(b.y-a.y);cuts.Add(Vector3.Lerp(a,b,t));tex.Add(Vector2.Lerp(uv[ai],uv[bi],t));
+                            }
+                            if(cuts.Count!=2||Mathf.Abs(cuts[1].x-cuts[0].x)<1e-9f)continue;
+                            float u=(x-cuts[0].x)/(cuts[1].x-cuts[0].x);if(u<-.00001f||u>1.00001f)continue;
+                            Vector2 st=Vector2.Lerp(tex[0],tex[1],u);if(texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                            z=Mathf.Min(z,Mathf.Lerp(cuts[0].z,cuts[1].z,u));
+                        }
+                    }
+                    if(float.IsInfinity(z))throw new InvalidOperationException("No visible rear envelope hit: "+x+" / "+y);
+                    samples.Add(new Landmark{name="rear-envelope-"+row+"-"+col,position=new Vector3(x,y,z)});
+                }
+                row++;
+            }
+            File.WriteAllText("work/reference-review/rear-envelope-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
         static void ReviewSideCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
             var samples=new System.Collections.Generic.List<Landmark>();var outer=new System.Collections.Generic.List<Landmark>();var envelope=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
             foreach(int component in new[]{8,11,12,14,15,16,120,140}) {
