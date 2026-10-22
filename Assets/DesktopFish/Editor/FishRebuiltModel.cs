@@ -993,6 +993,30 @@ namespace DesktopFish.Editor
                     previous=current;
                 }
             }
+            // Opaque skin behind the opening fills the procedural closed eye.
+            // Neutral eye surfaces cover it; the existing head bone drives it.
+            public void GuidedEyeSocket(int sign,int bone) {
+                int oldRegion=body.region;body.region=1;const int rows=2;
+                int columns=FishEyeWhiteGuides.Columns(sign);int[] previous=null;
+                for(int col=0;col<columns;col++) {
+                    Vector3 lower=FishEyeWhiteGuides.Point(sign,col,false),upper=FishEyeWhiteGuides.Point(sign,col,true);
+                    bool pole=col==0||col==columns-1;var current=new int[pole?1:rows+1];
+                    for(int row=0;row<current.Length;row++) {
+                        float v=pole?.5f:row/(float)rows;Vector2 xy=EyeInputPoint(Vector3.Lerp(lower,upper,v));
+                        Vector3 surface=EyeProportionPoint(FacePoint(xy.x,xy.y,0)),point=surface;point.z-=.008f;
+                        float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(surface.x)-.126f)/.048f,2)
+                            -Mathf.Pow((surface.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,surface.z));
+                        current[row]=body.Add(point,Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f),bone);
+                    }
+                    if(previous!=null) {
+                        if(previous.Length==1)for(int row=0;row<rows;row++)body.Face(previous[0],current[row],current[row+1]);
+                        else if(pole)for(int row=0;row<rows;row++)body.Face(previous[row],current[0],previous[row+1]);
+                        else for(int row=0;row<rows;row++){body.Face(previous[row],current[row],current[row+1]);body.Face(previous[row],current[row+1],previous[row+1]);}
+                    }
+                    previous=current;
+                }
+                body.region=oldRegion;
+            }
             public void PaintedIris(int sign,int bone) {
                 int start=face.p.Count;const int columns=32,rows=2;
                 Vector3 center=FishIrisGuides.Center(sign);Vector2 inputCenter=EyeInputPoint(center);
@@ -1001,9 +1025,9 @@ namespace DesktopFish.Editor
                 for(int row=0;row<=rows;row++)for(int col=0;col<(row==0?1:columns);col++) {
                     float radius=row/(float)rows*clip[col],angle=col*Mathf.PI*2/columns;
                     Vector2 xy=EyeInputPoint(Vector3.Lerp(center,FishIrisGuides.Rim(sign,col),radius));
-                    int vertex=face.Add(FacePoint(xy.x,xy.y,.0027f),Color.white,bone,
+                    int vertex=face.Add(FacePoint(xy.x,xy.y,.0052f),Color.white,bone,
                         IrisPaintUV(Mathf.Cos(angle)*radius,Mathf.Sin(angle)*radius));
-                    features.Add(Tuple.Create(vertex,V(inputCenter.x,inputCenter.y,.0027f),"iris"));
+                    features.Add(Tuple.Create(vertex,V(inputCenter.x,inputCenter.y,.0052f),"iris"));
                 }
                 for(int col=0;col<columns;col++) {
                     int next=(col+1)%columns;face.Face(start,start+1+col,start+1+next);
@@ -1250,13 +1274,16 @@ namespace DesktopFish.Editor
         }
         static Vector3 ShapeHeadPoint(Vector3 p) {
             float radius=.166f*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow((p.y-.773f)/.187f,2)));
-            // Keep frontal anchors while shaping the facial shell. A separate
-            // sparse-section posterior/neck loft supplies its hidden closure.
+            // Keep XY anchors while measured front/rear fields reshape depth.
+            // A separate sparse-section neck loft supplies hidden closure.
             float forward=radius<.001f?1:Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.5f,.5f,p.z/radius));
             float raw=p.z,jaw=JawForward(p.y),derivative;float finalY=FitHeight(p.y,out derivative);
             p.z+=jaw*forward;
             p.z=FishHeadSideGuides.Depth(p.z,raw,radius,jaw,finalY);
-            p.x*=FaceWidthScale(p.y);return p;
+            p.x*=FaceWidthScale(p.y);
+            float registeredX=FishModelGuides.Point(V(p.x,finalY,p.z),1).x;
+            p.z=FishFrontSkinGuides.Depth(p.z,registeredX,finalY,radius<.001f?0:raw/radius);
+            return p;
         }
         static Vector3 FacePoint(float x, float y, float offset) {
             // Facial marks keep their authored XY placement while following
@@ -1428,6 +1455,7 @@ namespace DesktopFish.Editor
             PaintBib(pixels);
             PaintSideLace(pixels);
             PaintFrontPanels(pixels);
+            PaintFrontSkin(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
@@ -1475,6 +1503,31 @@ namespace DesktopFish.Editor
             return color;
         }
 
+        // Independent 104x296 alpha tile in an audited unused chart region.
+        // Planar front XY stays exact; the rear uses an opaque tile edge.
+        static Vector2 FrontSkinUV(Vector3 registered,bool frontal) {
+            float u=frontal?Mathf.Clamp01((registered.x+.24f)/.48f):0;
+            float v=Mathf.Clamp01((registered.y-.54f)/.40f);
+            return new Vector2((652+96*u)/PaintWidth,(792+280*v-128)/1024f);
+        }
+        static bool IsFrontSkinUV(Vector2 uv)=>uv.x>=648f/PaintWidth&&uv.x<=752f/PaintWidth&&
+            uv.y>=784f/PaintHeight&&uv.y<=1080f/PaintHeight;
+        static void PaintFrontSkin(Color[] pixels) {
+            // Fresh planar alpha apertures, generated from sparse opening
+            // controls. RGB stays white so existing skin/blush colors survive.
+            for(int y=784;y<1080;y++)for(int x=648;x<752;x++) {
+                Vector3 p=V(-.24f+.48f*(x-652)/96f,.54f+.40f*(y-792)/280f,0);
+                int sign=p.x<0?-1:1;float alpha=1;
+                if(FishEyeWhiteGuides.Contains(sign,p)) {
+                    Vector2 bounds=FishEyeWhiteGuides.Bounds(sign,p.x);
+                    float d=Mathf.Min(p.y-bounds.x,bounds.y-p.y,
+                        p.x-FishEyeWhiteGuides.Point(sign,0,false).x,
+                        FishEyeWhiteGuides.Point(sign,FishEyeWhiteGuides.Columns(sign)-1,false).x-p.x);
+                    alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.0024f,d));
+                }
+                pixels[y*PaintWidth+x]=new Color(1,1,1,alpha);
+            }
+        }
         // A 320px authored tile reuses a verified empty part of the apron
         // field, with a wide gutter from all existing UV charts/white swatches.
         // Fine iris bands and glints live in paint instead of overlay polygons.
@@ -1666,6 +1719,9 @@ namespace DesktopFish.Editor
                     -Mathf.Pow((p.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
                 a.body.colors[i]=Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f);
                 a.body.p[i]=p;
+                // Front uses planar XY; the existing rear seam collapses to
+                // the same tile's opaque edge. Guarded charts retain this UV map.
+                a.body.uv[i]=FrontSkinUV(FishModelGuides.Point(FitPoint(p),1),i%33<=16);
             }
             a.body.region=0;
             a.GuidedNeck(neck,head);
@@ -1686,7 +1742,7 @@ namespace DesktopFish.Editor
             }
             a.Mark("head-and-torso");
             a.body.region=2;BuildHair(a, head);a.body.region=0;a.Mark("hair");
-            a.face.region=1;BuildFace(a, head);
+            a.face.region=1;BuildFace(a, head);a.Mark("eye-socket-skin-backing");
             BuildDress(a, hips, chest);a.Mark("dress-apron-lace-gold");
             BuildLimbs(a, hips, chest);a.Mark("limbs-hands-shoes");
             BuildAccessories(a, head, chest, hips);a.Mark("headband-bows-fins-ribbon");
@@ -1962,7 +2018,7 @@ namespace DesktopFish.Editor
             if(includeFrontReview) {
                 var only=UnityEngine.Object.Instantiate(completeBody);var chosen=new List<int>();var st=completeBody.uv;
                 for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
-                    Vector2 q=st[bodyTriangles[k+j]];return q.x<.75f&&q.y>=128f/PaintHeight&&q.y<LegacyPaintHeight/(float)PaintHeight;
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x<.75f&&q.y>=128f/PaintHeight&&q.y<LegacyPaintHeight/(float)PaintHeight&&!IsFrontSkinUV(q);
                 }))chosen.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
                 only.triangles=chosen.ToArray();bodySnapshot.sharedMesh=only;var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
@@ -2354,6 +2410,7 @@ namespace DesktopFish.Editor
         {
             foreach (int sign in new[] { -1, 1 }) {
                 float x = sign * .085f;
+                a.GuidedEyeSocket(sign,head);
                 a.GuidedEyeWhite(sign,head);
                 a.PaintedIris(sign,head);
                 a.GuidedUpperEyeLine(sign,head);

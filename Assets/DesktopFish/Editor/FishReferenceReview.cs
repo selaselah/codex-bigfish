@@ -178,6 +178,7 @@ namespace DesktopFish.Editor
             ReviewHeadSideGuides(baked,snapshot.transform,skin);
             ReviewEyeProfiles(baked,snapshot.transform);
             ReviewEyeApertures(baked,snapshot.transform);
+            ReviewFrontDepth(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
             ReviewFrontPaint(baked,snapshot,camera);
@@ -1749,32 +1750,52 @@ namespace DesktopFish.Editor
             }
         }
 
+        static Func<float,float,float> ProjectedDepth(Mesh baked,Transform snapshot,int slot,float lowY,float highY,float minZ) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var source=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+            var faces=Enumerable.Range(0,source.Length/3).Select(k=>new[]{source[k*3],source[k*3+1],source[k*3+2]})
+                .Where(t=>t.Max(i=>points[i].y)>lowY&&t.Min(i=>points[i].y)<highY&&t.Max(i=>points[i].z)>minZ).ToArray();
+            return (x,y)=>{
+                float front=float.NegativeInfinity;
+                foreach(var t in faces) {
+                    Vector3 a=points[t[0]],b=points[t[1]],c=points[t[2]];
+                    if(x<Mathf.Min(a.x,Mathf.Min(b.x,c.x))||x>Mathf.Max(a.x,Mathf.Max(b.x,c.x))||
+                        y<Mathf.Min(a.y,Mathf.Min(b.y,c.y))||y>Mathf.Max(a.y,Mathf.Max(b.y,c.y)))continue;
+                    float den=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);if(Mathf.Abs(den)<1e-12f)continue;
+                    float wa=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/den;
+                    float wb=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/den,wc=1-wa-wb;
+                    if(wa<-.000001f||wb<-.000001f||wc<-.000001f)continue;
+                    Vector2 st=uv[t[0]]*wa+uv[t[1]]*wb+uv[t[2]]*wc;
+                    if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                    front=Mathf.Max(front,a.z*wa+b.z*wb+c.z*wc);
+                }
+                return front;
+            };
+        }
+
+        static void ReviewFrontDepth(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var skin=ProjectedDepth(baked,snapshot,3,.38f,.67f,-1);var white=ProjectedDepth(baked,snapshot,4,.38f,.67f,-1);
+            var samples=new System.Collections.Generic.List<Landmark>();
+            float[] ys={.55125f,.5575f,.570f,.5825f,.595f,.6075f,.620f,.6325f,.645f,.6575f,.670f,.6825f,.695f,.7075f,.720f,.745f,.770f,.795f,.820f,.845f,.870f,.895f};
+            float[] columns={0,.04f,.12f,.24f,.36f,.44f,.5f,.56f,.64f,.76f,.88f,.96f,1};
+            for(int row=0;row<ys.Length;row++) {
+                float y=(ys[row]-.07f)/1.25f;var cuts=VisibleSection(points,uv,baked.GetTriangles(3),Vector3.up,y,3,maxStep:.0001f);
+                float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
+                for(int col=0;col<columns.Length;col++) {
+                    float u=Mathf.Clamp(columns[col],.00001f,.99999f),x=Mathf.Lerp(lo,hi,u),z=Mathf.Max(skin(x,y),white(x,y));
+                    if(float.IsNegativeInfinity(z))throw new InvalidOperationException("Missing front-depth sample "+row+"/"+col);
+                    samples.Add(new Landmark{name="front-depth-"+row+"-"+col,position=new Vector3(x,y,z)});
+                }
+            }
+            File.WriteAllText("work/reference-review/front-depth-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
         // Visible white backing is clipped by the facial opening. Measuring
         // the isolated eyeball extrema alone would reproduce the hidden sphere.
         static void ReviewEyeApertures(Mesh baked,Transform snapshot) {
-            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
             var projected=new System.Collections.Generic.Dictionary<int,Func<float,float,float>>();
-            foreach(int slot in new[]{3,4}) {
-                var source=baked.GetTriangles(slot);var texture=GuideTexture(slot);
-                var faces=Enumerable.Range(0,source.Length/3).Select(k=>new[]{source[k*3],source[k*3+1],source[k*3+2]})
-                    .Where(t=>t.Max(i=>points[i].y)>.43f&&t.Min(i=>points[i].y)<.53f&&t.Max(i=>points[i].z)>.065f).ToArray();
-                projected[slot]=(x,y)=>{
-                    float front=float.NegativeInfinity;
-                    foreach(var t in faces) {
-                        Vector3 a=points[t[0]],b=points[t[1]],c=points[t[2]];
-                        if(x<Mathf.Min(a.x,Mathf.Min(b.x,c.x))||x>Mathf.Max(a.x,Mathf.Max(b.x,c.x))||
-                            y<Mathf.Min(a.y,Mathf.Min(b.y,c.y))||y>Mathf.Max(a.y,Mathf.Max(b.y,c.y)))continue;
-                        float den=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);if(Mathf.Abs(den)<1e-12f)continue;
-                        float wa=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/den;
-                        float wb=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/den,wc=1-wa-wb;
-                        if(wa<-.000001f||wb<-.000001f||wc<-.000001f)continue;
-                        Vector2 st=uv[t[0]]*wa+uv[t[1]]*wb+uv[t[2]]*wc;
-                        if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
-                        front=Mathf.Max(front,a.z*wa+b.z*wb+c.z*wc);
-                    }
-                    return front;
-                };
-            }
+            foreach(int slot in new[]{3,4})projected[slot]=ProjectedDepth(baked,snapshot,slot,.43f,.53f,.065f);
             Func<float,float,bool> visible=(x,y)=>{
                 float white=projected[4](x,y);return !float.IsNegativeInfinity(white)&&white>projected[3](x,y)+.00001f;
             };
