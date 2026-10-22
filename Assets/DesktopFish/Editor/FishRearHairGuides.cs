@@ -139,19 +139,45 @@ namespace DesktopFish.Editor {
             }
             ys.Add(rows[rows.Length-1].y);return ys.ToArray();
         }
+        static float Slope(float a,float b,float ha,float hb) {
+            if(a*b<=0)return 0;
+            float wa=2*hb+ha,wb=hb+2*ha;return (wa+wb)/(wa/a+wb/b);
+        }
+        static float Interpolate(float a,float b,float ma,float mb,float h,float t) {
+            float t2=t*t,t3=t2*t;
+            return (2*t3-3*t2+1)*a+(t3-2*t2+t)*h*ma+(-2*t3+3*t2)*b+(t3-t2)*h*mb;
+        }
         public static Vector3 Point(int panel,float y,int col) {
             var rows=Rows[panel];int count=rows.Length/5;
             int row=0;while(row<count-2&&rows[(row+1)*5].y>y)row++;
             float h=rows[row*5].y-rows[(row+1)*5].y;
-            float u=Mathf.Clamp01((rows[row*5].y-y)/h);
-            Vector3 a=rows[row*5+col],b=rows[(row+1)*5+col];
-            int prev=Mathf.Max(0,row-1),next=Mathf.Min(count-1,row+2);
-            Vector3 ma=(b-rows[prev*5+col])/(rows[prev*5].y-rows[(row+1)*5].y);
-            Vector3 mb=(rows[next*5+col]-a)/(rows[row*5].y-rows[next*5].y);
-            var p=(2*u*u*u-3*u*u+1)*a+(u*u*u-2*u*u+u)*h*ma+(-2*u*u*u+3*u*u)*b+(u*u*u-u*u)*h*mb;
-            // Shape-preserving interpolation prevents overshoot through a
-            // neighboring lock when a sparse guide makes a tight tip turn.
-            p.y=y;for(int k=0;k<3;k++)p[k]=Mathf.Clamp(p[k],Mathf.Min(a[k],b[k]),Mathf.Max(a[k],b[k]));
+            float t=Mathf.Clamp01((rows[row*5].y-y)/h);
+            Vector3 a=rows[row*5+col],b=rows[(row+1)*5+col],p=a;
+            for(int k=0;k<3;k++) {
+                if(k==1){p.y=y;continue;}
+                float d=(b[k]-a[k])/h,ma=d,mb=d;
+                if(row>0) {
+                    float hp=rows[(row-1)*5].y-rows[row*5].y;
+                    ma=Slope((a[k]-rows[(row-1)*5+col][k])/hp,d,hp,h);
+                }
+                if(row<count-2) {
+                    float hn=rows[(row+1)*5].y-rows[(row+2)*5].y;
+                    mb=Slope(d,(rows[(row+2)*5+col][k]-b[k])/hn,h,hn);
+                }
+                p[k]=Interpolate(a[k],b[k],ma,mb,h,t);
+            }
+            return p;
+        }
+        public static Vector3 Surface(int panel,float y,float across) {
+            float f=Mathf.Clamp01(across)*4;int col=Mathf.Min(3,(int)f);float t=f-col;
+            Vector3 a=Point(panel,y,col),b=Point(panel,y,col+1),p=a;
+            for(int k=0;k<3;k++) {
+                if(k==1){p.y=y;continue;}
+                float d=b[k]-a[k],ma=d,mb=d;
+                if(col>0)ma=Slope(a[k]-Point(panel,y,col-1)[k],d,1,1);
+                if(col<3)mb=Slope(d,Point(panel,y,col+2)[k]-b[k],1,1);
+                p[k]=Interpolate(a[k],b[k],ma,mb,1,t);
+            }
             return p;
         }
     }

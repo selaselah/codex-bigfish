@@ -487,12 +487,12 @@ namespace DesktopFish.Editor
                 int start=body.p.Count,region=body.region;body.region=0;
                 float[] stations=fork?FishRearForkGuides.Stations(panel):FishRearHairGuides.Stations(panel);
                 if(seam!=null)stations=new[]{seam.Average(i=>upperPoints[i].y)}.Concat(stations).ToArray();
-                int cols=fork?FishRearForkGuides.Columns(panel):panel>=5?2:4;
+                int cols=fork?FishRearForkGuides.Columns(panel):panel>=5?2:8;
                 int bone=fork?ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"]:
                     panel>=5?head:ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
                 for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
                     Vector3 final=seam!=null&&row==0?upperPoints[seam[col]]:fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):
-                        FishRearHairGuides.Point(panel,stations[row],col*4/cols);
+                        FishRearHairGuides.Surface(panel,stations[row],col/(float)cols);
                     if(!fork&&panel<5&&final.y>.49f) {
                         float depth=float.PositiveInfinity;
                         for(int k=0;k<upperFaces.Length;k+=3) {
@@ -511,6 +511,14 @@ namespace DesktopFish.Editor
                     Vector3 p=AuthorPoint(final);
                     float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                     int vertex=body.Add(p,Color.white*(!fork&&panel>=5?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
+                    if(!fork&&panel<5&&final.y<.53f&&final.y>FishRearHairGuides.Bottom(panel)+.0003f) {
+                        float u=col/(float)cols,y=stations[row];
+                        Vector3 along=AuthorPoint(FishRearHairGuides.Surface(panel,y-.0003f,u))-AuthorPoint(FishRearHairGuides.Surface(panel,y+.0003f,u));
+                        Vector3 across=AuthorPoint(FishRearHairGuides.Surface(panel,y,Mathf.Min(1,u+.001f)))-AuthorPoint(FishRearHairGuides.Surface(panel,y,Mathf.Max(0,u-.001f)));
+                        Vector3 normal=Vector3.Cross(across.normalized,along.normalized).normalized;
+                        if(normal.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,
+                            .88f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.53f,.47f,final.y)));
+                    }
                     if(seam!=null&&row==0) {
                         int source=seam[col];body.p[vertex]=body.p[source];
                         body.regions[vertex]=body.regions[source];body.weights[vertex]=body.weights[source];
