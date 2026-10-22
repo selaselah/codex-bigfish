@@ -483,6 +483,36 @@ namespace DesktopFish.Editor
                 int first=body.tri.Count;Grid(body,start,rows,cols);if(surface==0)ReverseFaces(body,first);
                 body.region=oldRegion;
             }
+            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,int[] upperFaces) {
+                int start=body.p.Count,region=body.region;body.region=0;
+                float[] stations=FishRearHairGuides.Stations(panel);int cols=panel>=5?2:4;
+                int bone=panel>=5?head:ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
+                for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
+                    Vector3 final=FishRearHairGuides.Point(panel,stations[row],col*4/cols);
+                    if(panel<5&&final.y>.49f) {
+                        float depth=float.PositiveInfinity;
+                        for(int k=0;k<upperFaces.Length;k+=3) {
+                            Vector3 a=upperPoints[upperFaces[k]],b=upperPoints[upperFaces[k+1]],c=upperPoints[upperFaces[k+2]];
+                            float det=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+                            if(Mathf.Abs(det)<1e-9f)continue;
+                            float u=((final.x-a.x)*(c.y-a.y)-(final.y-a.y)*(c.x-a.x))/det;
+                            float v=((b.x-a.x)*(final.y-a.y)-(b.y-a.y)*(final.x-a.x))/det;
+                            if(u>=0&&v>=0&&u+v<=1)depth=Mathf.Min(depth,a.z+u*(b.z-a.z)+v*(c.z-a.z));
+                        }
+                        // Match the existing upper volume in the hidden overlap;
+                        // lower measured sections retain their own depth/turn.
+                        if(!float.IsInfinity(depth))final.z=Mathf.Lerp(final.z,depth+.002f,
+                            Mathf.SmoothStep(0,1,Mathf.InverseLerp(.49f,.60f,final.y)));
+                    }
+                    Vector3 p=AuthorPoint(final);
+                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
+                    body.Add(p,Color.white*(panel>=5?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
+                }
+                // The reference's flat strips are represented by one curved
+                // two-sided sheet, spending triangles on the visible outline.
+                Grid(body,start,stations.Length-1,cols);
+                body.region=region;
+            }
             public void HairMantle(int head) {
                 const int rows=14,cols=40;
                 // Concentrate the unchanged station budget near the crown arc.
@@ -1054,6 +1084,9 @@ namespace DesktopFish.Editor
         static Vector2 RearPaintUV(Vector3 p) {
             if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
             p=FishModelGuides.Point(FitPoint(p),2);
+            return RearPaintFinalUV(p);
+        }
+        static Vector2 RearPaintFinalUV(Vector3 p) {
             float u=Mathf.Clamp01(.5f+p.x/.82f),t=Mathf.Clamp01((1.03f-p.y)/.96f);
             return new Vector2(u,(LegacyPaintHeight+t*(RearPaintHeight-1)-128)/1024f);
         }
@@ -1817,6 +1850,51 @@ namespace DesktopFish.Editor
                     float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.91f,RearHairParameter(row/(float)radialRows)));
                     a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
+            // Replace the lower central curtain, preserving the joined crown
+            // and outer curls. Their apex/branched tips require a different
+            // section parameterization from these monotone lower sheets.
+            int oldRearEnd=a.body.p.Count;
+            var upperPoints=a.body.p.Select(p=> {
+                if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
+                return FishModelGuides.Point(FitPoint(p),2);
+            }).ToArray();
+            var upperFaces=new List<int>();
+            for(int i=0;i<a.body.tri.Count;i+=3)if(a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd))
+                upperFaces.AddRange(a.body.tri.GetRange(i,3));
+            var crownTriangles=new List<int>();var cornerMap=new Dictionary<int,int>();
+            for(int i=0;i<a.body.tri.Count;i+=3) {
+                bool keep=true;
+                for(int j=0;j<3;j++) {
+                    int v=a.body.tri[i+j];
+                    if(v>=rearStart&&v<oldRearEnd) {
+                        int lockIndex=v>=radialStart?(v-radialStart)/radialStride:-1;
+                        int mantleColumn=v<mantleEnd?(v-rearStart)%41:-1;
+                        bool mantleEdge=mantleColumn>=0&&(mantleColumn<=4||mantleColumn>=36);
+                        bool outerLock=lockIndex>=0&&(lockIndex<3||lockIndex>5);
+                        if(outerLock||mantleEdge||(v>=mantleEnd&&v<radialStart))continue;
+                        if(a.body.p[v].y<.55f)keep=false;
+                    }
+                }
+                // The two lower side panels only need their outward sheet;
+                // the material is already two-sided. Keep the silhouette edge
+                // while removing the hidden inward half of the closed tube.
+                if(keep) {
+                    var face=a.body.tri.GetRange(i,3);
+                    if(face.All(v=>v>=radialStart&&v<oldRearEnd&&a.body.p[v].y<.55f&&
+                        ((v-radialStart)/radialStride==0||(v-radialStart)/radialStride==8)&&
+                        (v-radialStart)%9>=4))keep=false;
+                }
+                if(keep)for(int j=0;j<3;j++) {
+                    cornerMap[i+j]=crownTriangles.Count;crownTriangles.Add(a.body.tri[i+j]);
+                }
+            }
+            a.body.tri.Clear();a.body.tri.AddRange(crownTriangles);
+            foreach(var key in a.body.splitNormalCorners.Keys.ToArray())
+                a.body.splitNormalCorners[key]=a.body.splitNormalCorners[key].Where(cornerMap.ContainsKey).Select(c=>cornerMap[c]).ToList();
+            // A short overlap at the shoulder closes the connection to the
+            // existing upper mass. Five outer and six inner sections retain
+            // different tip lengths and rear depths without closed tube backs.
+            for(int panel=0;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray());
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
                 // An outer lower curl and a higher folded ribbon describe

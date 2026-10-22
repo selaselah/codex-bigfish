@@ -328,6 +328,7 @@ namespace DesktopFish.Editor
             var chestPanels=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             var innerTips=new System.Collections.Generic.List<Landmark>();
+            var rearPanels=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,6,10,11,12,15,16,22,23,24,25,26,27,28,29,30,31,32,37}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
                 var parents=Enumerable.Range(0,points.Length).ToArray();
@@ -411,6 +412,46 @@ namespace DesktopFish.Editor
                             }
                         }
                         frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
+                    }
+                    if((slot==15&&new[]{0,1,2,3,4,5,6,7,8,9,10,11,13}.Contains(index-1))||slot==16) {
+                        int component=index-1;string prefix=(slot==16?"inner-":"component-")+component;
+                        var members=new System.Collections.Generic.HashSet<int>(group);
+                        var selected=new System.Collections.Generic.List<int>();
+                        for(int ti=0;ti<triangles.Length;ti+=3)if(members.Contains(triangles[ti]))
+                            selected.AddRange(new[]{triangles[ti],triangles[ti+1],triangles[ti+2]});
+                        rearPanels.Add(new Landmark{name=prefix+"-root",position=group.Select(i=>points[i]).OrderByDescending(p=>p.y).First()});
+                        Vector3 tip=group.Select(i=>points[i]).OrderBy(p=>p.y).First();
+                        Vector3 previous=Vector3.right;
+                        foreach(float y in new[]{.725f,.715f,.69f,.65f,.59f,.51f,.43f,.35f,.28f,.22f,.17f,.135f,.11f,tip.y+.006f}.Where(y=>y>tip.y+.002f).Distinct().OrderByDescending(y=>y)) {
+                            var cuts=VisibleSection(points,baked.uv,selected.ToArray(),Vector3.up,y,slot);
+                            if(cuts.Count==0)continue;
+                            Vector3 center=Vector3.zero;foreach(var q in cuts)center+=q/cuts.Count;
+                            float xx=0,zz=0,xz=0;
+                            foreach(var q in cuts){var d=q-center;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
+                            float angle=.5f*Mathf.Atan2(2*xz,xx-zz);
+                            Vector3 axis=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
+                            // Each ring travels left-to-right along the outward
+                            // face; its normal points away from the scalp axis.
+                            Vector3 normal=new Vector3(axis.z,0,-axis.x);
+                            if(Vector3.Dot(normal,new Vector3(center.x,0,center.z))<0){axis=-axis;normal=-normal;}
+                            if(Vector3.Dot(axis,previous)<-.5f)Debug.LogWarning("rear section axis turn "+prefix+" y="+y);
+                            previous=axis;
+                            float lo=cuts.Min(q=>Vector3.Dot(q-center,axis)),hi=cuts.Max(q=>Vector3.Dot(q-center,axis));
+                            for(int col=0;col<5;col++) {
+                                float d=Mathf.Lerp(lo,hi,col/4f),nearest=cuts.Min(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d));
+                                var band=cuts.Where(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d)<=nearest+.00025f).ToArray();
+                                float near=band.Max(q=>Vector3.Dot(q-center,normal));
+                                float far=band.Min(q=>Vector3.Dot(q-center,normal));
+                                rearPanels.Add(new Landmark{name=prefix+"-outer-"+col,position=center+axis*d+normal*near});
+                                if(col>0&&col<4)rearPanels.Add(new Landmark{name=prefix+"-inner-"+col,position=center+axis*d+normal*far});
+                            }
+                        }
+                        rearPanels.Add(new Landmark{name=prefix+"-tip",position=tip});
+                        var isolated=UnityEngine.Object.Instantiate(baked);
+                        for(int sub=0;sub<isolated.subMeshCount;sub++)isolated.SetTriangles(sub==slot?selected.ToArray():Array.Empty<int>(),sub,false);
+                        var filter=snapshot.GetComponent<MeshFilter>();filter.sharedMesh=isolated;
+                        FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/rear-lock-"+slot+"-"+component,.8f,new Vector3(0,-.056f,0));
+                        filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                     }
                     if(slot==15&&(index-1==18||index-1==19)) {
                         string name="component-"+(index-1);
@@ -609,6 +650,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
+            File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
