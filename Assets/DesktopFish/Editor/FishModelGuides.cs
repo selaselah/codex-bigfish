@@ -48,37 +48,7 @@ namespace DesktopFish.Editor {
             new Vector4(0.960000f,0.800000f,0.000000f,0.000000f)
         };
 
-        static readonly Vector3[] BandInner = {
-            new Vector3(-0.199006f,0.793165f,0.038880f),
-            new Vector3(-0.189586f,0.849590f,0.042368f),
-            new Vector3(-0.163080f,0.903386f,0.048510f),
-            new Vector3(-0.118371f,0.945492f,0.056720f),
-            new Vector3(-0.060879f,0.967859f,0.062085f),
-            new Vector3(0.000000f,0.974840f,0.064375f),
-            new Vector3(0.060937f,0.968073f,0.062095f),
-            new Vector3(0.118926f,0.946431f,0.056865f),
-            new Vector3(0.161639f,0.901986f,0.049865f),
-            new Vector3(0.187788f,0.848598f,0.044798f),
-            new Vector3(0.202319f,0.793967f,0.041036f)
-        };
-        static readonly Vector3[] BandOuter = {
-            new Vector3(-0.242682f,0.803736f,0.035654f),
-            new Vector3(-0.233090f,0.873590f,0.040355f),
-            new Vector3(-0.198082f,0.937380f,0.048422f),
-            new Vector3(-0.146604f,0.993312f,0.057716f),
-            new Vector3(-0.073963f,1.015755f,0.063818f),
-            new Vector3(0.000000f,1.019724f,0.066419f),
-            new Vector3(0.072304f,1.009683f,0.063763f),
-            new Vector3(0.146014f,0.992312f,0.058009f),
-            new Vector3(0.200151f,0.939389f,0.049576f),
-            new Vector3(0.236214f,0.875314f,0.042072f),
-            new Vector3(0.242043f,0.803582f,0.037793f)
-        };
-        public static Vector3 Headband(float t,bool outer) {
-            var points=outer?BandOuter:BandInner;float f=t*(points.Length-1);int i=Mathf.Min(points.Length-2,(int)f);float u=f-i;
-            Vector3 a=points[i],b=points[i+1],m0=(b-points[Mathf.Max(0,i-1)])*.5f,m1=(points[Mathf.Min(points.Length-1,i+2)]-a)*.5f;
-            return (2*u*u*u-3*u*u+1)*a+(u*u*u-2*u*u+u)*m0+(-2*u*u*u+3*u*u)*b+(u*u*u-u*u)*m1;
-        }
+        public static Vector3 Headband(float t,bool outer) => FishHeadbandGuides.Point(t,outer?FishHeadbandGuides.Edge(t):0);
         // Sparse transverse landmarks capture each front strip's asymmetric
         // curvature, rather than inflating every section into an identical arch.
         static readonly Vector3[][] FrontPanelRows = {

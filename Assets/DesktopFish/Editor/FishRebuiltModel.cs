@@ -1426,7 +1426,8 @@ namespace DesktopFish.Editor
                 float edge=(tile==1?.66f:.78f)+(tile==1?.32f:.20f)*Mathf.Sqrt(Mathf.Max(0,1-wave*wave));
                 float alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.012f,edge+.012f,r));
                 float fold=.94f+.06f*Mathf.Cos(u*scallops[tile]*Mathf.PI*2);
-                if(tile==1) {
+                if(tile==0) pixels[y*size+x]=FishHeadbandGuides.Paint(u,r);
+                else if(tile==1) {
                     float phase=Mathf.Repeat(u*scallops[tile],1);
                     float crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
                     float shade=1-.10f*crease*Mathf.Sin(Mathf.Clamp01(r)*Mathf.PI*.8f);
@@ -1710,7 +1711,9 @@ namespace DesktopFish.Editor
         }
 
         static Vector2 LaceUV(int tile,float u,float r) {
-            return new Vector2((tile*256+8+239*u)/1024f,(16+96*r-128)/1024f);
+            if(tile==0)u=FishHeadbandGuides.TextureU(u);
+            float center=tile==0?.5f:0;
+            return new Vector2((tile*256+8+center+239*u)/1024f,(16+center+96*r-128)/1024f);
         }
         static Vector3 AuthorPoint(Vector3 final) {
             float lo=-.5f,hi=1.5f;
@@ -2055,6 +2058,15 @@ namespace DesktopFish.Editor
             RenderBodyStudy(camera,"work/rebuilt-sleeves",1,Vector3.zero);
             foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(sleevesOnly);
+            var bandOnly=UnityEngine.Object.Instantiate(completeBody);var bandFacets=new List<int>();var bandUV=completeBody.uv;
+            for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>{
+                var q=bandUV[bodyTriangles[i+k]];return q.x>=0&&q.x<.25f&&q.y>=0&&q.y<128f/PaintHeight;
+            }))bandFacets.AddRange(new[]{bodyTriangles[i],bodyTriangles[i+1],bodyTriangles[i+2]});
+            bandOnly.triangles=bandFacets.ToArray();bodySnapshot.sharedMesh=bandOnly;
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+            RenderHeadStudy(camera,"work/rebuilt-headband",1,Vector3.zero);
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(bandOnly);
             var feetOnly=UnityEngine.Object.Instantiate(completeBody);var footTriangles=new List<int>();
             var footBones=skins[0].bones.Select((b,i)=>new{b,i}).Where(v=>v.b.name.Contains("Foot")||v.b.name.Contains("LowerLeg")).Select(v=>v.i).ToArray();
             for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>footBones.Contains(skinWeights[bodyTriangles[i+k]].boneIndex0)))
@@ -3350,23 +3362,15 @@ namespace DesktopFish.Editor
 
         static void BuildAccessories(Author a,int head,int chest,int hips)
         {
-            // Sparse visible edges, excluding transparent padding in Ref, set
-            // the arch. New two-row strips and painted alpha form the lace.
+            // A single cloth sheet uses a sparse measured radial field. The
+            // binding and irregular pleats are painted into its own cutout tile.
             int headbandStart=a.body.p.Count;
-            for(int row=0;row<=2;row++)for(int i=0;i<=64;i++) {
-                float u=i/64f,t=row/2f,fold=Mathf.Cos(u*Mathf.PI*32);
-                Vector3 p=Vector3.Lerp(FishModelGuides.Headband(u,false),FishModelGuides.Headband(u,true),t);
-                p.z+=Mathf.Sin(t*Mathf.PI)*.006f+fold*t*.0015f;
-                a.body.Add(AuthorPoint(p),White,head,LaceUV(0,u,t));
+            float[] radialRows={0,.14f,.50f,1};
+            for(int row=0;row<radialRows.Length;row++)for(int i=0;i<=64;i++) {
+                float u=i/64f,t=radialRows[row];
+                a.body.Add(AuthorPoint(FishHeadbandGuides.Point(u,t)),White,head,LaceUV(0,u,t));
             }
-            Grid(a.body,headbandStart,2,64);
-            int bindingStart=a.body.p.Count;
-            for(int row=0;row<=1;row++)for(int i=0;i<=64;i++) {
-                float u=i/64f;
-                Vector3 p=Vector3.Lerp(FishModelGuides.Headband(u,false),FishModelGuides.Headband(u,true),row*.14f);
-                p.z+=.002f;a.body.Add(AuthorPoint(p),White,head);
-            }
-            Grid(a.body,bindingStart,1,64);
+            Grid(a.body,headbandStart,radialRows.Length-1,64);
             foreach(int s in new[]{-1,1}) {
                 HeadFin(a,s,head);
                 a.body.region=s>0?3:4;

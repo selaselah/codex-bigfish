@@ -72,6 +72,10 @@ namespace DesktopFish.Editor
             // their carefully allocated silhouette and overlap.
             for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x<.75f&&uv[i].y>.12f*FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight&&
                 uv[i].y<(float)FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight)locked[i]=1;
+            // A small alpha-edged cloth chart needs its nonuniform UV field
+            // retained; reducing a white padded sheet alone loses the visible edge.
+            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x>=8f/1024&&uv[i].x<=248f/1024&&
+                uv[i].y>=16f/FishRebuiltModel.PaintHeight&&uv[i].y<=113f/FishRebuiltModel.PaintHeight)locked[i]=1;
             for(int i=0;i<p.Length;i++)if(w[i].weight1>.00001f&&w[i].weight1<.99999f)locked[i]=1;
             for(int i=0;i<indices.Length;i+=3) {
                 int a=indices[i],b=indices[i+1],c=indices[i+2];

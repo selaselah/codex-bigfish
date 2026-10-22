@@ -141,6 +141,54 @@ namespace DesktopFish.Editor
             Debug.Log("Sparse rest sleeves measured; reference unchanged.");
         }
 
+        public static void MeasureHeadband() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);
+            var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            foreach(var bone in model.GetComponentsInChildren<Transform>(true)) {
+                if(bone.name=="J_Bip_L_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,62);
+                if(bone.name=="J_Bip_R_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,-62);
+            }
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var triangles=baked.GetTriangles(12);var used=triangles.Distinct().ToArray();var parents=Enumerable.Range(0,points.Length).ToArray();
+            Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int i=0;i<triangles.Length;i+=3){parents[root(triangles[i+1])]=root(triangles[i]);parents[root(triangles[i+2])]=root(triangles[i]);}
+            foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))){int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);}
+            var members=new System.Collections.Generic.HashSet<int>(used.GroupBy(root).OrderByDescending(g=>g.Count()).First());
+            var selected=new System.Collections.Generic.List<int>();
+            for(int i=0;i<triangles.Length;i+=3)if(members.Contains(triangles[i]))selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+            var samples=new System.Collections.Generic.List<Landmark>();
+            for(int station=0;station<=256;station++) {
+                float angle=Mathf.Lerp(-1.60f,1.60f,station/256f);var center=new Vector3(0,.54f,0);
+                var ray=new Vector3(Mathf.Sin(angle),Mathf.Cos(angle),0);var normal=new Vector3(ray.y,-ray.x,0);
+                var cuts=VisibleSection(points,baked.uv,selected.ToArray(),normal,Vector3.Dot(center,normal),12,(q,st)=>Vector3.Dot(q-center,ray)>0,maxStep:.00004f);
+                if(cuts.Count==0)continue;
+                float lo=cuts.Min(q=>Vector3.Dot(q-center,ray)),hi=cuts.Max(q=>Vector3.Dot(q-center,ray));
+                for(int column=0;column<5;column++) {
+                    float radial=Mathf.Lerp(lo,hi,column/4f),distance=cuts.Min(q=>Mathf.Abs(Vector3.Dot(q-center,ray)-radial));
+                    var point=cuts.Where(q=>Mathf.Abs(Vector3.Dot(q-center,ray)-radial)<=distance+.00004f).OrderByDescending(q=>q.z).First();
+                    samples.Add(new Landmark{name="station-"+station+"-column-"+column,position=point});
+                }
+            }
+            Directory.CreateDirectory("work/ref-headband-81");File.WriteAllText("work/ref-headband-81/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub==12?selected.ToArray():Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local headband review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;
+            snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Headband camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;
+            camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");
+            RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderHeadStudy(camera,"work/ref-headband-81/source",.8f,new Vector3(0,-.056f,0));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Local headband positional calibration read; reference unchanged.");
+        }
+
         public static void Render()
         {
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);
