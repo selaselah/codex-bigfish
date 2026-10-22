@@ -1430,6 +1430,7 @@ namespace DesktopFish.Editor
 
         static void ReviewEyeProfiles(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var samples=new System.Collections.Generic.List<Landmark>();
+            var irisSamples=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{1,4,5,7})foreach(int sign in new[]{-1,1}) {
                 var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
                 Func<float,System.Collections.Generic.List<Vector3>> section=distance=>{
@@ -1448,7 +1449,7 @@ namespace DesktopFish.Editor
                     float distance=.015f+.0035f*col;var cuts=section(distance);
                     if(cuts.Count>0)rows.Add(Tuple.Create(distance,cuts));
                 }
-                if(slot==7&&rows.Count>0)foreach(bool outer in new[]{false,true}) {
+                if((slot==7||slot==1)&&rows.Count>0)foreach(bool outer in new[]{false,true}) {
                     float inside=outer?rows.Last().Item1:rows.First().Item1,outside=inside+(outer?.0035f:-.0035f);
                     for(int i=0;i<24;i++) {
                         float middle=(inside+outside)*.5f;
@@ -1457,6 +1458,21 @@ namespace DesktopFish.Editor
                     var boundary=Tuple.Create(inside,section(inside));
                     if(outer)rows.Add(boundary);else rows.Insert(0,boundary);
                 }
+                if(slot==1&&rows.Count>0) {
+                    var all=rows.SelectMany(r=>r.Item2).ToArray();Vector3 center=new Vector3(
+                        (all.Min(p=>p.x)+all.Max(p=>p.x))*.5f,(all.Min(p=>p.y)+all.Max(p=>p.y))*.5f,0);
+                    var middle=section(Mathf.Abs(center.x));float nearest=middle.Min(p=>Mathf.Abs(p.y-center.y));
+                    center.z=middle.Where(p=>Mathf.Abs(p.y-center.y)<=nearest+.0001f).Max(p=>p.z);
+                    irisSamples.Add(new Landmark{name="iris-"+sign+"-center",position=center});
+                    for(int ray=0;ray<32;ray++) {
+                        float angle=ray*Mathf.PI*2/32;Vector3 direction=new Vector3(Mathf.Cos(angle),Mathf.Sin(angle),0);
+                        Vector3 normal=new Vector3(-direction.y,direction.x,0);
+                        var cuts=VisibleSection(points,baked.uv,triangles,normal,Vector3.Dot(center,normal),slot,
+                            (p,st)=>p.x*sign>0&&p.z>.065f&&Vector3.Dot(p-center,direction)>0,maxStep:.0001f);
+                        if(cuts.Count==0)throw new InvalidOperationException("Missing alpha-visible iris ray: "+sign+"/"+ray);
+                        irisSamples.Add(new Landmark{name="iris-"+sign+"-outer-"+ray,position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,direction)).First()});
+                    }
+                }
                 for(int col=0;col<rows.Count;col++) {
                     var cuts=rows[col].Item2;string key="eye-"+slot+"-"+sign+"-"+col;
                     samples.Add(new Landmark{name=key+"-lower",position=cuts.OrderBy(p=>p.y).First()});
@@ -1464,6 +1480,7 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/eye-profile-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/iris-outline-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=irisSamples.ToArray()},true));
         }
 
         // Three sparse side/rear/front extrema per alpha-visible skin section.
