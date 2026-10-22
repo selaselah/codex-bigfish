@@ -778,7 +778,7 @@ namespace DesktopFish.Editor
 
         static void ReviewRearEnvelope(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,System.Collections.Generic.List<int>> faces) {
             var samples=new System.Collections.Generic.List<Landmark>();int row=0;
-            foreach(float y in new[]{.53f,.49f,.45f,.41f,.37f,.33f}) {
+            foreach(float y in new[]{.53f,.49f,.45f,.41f,.37f,.33f,.31f,.29f,.25f,.21f}) {
                 var visible=new System.Collections.Generic.List<Vector3>();
                 foreach(var entry in faces)visible.AddRange(VisibleSection(points,uv,entry.Value.ToArray(),Vector3.up,y,entry.Key,maxStep:.0004f));
                 float lo=visible.Min(p=>p.x)+.000001f,hi=visible.Max(p=>p.x)-.000001f;
