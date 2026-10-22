@@ -706,6 +706,62 @@ namespace DesktopFish.Editor {
             return .5f*((2*p1)+(-p0+p2)*u+(2*p0-5*p1+4*p2-p3)*u*u+(-p0+3*p1-3*p2+p3)*u*u*u);
         }
 
+        static readonly Vector3[][] FinShellRows={
+            new[]{ // measured open shell 22
+                new Vector3(0.175000f,0.750581f,0.089902f),new Vector3(0.175000f,0.753065f,0.089352f),new Vector3(0.175000f,0.746339f,-0.018687f),new Vector3(0.175000f,0.744556f,-0.019749f),new Vector3(0.175000f,0.712178f,-0.032666f),new Vector3(0.175000f,0.676466f,-0.025405f),new Vector3(0.175000f,0.671101f,-0.023813f),
+                new Vector3(0.200000f,0.726906f,0.087260f),new Vector3(0.200000f,0.760854f,0.070464f),new Vector3(0.200000f,0.776229f,0.027880f),new Vector3(0.200000f,0.756073f,-0.010172f),new Vector3(0.200000f,0.725229f,-0.032605f),new Vector3(0.200000f,0.680680f,-0.025545f),new Vector3(0.200000f,0.673292f,-0.019485f),
+                new Vector3(0.225000f,0.716872f,0.084729f),new Vector3(0.225000f,0.752299f,0.068776f),new Vector3(0.225000f,0.765212f,0.028001f),new Vector3(0.225000f,0.749119f,-0.008543f),new Vector3(0.225000f,0.716855f,-0.028794f),new Vector3(0.225000f,0.674123f,-0.020950f),new Vector3(0.225000f,0.666561f,-0.016033f),
+                new Vector3(0.250000f,0.703308f,0.079166f),new Vector3(0.250000f,0.737601f,0.066488f),new Vector3(0.250000f,0.749533f,0.030573f),new Vector3(0.250000f,0.734893f,-0.003592f),new Vector3(0.250000f,0.702971f,-0.019397f),new Vector3(0.250000f,0.664206f,-0.010229f),new Vector3(0.250000f,0.655534f,-0.004643f),
+                new Vector3(0.275000f,0.690212f,0.071725f),new Vector3(0.275000f,0.713052f,0.061039f),new Vector3(0.275000f,0.723302f,0.033839f),new Vector3(0.275000f,0.712706f,0.006829f),new Vector3(0.275000f,0.690354f,-0.005548f),new Vector3(0.275000f,0.662204f,0.000257f),new Vector3(0.275000f,0.657227f,0.003178f),
+                new Vector3(0.300000f,0.672750f,0.063160f),new Vector3(0.300000f,0.686280f,0.055754f),new Vector3(0.300000f,0.691876f,0.037715f),new Vector3(0.300000f,0.687024f,0.018870f),new Vector3(0.300000f,0.672878f,0.012006f),new Vector3(0.300000f,0.656525f,0.016160f),new Vector3(0.300000f,0.653439f,0.018444f),
+                new Vector3(0.325000f,0.661363f,0.051743f),new Vector3(0.325000f,0.665921f,0.049069f),new Vector3(0.325000f,0.667906f,0.042494f),new Vector3(0.325000f,0.666395f,0.035061f),new Vector3(0.325000f,0.661310f,0.032840f),new Vector3(0.325000f,0.655674f,0.034267f),new Vector3(0.325000f,0.654737f,0.035077f),
+                new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),new Vector3(0.348655f,0.655523f,0.044599f),
+            },
+            new[]{ // measured open shell 23
+                new Vector3(0.175000f,0.731137f,0.080180f),new Vector3(0.175000f,0.754590f,0.064664f),new Vector3(0.175000f,0.768299f,0.025781f),new Vector3(0.175000f,0.749947f,-0.007140f),new Vector3(0.175000f,0.722827f,-0.028491f),new Vector3(0.175000f,0.683292f,-0.022285f),new Vector3(0.175000f,0.677077f,-0.019844f),
+                new Vector3(0.200000f,0.731137f,0.080180f),new Vector3(0.200000f,0.754590f,0.064664f),new Vector3(0.200000f,0.768299f,0.025781f),new Vector3(0.200000f,0.749947f,-0.007140f),new Vector3(0.200000f,0.722827f,-0.028491f),new Vector3(0.200000f,0.683292f,-0.022285f),new Vector3(0.200000f,0.677077f,-0.019844f),
+                new Vector3(0.225000f,0.715089f,0.077501f),new Vector3(0.225000f,0.746535f,0.062722f),new Vector3(0.225000f,0.758943f,0.026124f),new Vector3(0.225000f,0.743363f,-0.006366f),new Vector3(0.225000f,0.715099f,-0.025910f),new Vector3(0.225000f,0.677356f,-0.017898f),new Vector3(0.225000f,0.670106f,-0.013224f),
+                new Vector3(0.250000f,0.704317f,0.073480f),new Vector3(0.250000f,0.732441f,0.060873f),new Vector3(0.250000f,0.743746f,0.028643f),new Vector3(0.250000f,0.730676f,-0.001768f),new Vector3(0.250000f,0.701817f,-0.016362f),new Vector3(0.250000f,0.667309f,-0.007785f),new Vector3(0.250000f,0.659365f,-0.002463f),
+                new Vector3(0.275000f,0.688353f,0.066010f),new Vector3(0.275000f,0.708083f,0.055915f),new Vector3(0.275000f,0.717041f,0.032721f),new Vector3(0.275000f,0.708227f,0.008618f),new Vector3(0.275000f,0.688270f,-0.002105f),new Vector3(0.275000f,0.663840f,0.003349f),new Vector3(0.275000f,0.659186f,0.006208f),
+                new Vector3(0.300000f,0.672508f,0.057683f),new Vector3(0.300000f,0.681292f,0.051049f),new Vector3(0.300000f,0.685228f,0.037212f),new Vector3(0.300000f,0.682195f,0.021528f),new Vector3(0.300000f,0.672454f,0.016165f),new Vector3(0.300000f,0.660578f,0.018300f),new Vector3(0.300000f,0.659203f,0.019034f),
+                new Vector3(0.325000f,0.660834f,0.046441f),new Vector3(0.325000f,0.661867f,0.045116f),new Vector3(0.325000f,0.662404f,0.042362f),new Vector3(0.325000f,0.661746f,0.039909f),new Vector3(0.325000f,0.660422f,0.038621f),new Vector3(0.325000f,0.658244f,0.038266f),new Vector3(0.325000f,0.658244f,0.038266f),
+                new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),new Vector3(0.338939f,0.656295f,0.043241f),
+            },
+            new[]{ // measured open shell 24
+                new Vector3(-0.175000f,0.768547f,0.047326f),new Vector3(-0.175000f,0.769080f,0.045708f),new Vector3(-0.175000f,0.756068f,0.005983f),new Vector3(-0.175000f,0.740748f,-0.013687f),new Vector3(-0.175000f,0.713571f,-0.030084f),new Vector3(-0.175000f,0.663915f,-0.029322f),new Vector3(-0.175000f,0.655880f,-0.026779f),
+                new Vector3(-0.200000f,0.721743f,0.097580f),new Vector3(-0.200000f,0.753944f,0.078682f),new Vector3(-0.200000f,0.767549f,0.031200f),new Vector3(-0.200000f,0.747837f,-0.007820f),new Vector3(-0.200000f,0.716541f,-0.032468f),new Vector3(-0.200000f,0.668549f,-0.029258f),new Vector3(-0.200000f,0.662924f,-0.026616f),
+                new Vector3(-0.225000f,0.715903f,0.091243f),new Vector3(-0.225000f,0.751658f,0.073788f),new Vector3(-0.225000f,0.762837f,0.029301f),new Vector3(-0.225000f,0.745431f,-0.006048f),new Vector3(-0.225000f,0.715994f,-0.026512f),new Vector3(-0.225000f,0.669867f,-0.026755f),new Vector3(-0.225000f,0.665912f,-0.024907f),
+                new Vector3(-0.250000f,0.706459f,0.081924f),new Vector3(-0.250000f,0.741602f,0.068154f),new Vector3(-0.250000f,0.751720f,0.029495f),new Vector3(-0.250000f,0.734501f,-0.002785f),new Vector3(-0.250000f,0.706465f,-0.020048f),new Vector3(-0.250000f,0.664331f,-0.018447f),new Vector3(-0.250000f,0.659426f,-0.016160f),
+                new Vector3(-0.275000f,0.694369f,0.075783f),new Vector3(-0.275000f,0.720348f,0.065028f),new Vector3(-0.275000f,0.729061f,0.031028f),new Vector3(-0.275000f,0.715959f,0.003167f),new Vector3(-0.275000f,0.694698f,-0.010540f),new Vector3(-0.275000f,0.662870f,-0.009992f),new Vector3(-0.275000f,0.659822f,-0.008605f),
+                new Vector3(-0.300000f,0.681038f,0.068217f),new Vector3(-0.300000f,0.698399f,0.060645f),new Vector3(-0.300000f,0.703787f,0.034405f),new Vector3(-0.300000f,0.694699f,0.013494f),new Vector3(-0.300000f,0.680987f,0.003180f),new Vector3(-0.300000f,0.659810f,0.002078f),new Vector3(-0.300000f,0.658390f,0.002588f),
+                new Vector3(-0.325000f,0.673595f,0.054619f),new Vector3(-0.325000f,0.681671f,0.050915f),new Vector3(-0.325000f,0.683468f,0.035709f),new Vector3(-0.325000f,0.679701f,0.024207f),new Vector3(-0.325000f,0.673682f,0.018307f),new Vector3(-0.325000f,0.663427f,0.016288f),new Vector3(-0.325000f,0.663230f,0.016306f),
+                new Vector3(-0.343750f,0.671695f,0.040687f),new Vector3(-0.343750f,0.673934f,0.039484f),new Vector3(-0.343750f,0.673904f,0.034910f),new Vector3(-0.343750f,0.673074f,0.032200f),new Vector3(-0.343750f,0.671724f,0.031121f),new Vector3(-0.343750f,0.668851f,0.029075f),new Vector3(-0.343750f,0.668851f,0.029075f),
+                new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),new Vector3(-0.360692f,0.669872f,0.032181f),
+            },
+            new[]{ // measured open shell 25
+                new Vector3(-0.175000f,0.727423f,0.087243f),new Vector3(-0.175000f,0.748880f,0.069292f),new Vector3(-0.175000f,0.761957f,0.028555f),new Vector3(-0.175000f,0.743219f,-0.006258f),new Vector3(-0.175000f,0.715291f,-0.027750f),new Vector3(-0.175000f,0.671863f,-0.026487f),new Vector3(-0.175000f,0.667510f,-0.025382f),
+                new Vector3(-0.200000f,0.727423f,0.087243f),new Vector3(-0.200000f,0.748880f,0.069292f),new Vector3(-0.200000f,0.761957f,0.028555f),new Vector3(-0.200000f,0.743219f,-0.006258f),new Vector3(-0.200000f,0.715291f,-0.027750f),new Vector3(-0.200000f,0.671863f,-0.026487f),new Vector3(-0.200000f,0.667510f,-0.025382f),
+                new Vector3(-0.225000f,0.714756f,0.081295f),new Vector3(-0.225000f,0.747030f,0.066084f),new Vector3(-0.225000f,0.757700f,0.027274f),new Vector3(-0.225000f,0.741752f,-0.005416f),new Vector3(-0.225000f,0.714930f,-0.023922f),new Vector3(-0.225000f,0.673724f,-0.023158f),new Vector3(-0.225000f,0.669725f,-0.021029f),
+                new Vector3(-0.250000f,0.705351f,0.073936f),new Vector3(-0.250000f,0.736566f,0.062556f),new Vector3(-0.250000f,0.745964f,0.026563f),new Vector3(-0.250000f,0.731594f,-0.002506f),new Vector3(-0.250000f,0.705462f,-0.017527f),new Vector3(-0.250000f,0.667865f,-0.015323f),new Vector3(-0.250000f,0.663138f,-0.012846f),
+                new Vector3(-0.275000f,0.693807f,0.069176f),new Vector3(-0.275000f,0.715841f,0.059252f),new Vector3(-0.275000f,0.723690f,0.030032f),new Vector3(-0.275000f,0.712172f,0.005187f),new Vector3(-0.275000f,0.693667f,-0.007701f),new Vector3(-0.275000f,0.666118f,-0.006793f),new Vector3(-0.275000f,0.663589f,-0.005657f),
+                new Vector3(-0.300000f,0.679146f,0.062460f),new Vector3(-0.300000f,0.693509f,0.055542f),new Vector3(-0.300000f,0.697929f,0.033388f),new Vector3(-0.300000f,0.690806f,0.015286f),new Vector3(-0.300000f,0.679290f,0.006810f),new Vector3(-0.300000f,0.661738f,0.006432f),new Vector3(-0.300000f,0.660358f,0.007009f),
+                new Vector3(-0.325000f,0.671338f,0.049150f),new Vector3(-0.325000f,0.676876f,0.046012f),new Vector3(-0.325000f,0.678149f,0.035502f),new Vector3(-0.325000f,0.675827f,0.027047f),new Vector3(-0.325000f,0.671336f,0.022973f),new Vector3(-0.325000f,0.664425f,0.022166f),new Vector3(-0.325000f,0.664223f,0.022176f),
+                new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),new Vector3(-0.350941f,0.669330f,0.032759f),
+            },
+        };
+        public static Vector3 FinShell(int sign,bool inner,float t,float v) {
+            var rows=FinShellRows[(sign>0?0:2)+(inner?1:0)];int count=rows.Length/7;
+            float f=t*(count-1);int row=Mathf.Min(count-2,(int)f);float u=f-row;
+            Func<int,Vector3> section=col=>{
+                Vector3 p0=rows[Mathf.Max(0,row-1)*7+col],p1=rows[row*7+col],p2=rows[(row+1)*7+col],p3=rows[Mathf.Min(count-1,row+2)*7+col];
+                Vector3 p=.5f*((2*p1)+(-p0+p2)*u+(2*p0-5*p1+4*p2-p3)*u*u+(-p0+3*p1-3*p2+p3)*u*u*u);
+                for(int k=0;k<3;k++)p[k]=Mathf.Clamp(p[k],Mathf.Min(p1[k],p2[k]),Mathf.Max(p1[k],p2[k]));return p;
+            };
+            float across=v*6;int c=Mathf.Min(5,(int)across);Vector3 a=section(c),b=section(c+1);
+            if((a-b).sqrMagnitude<.0002f*.0002f)b=a;
+            return Vector3.Lerp(a,b,across-c);
+        }
+
         static readonly Dictionary<int,Bounds> SourceBounds=new Dictionary<int,Bounds>();
         static Vector3 AccessoryPoint(Vector3 p,int region) {
             Bounds source=SourceBounds[region];

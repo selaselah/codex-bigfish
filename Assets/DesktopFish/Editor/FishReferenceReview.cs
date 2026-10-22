@@ -224,6 +224,24 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/fin-sections.json",JsonUtility.ToJson(new AccessoryReport{parts=sections.ToArray()},true));
+            var guides=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{22,23,24,25}) {
+                float sign=slot<24?1:-1;var triangles=baked.GetTriangles(slot);
+                foreach(float distance in new[]{.14f,.16f,.18f,.20f,.22f,.24f,.26f,.275f}) {
+                    var cuts=VisibleSection(points,baked.uv,triangles,Vector3.right,distance*sign,slot);
+                    if(cuts.Count<3)continue;
+                    float cy=(cuts.Min(p=>p.y)+cuts.Max(p=>p.y))*.5f,cz=(cuts.Min(p=>p.z)+cuts.Max(p=>p.z))*.5f;
+                    float ry=(cuts.Max(p=>p.y)-cuts.Min(p=>p.y))*.5f,rz=(cuts.Max(p=>p.z)-cuts.Min(p=>p.z))*.5f;
+                    for(int i=0;i<8;i++) {
+                        float theta=i*Mathf.PI/4;
+                        var near=cuts.OrderBy(p=>Mathf.Abs(Mathf.DeltaAngle(theta*Mathf.Rad2Deg,Mathf.Atan2((p.y-cy)/ry,(p.z-cz)/rz)*Mathf.Rad2Deg))).First();
+                        guides.Add(new Landmark{name="fin-"+slot+"-x-"+distance.ToString("F3",System.Globalization.CultureInfo.InvariantCulture)+"-ring-"+i,position=near});
+                    }
+                }
+                var used=triangles.Distinct().Select(i=>points[i]).OrderByDescending(p=>p.x*sign).First();
+                guides.Add(new Landmark{name="fin-"+slot+"-tip",position=used});
+            }
+            File.WriteAllText("work/reference-review/fin-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=guides.ToArray()},true));
         }
 
         // Sparse cross-section bounds are local modelling guides. The isolated

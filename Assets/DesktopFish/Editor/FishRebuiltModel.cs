@@ -2542,46 +2542,22 @@ namespace DesktopFish.Editor
             ReverseFaces(a.body,tailTriangles);
         }
         static void HeadFin(Author a,int sign,int bone) {
-            // Rounded authored sections retain depth from the side. The root
-            // enters the hair; the tapered tip turns down and slightly forward.
-            float[] xs={.168f,.200f,.230f,.267f,.304f,.330f,.350f};
-            float[] ys={.735f,.748f,.734f,.713f,.691f,.679f,.677f};
-            float[] zs={.028f,.028f,.029f,.033f,.039f,.043f,.044f};
-            float[] ry={.042f,.052f,.053f,.044f,.023f,.009f,0};
-            float[] rz={.057f,.062f,.056f,.044f,.025f,.009f,0};
-            const int rows=9,cols=6;
-            Func<float[],float,float> sample=(values,t)=>{
-                float f=t*(values.Length-1);int k=Mathf.Min(values.Length-2,Mathf.FloorToInt(f));
-                float u=f-k,d=values[k+1]-values[k];
-                float before=k==0?d:values[k]-values[k-1],after=k+2==values.Length?d:values[k+2]-values[k+1];
-                float m0=before*d>0?2*before*d/(before+d):0,m1=after*d>0?2*after*d/(after+d):0;
-                return (2*u*u*u-3*u*u+1)*values[k]+(u*u*u-2*u*u+u)*m0+
-                    (-2*u*u*u+3*u*u)*values[k+1]+(u*u*u-u*u)*m1;
-            };
-            int first=a.body.p.Count;
-            foreach(int half in new[]{1,-1}) {
+            // Separate open outer and inner shells retain the pale lining seen
+            // through the lower front opening, instead of painting a solid oval.
+            foreach(bool inner in new[]{false,true}) {
+                int rows=inner?6:9,cols=inner?4:6;
                 int start=a.body.p.Count,triangles=a.body.tri.Count;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=row/(float)rows,theta=(half>0?col:2*cols-col)*Mathf.PI/cols;
-                    float sy=Mathf.Sin(theta),sz=Mathf.Cos(theta);
-                    float scallop=.0045f*(.5f+.5f*Mathf.Cos(theta*6))*
-                        Mathf.Pow(Mathf.Max(0,-sy),2)*Mathf.Sin(t*Mathf.PI);
-                    Vector3 p=V(sign*sample(xs,t),sample(ys,t)+sy*sample(ry,t)-scallop,sample(zs,t)+sz*sample(rz,t));
-                    Color color=Color.Lerp(Hex("2B3D73"),Hex("3D528C"),t);
-                    float gleam=Mathf.Exp(-Mathf.Pow((t-.70f)/.24f,2)-Mathf.Pow((sy-.25f)/.65f,2))*(.25f+.75f*Mathf.Max(0,-sz));
-                    color=Color.Lerp(color,Hex("8193C6"),gleam*.70f);
-                    float inset=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.16f,.30f,t))*
-                        (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.78f,.95f,t)))*
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.28f,.64f,-sy))*
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.08f,.48f,sz));
-                    color=Color.Lerp(color,Hex("CDD6F1"),inset);
-                    a.body.Add(p,color,bone);
+                    float t=row/(float)rows,v=col/(float)cols;
+                    Vector3 p=FishModelGuides.FinShell(sign,inner,t,row==rows?0:v);
+                    float sheen=Mathf.Exp(-Mathf.Pow((t-.56f)/.32f,2)-Mathf.Pow((v-.28f)/.26f,2));
+                    Color color=inner?Color.Lerp(Hex("AFB9DE"),Hex("E3E5F8"),Mathf.Sin(v*Mathf.PI)):
+                        Color.Lerp(Hex("2E437C"),Hex("627AB2"),sheen*.58f);
+                    a.body.Add(AuthorPoint(p),color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.70f)/.30f)));
                 }
                 Grid(a.body,start,rows,cols);
-                if((half>0)==(sign>0))ReverseFaces(a.body,triangles);
+                if((sign>0)!=inner)ReverseFaces(a.body,triangles);
             }
-            for(int row=0;row<=rows;row++)foreach(int col in new[]{0,cols})
-                a.body.smoothNormalPairs.Add(new Vector2Int(first+row*(cols+1)+col,first+(rows+1)*(cols+1)+row*(cols+1)+col));
         }
         static void FinBlade(Author a,Vector3[] leading,Vector3[] trailing,int bone,
             Color rootColor,Color tipColor,bool paleInset,float thickness,Vector3? surfaceNormal=null)
