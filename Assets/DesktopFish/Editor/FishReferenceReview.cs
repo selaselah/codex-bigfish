@@ -110,6 +110,7 @@ namespace DesktopFish.Editor
             ReviewHairHem(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
+            ReviewFrontCrown(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
@@ -286,6 +287,7 @@ namespace DesktopFish.Editor
             var profiles=new System.Collections.Generic.List<Landmark>();
             var chestSections=new System.Collections.Generic.List<HairSection>();
             var fringeProfiles=new System.Collections.Generic.List<Landmark>();
+            var frontPanels=new System.Collections.Generic.List<Landmark>();
             var chestTips=new System.Collections.Generic.List<Landmark>();
             var sideCurlSections=new System.Collections.Generic.List<Landmark>();
             var innerTips=new System.Collections.Generic.List<Landmark>();
@@ -341,6 +343,26 @@ namespace DesktopFish.Editor
                             profiles.Add(new Landmark{name="headband-inner-"+station,position=cuts.OrderBy(p=>Vector3.Dot(p-center,ray)).First()});
                             profiles.Add(new Landmark{name="headband-outer-"+station,position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
                         }
+                    }
+                    if(slot==10||slot==11) {
+                        string name="slot-"+slot+"-component-"+(index-1);
+                        var members=new System.Collections.Generic.HashSet<int>(group);
+                        var selected=new System.Collections.Generic.List<int>();
+                        for(int ti=0;ti<triangles.Length;ti+=3)if(members.Contains(triangles[ti]))
+                            selected.AddRange(new[]{triangles[ti],triangles[ti+1],triangles[ti+2]});
+                        frontPanels.Add(new Landmark{name=name+"-root",position=group.Select(i=>points[i]).OrderByDescending(p=>p.y).First()});
+                        foreach(float y in new[]{.71f,.70f,.68f,.65f,.61f,.57f,.53f,.50f,.47f,.44f,.425f,.415f}) {
+                            var cuts=VisibleSection(points,baked.uv,selected.ToArray(),Vector3.up,y,slot);
+                            if(cuts.Count==0)continue;
+                            float min=cuts.Min(p=>p.x),max=cuts.Max(p=>p.x);
+                            for(int col=0;col<5;col++) {
+                                float x=Mathf.Lerp(min,max,col/4f),nearest=cuts.Min(p=>Mathf.Abs(p.x-x));
+                                var point=cuts.Where(p=>Mathf.Abs(p.x-x)<=nearest+.0005f).OrderByDescending(p=>p.z).First();
+                                point.x=x;
+                                frontPanels.Add(new Landmark{name=name+"-cross-"+col,position=point});
+                            }
+                        }
+                        frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
                     }
                     if(slot==11) {
                         int component=index-1;
@@ -511,6 +533,7 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
             File.WriteAllText("work/reference-review/rear-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=profiles.ToArray()},true));
+            File.WriteAllText("work/reference-review/front-panel-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=frontPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/fringe-profile.json",JsonUtility.ToJson(new FaceSectionReport{samples=fringeProfiles.ToArray()},true));
             File.WriteAllText("work/reference-review/side-curl-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=sideCurlSections.ToArray()},true));
             File.WriteAllText("work/reference-review/chest-tips.json",JsonUtility.ToJson(new FaceSectionReport{samples=chestTips.ToArray()},true));
@@ -582,6 +605,23 @@ namespace DesktopFish.Editor
                 }
             }
             File.WriteAllText("work/reference-review/head-envelope.json",JsonUtility.ToJson(new HairSectionReport{sections=rows.ToArray()},true));
+        }
+
+        static void ReviewFrontCrown(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var rows=new System.Collections.Generic.List<Landmark>();
+            var center=new Vector3(0,.52f,0);
+            for(int angle=-80;angle<=80;angle+=10) {
+                float theta=angle*Mathf.Deg2Rad;
+                var ray=new Vector3(Mathf.Sin(theta),Mathf.Cos(theta),0);
+                var normal=new Vector3(ray.y,-ray.x,0);
+                var cuts=new System.Collections.Generic.List<Vector3>();
+                foreach(int slot in new[]{10,11})cuts.AddRange(VisibleSection(points,baked.uv,baked.GetTriangles(slot),normal,
+                    Vector3.Dot(center,normal),slot,(p,uv)=>p.z>.015f&&Vector3.Dot(p-center,ray)>.01f));
+                if(cuts.Count>0)rows.Add(new Landmark{name="front-crown-"+angle,
+                    position=cuts.OrderByDescending(p=>Vector3.Dot(p-center,ray)).First()});
+            }
+            File.WriteAllText("work/reference-review/front-crown.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
         }
 
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {

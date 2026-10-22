@@ -431,6 +431,22 @@ namespace DesktopFish.Editor
                     }
                 }
             }
+            public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
+                int rows=panel==0?16:panel==7?18:panel>=8?14:12;const int cols=4;
+                int start=body.p.Count,oldRegion=body.region;body.region=0;
+                var mid=new Vector3[(rows+1)*(cols+1)];
+                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++)
+                    mid[row*(cols+1)+col]=FishModelGuides.FrontPanel(panel,sign,row/(float)rows,col/(float)cols);
+                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
+                    Vector3 p=mid[row*(cols+1)+col];
+                    float paintU=((phase%3)+3)%3*.25f+.012f+col/(float)cols*.226f;
+                    body.Add(AuthorPoint(p),Color.white*.98f,head,new Vector2(paintU,.02f+.94f*row/rows));
+                }
+                // The material is two-sided. One sheet avoids duplicate nearly
+                // coplanar backfaces, depth fighting and unnecessary triangles.
+                int first=body.tri.Count;Grid(body,start,rows,cols);ReverseFaces(body,first);
+                body.region=oldRegion;
+            }
             public void HairMantle(int head) {
                 const int rows=14,cols=40;
                 int[] breaks={0,8,15,20,25,32,40};
@@ -694,7 +710,7 @@ namespace DesktopFish.Editor
                     FitProportions(mesh);
                     FishModelGuides.Apply(mesh,geo.regions.ToArray());
                     mesh=CompactMesh(mesh);
-                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500);
+                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"]);
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
                         var deltas = new Vector3[mesh.vertexCount];
@@ -1223,17 +1239,17 @@ namespace DesktopFish.Editor
             Vector3 front,RenderTexture target,Texture2D frame) {
             var originalMeshes=snapshots.Select(s=>s.sharedMesh).ToArray();
             var originalMaterials=snapshots.Select(s=>s.GetComponent<Renderer>().sharedMaterial).ToArray();
-            for(int mode=0;mode<3;mode++) {
-                string name=mode==0?"clay-lit":mode==1?"paint-flat":"albedo-flat";
+            for(int mode=0;mode<4;mode++) {
+                string name=mode==0?"clay-lit":mode==1?"paint-flat":mode==2?"albedo-flat":"toon-no-outline";
                 for(int i=0;i<snapshots.Count;i++) {
                     var mesh=UnityEngine.Object.Instantiate(originalMeshes[i]);
                     var material=UnityEngine.Object.Instantiate(originalMaterials[i]);
-                    if(mode!=1)mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
+                    if(mode!=1&&mode!=3)mesh.colors=Enumerable.Repeat(mode==0?new Color(.65f,.65f,.65f,1):Color.white,mesh.vertexCount).ToArray();
                     if(mode==0)material.mainTexture=Texture2D.whiteTexture;
-                    material.SetFloat("_Flat",mode==0?0:1);material.SetFloat("_OutlineWidth",0);
+                    material.SetFloat("_Flat",mode==0||mode==3?0:1);material.SetFloat("_OutlineWidth",0);
                     snapshots[i].sharedMesh=mesh;snapshots[i].GetComponent<Renderer>().sharedMaterial=material;
                 }
-                foreach(int angle in new[]{90,180}) {
+                foreach(int angle in new[]{0,35,90,180}) {
                     camera.targetTexture=target;
                     camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);
                     camera.transform.LookAt(center);camera.Render();RenderTexture.active=target;
@@ -1424,7 +1440,7 @@ namespace DesktopFish.Editor
             int rearStart=a.body.p.Count;
             a.HairMantle(head);
             int mantleEnd=a.body.p.Count;
-            int start=a.body.p.Count; const int rings=10,sides=28;
+            int start=a.body.p.Count; const int rings=6,sides=24;
             for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
                 float theta=x*Mathf.PI*2/sides,front=(Mathf.Cos(theta)+1)*.5f;
                 float phi=y/(float)rings*Mathf.Lerp(2.05f,1.10f,front);
@@ -1597,57 +1613,10 @@ namespace DesktopFish.Editor
                     V(sign*.180f,.435f,.166f),V(sign*.160f,.40f,.169f),V(sign*.148f,.375f,.171f)};
                 a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
                     samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.92f,paintOffset:.08f,wrapDepth:.010f,surfaceThickness:true);
-                // Independently drawn edges keep the temple broad while the
-                // inner edge curls around the cheek into staggered lower tips.
-                var cheekInner=new[]{V(sign*.050f,.970f,.045f),V(sign*.140f,.94f,.14f),
-                    V(sign*.158f,.83f,.185f),V(sign*.149f,.738f,.177f),
-                    V(sign*.145f,.666f,.173f),V(sign*.125f,.640f,.164f),V(sign*.107f,.633f,.162f)};
-                var cheekOuter=new[]{V(sign*.082f,.970f,.045f),V(sign*.250f,.94f,.105f),
-                    V(sign*.280f,.83f,.090f),V(sign*.236f,.738f,.103f),
-                    V(sign*.216f,.654f,.119f),V(sign*.158f,.626f,.150f),V(sign*.107f,.633f,.162f)};
-                a.HairPanel(cheekInner.Zip(cheekOuter,(l,r)=>(l+r)*.5f).ToArray(),.060f,head,false,1,
-                    samples:24,tipStart:.61f,rootScale:.79f,cheekInset:0,edgeA:cheekInner,edgeB:cheekOuter,
-                    paintGuide:new[]{V(0,.96f,0),V(0,.92f,0),V(0,.716f,0),V(0,.640f,0)});
-                a.HairPanel(new[]{V(sign*.155f,.90f,.070f),V(sign*.285f,.74f,.112f),
-                    V(sign*.210f,.630f,.160f),V(sign*.114f,.618f,.160f)},.022f,head,false,4,
-                    rootTaper:.22f,paintStart:.50f,cheekInset:.003f);
-                // The opening edge descends diagonally toward an outward,
-                // receding point; a broad round leaf obscures the brow instead.
-                var inner=new[]{V(sign*.010f,.970f,.090f),V(sign*.015f,.91f,.180f),
-                    V(sign*.035f,.87f,.207f),V(sign*.065f,.815f,.192f),
-                    V(sign*.085f,.775f,.195f),V(sign*.105f,.724f,.173f),V(sign*.178f,.706f,.111f)};
-                var outer=new[]{V(sign*.065f,.955f,.090f),V(sign*.150f,.91f,.100f),
-                    V(sign*.182f,.86f,.114f),V(sign*.183f,.815f,.113f),
-                    V(sign*.186f,.775f,.110f),V(sign*.184f,.724f,.110f),V(sign*.178f,.706f,.111f)};
-                var sidePaintGuide=new[]{V(0,.9645f,0),V(0,.93f,0),V(0,.780f,0),V(0,.700f,0)};
-                a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.056f,head,false,sign,
-                    samples:24,fullness:.65f,tipStart:.72f,tipBias:-sign*.045f,tipPower:.90f,tipPaintEase:.54f,
-                    edgeA:inner,edgeB:outer,frontLift:.006f,paintGuide:sidePaintGuide);
+                for(int panel=0;panel<7;panel++)a.GuidedFrontPanel(panel,sign,head,panel%3);
+                a.GuidedFrontPanel(7,sign,head,sign);
             }
-            // Three staggered central tips share a broad crown, rather than
-            // tapering the entire fringe into one symmetrical wedge. The three
-            // sections reuse the previous two sections' total 650 vertices.
-            var mainLeft=new[]{V(.026f,.978f,.055f),V(.060f,.94f,.18f),V(.074f,.845f,.225f),V(.063f,.770f,.220f),
-                V(.058f,.734f,.218f),V(.043f,.724f,.214f),V(.032f,.710f,.211f)};
-            var mainRight=new[]{V(-.018f,.978f,.055f),V(-.051f,.94f,.18f),V(-.085f,.845f,.221f),V(-.068f,.770f,.219f),
-                V(-.060f,.742f,.217f),V(-.048f,.729f,.215f),V(-.037f,.711f,.214f)};
-            // Offset overlapping edges give the middle brush its own sweep;
-            // equal-width partitions made three repeated dangling lobes.
-            var leftInner=new[]{V(.018f,.978f,.055f),V(.040f,.94f,.18f),V(.042f,.845f,.222f),V(.043f,.770f,.221f),
-                V(.029f,.746f,.222f),V(.030f,.728f,.215f),mainLeft[6]};
-            var splitA=new[]{V(.018f,.978f,.055f),V(.035f,.94f,.18f),V(.050f,.845f,.231f),V(.048f,.770f,.229f),
-                V(.037f,.740f,.226f),V(.004f,.714f,.221f),V(-.025f,.701f,.216f)};
-            var splitB=new[]{V(0,.978f,.055f),V(.005f,.94f,.18f),V(.004f,.845f,.231f),V(-.002f,.770f,.229f),
-                V(-.009f,.744f,.226f),V(-.014f,.724f,.222f),splitA[6]};
-            var rightInner=new[]{V(.005f,.978f,.055f),V(.012f,.94f,.18f),V(.010f,.845f,.228f),V(.006f,.770f,.226f),
-                V(.002f,.746f,.226f),V(-.005f,.730f,.218f),mainRight[6]};
-            var paintGuide=new[]{V(0,.978f,0),V(0,.91f,0),V(0,.768f,0),V(0,.713f,0)};
-            a.HairPanel(mainLeft.Zip(leftInner,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,2,
-                samples:16,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:mainLeft,edgeB:leftInner,paintGuide:paintGuide);
-            a.HairPanel(splitA.Zip(splitB,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,0,
-                samples:16,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:splitA,edgeB:splitB,paintGuide:paintGuide);
-            a.HairPanel(rightInner.Zip(mainRight,(l,r)=>(l+r)*.5f).ToArray(),.023f,head,false,1,
-                samples:15,fullness:.65f,tipStart:.71f,tipPaintEase:.50f,edgeA:rightInner,edgeB:mainRight,paintGuide:paintGuide);
+            for(int panel=8;panel<15;panel++)a.GuidedFrontPanel(panel,1,head,panel%3);
             // A gently rearward arch keeps the crown tuft curved in side view.
             // Its rounded section narrows in both axes into one closed tip.
             int tuftStart=a.body.p.Count;

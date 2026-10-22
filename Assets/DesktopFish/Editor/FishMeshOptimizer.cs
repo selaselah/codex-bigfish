@@ -31,7 +31,7 @@ namespace DesktopFish.Editor
 
         // Rebuilt meshes already have sparse authored surface grids. This final
         // index-only pass keeps all retained UV/color/normal/skin data exact.
-        public static Mesh ReduceRebuilt(Mesh source,int targetTriangles) {
+        public static Mesh ReduceRebuilt(Mesh source,int targetTriangles,int headBone) {
             Directory.CreateDirectory("work");
             var p=source.vertices;var n=source.normals;var uv=source.uv;var w=source.boneWeights;
             var indices=source.triangles;if(indices.Length/3<=targetTriangles)return source;
@@ -51,6 +51,10 @@ namespace DesktopFish.Editor
                 b.Encapsulate(p[i]);bounds[root]=b;
             }
             foreach(int i in indices.Distinct())if(bounds[component(i)].size.sqrMagnitude<.025f*.025f)locked[i]=1;
+            // Front strips carry deliberately sparse measured cross-sections.
+            // Keep their thin layered surfaces; body-scale collapse can alter
+            // their carefully allocated silhouette and overlap.
+            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x<.75f&&uv[i].y>.12f)locked[i]=1;
             for(int i=0;i<p.Length;i++)if(w[i].weight1>.00001f&&w[i].weight1<.99999f)locked[i]=1;
             for(int i=0;i<indices.Length;i+=3) {
                 int a=indices[i],b=indices[i+1],c=indices[i+2];
@@ -72,7 +76,7 @@ namespace DesktopFish.Editor
             if(!File.Exists(binary)||sources.Any(f=>File.GetLastWriteTimeUtc(f)>File.GetLastWriteTimeUtc(binary)))
                 RunProcess("/bin/zsh","\""+Path.GetFullPath("Tools/BuildOptimizer.command")+"\"");
             float ratio=targetTriangles/(indices.Length/3f);
-            RunProcess(binary,"\""+input+"\" \""+output+"\" "+ratio.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+" 0.0028");
+            RunProcess(binary,"\""+input+"\" \""+output+"\" "+ratio.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+" 0.0030");
             int[] result;float error;
             using(var reader=new BinaryReader(File.OpenRead(output))) {
                 if(reader.ReadInt32()!=0x46495348||reader.ReadInt32()!=1)throw new InvalidOperationException("Invalid rebuilt reducer output");

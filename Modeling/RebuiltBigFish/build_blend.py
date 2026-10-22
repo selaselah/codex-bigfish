@@ -72,6 +72,7 @@ for index, item in enumerate(data['meshes']):
         vertex.color_srgb = (color['r'], color['g'], color['b'], color['a'])
     mat = bpy.data.materials.new('Illustration colors' if index else 'Toon body colors')
     mat.use_nodes = True
+    mat.use_backface_culling = False
     nodes = mat.node_tree.nodes
     shader = nodes.get('Principled BSDF')
     shader.inputs['Roughness'].default_value = .75
@@ -213,6 +214,7 @@ def float_vectors(accessor_id):
 assert len(document['meshes']) == len(data['meshes'])
 assert len(document['images']) == 1
 assert document['materials'][0]['alphaMode'] == 'MASK'
+assert document['materials'][0].get('doubleSided', False), 'Thin hair sheets require a two-sided material'
 assert abs(document['materials'][0].get('alphaCutoff', .5) - .5) < 1e-6
 assert sum(len(item['triangles']) // 3 for item in data['meshes']) <= 20000
 exported_triangles = sum(document['accessors'][primitive['indices']]['count'] // 3

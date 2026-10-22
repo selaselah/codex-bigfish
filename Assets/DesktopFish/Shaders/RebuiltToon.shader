@@ -43,8 +43,11 @@ Shader "DesktopFish/Rebuilt Toon"
                 #endif
                 return o;
             }
-            fixed4 frag(v2f i):SV_Target {
-                float light=dot(normalize(i.normal),normalize(float3(-0.35,0.65,0.80)));
+            fixed4 frag(v2f i,float facing:VFACE):SV_Target {
+                // Single-surface hair and lace use the same material from both
+                // sides. Orient lighting consistently with the visible side.
+                float3 normal=normalize(i.normal)*(facing>=0?1:-1);
+                float light=dot(normal,normalize(float3(-0.35,0.65,0.80)));
                 float shade=lerp(0.76,1.04,smoothstep(-0.45,0.95,light));
                 fixed4 paint=tex2D(_MainTex,i.uv);
                 clip(paint.a-.5);
