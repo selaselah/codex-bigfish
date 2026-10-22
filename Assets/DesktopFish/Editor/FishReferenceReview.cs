@@ -165,6 +165,7 @@ namespace DesktopFish.Editor
             ReviewHairHem(baked,snapshot.transform);
             ReviewRearPaint(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
+            ReviewEyeProfiles(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
             ReviewRearCrown(baked,snapshot.transform);
@@ -307,7 +308,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37}) {
+            foreach(int slot in new[]{1,3,4,5,6,7,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 float[] heights=slot>=26&&slot<=28?new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f,.09f,.10f}:
                     new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f};
@@ -1292,6 +1293,44 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name="gold-stud-"+sign+"-"+row,position=bounds.center});
             }
             File.WriteAllText("work/reference-review/bib-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewEyeProfiles(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{1,4,5,7})foreach(int sign in new[]{-1,1}) {
+                var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                Func<float,System.Collections.Generic.List<Vector3>> section=distance=>{
+                    var cuts=VisibleSection(points,baked.uv,triangles,Vector3.right,sign*distance,slot,(p,st)=>
+                        p.z>.065f&&(slot!=7||p.y>.46f&&texture.GetPixelBilinear(st.x,st.y).grayscale<.35f),maxStep:.00015f);
+                    if(slot==7&&cuts.Count>0) {
+                        // A separated lower-lid trace must not fill the eye.
+                        var sorted=cuts.OrderBy(p=>p.y).ToArray();int first=sorted.Length-1;
+                        while(first>0&&sorted[first].y-sorted[first-1].y<.001f)first--;
+                        cuts=sorted.Skip(first).ToList();
+                    }
+                    return cuts;
+                };
+                var rows=new System.Collections.Generic.List<Tuple<float,System.Collections.Generic.List<Vector3>>>();
+                for(int col=0;col<=40;col++) {
+                    float distance=.015f+.0035f*col;var cuts=section(distance);
+                    if(cuts.Count>0)rows.Add(Tuple.Create(distance,cuts));
+                }
+                if(slot==7&&rows.Count>0)foreach(bool outer in new[]{false,true}) {
+                    float inside=outer?rows.Last().Item1:rows.First().Item1,outside=inside+(outer?.0035f:-.0035f);
+                    for(int i=0;i<24;i++) {
+                        float middle=(inside+outside)*.5f;
+                        if(section(middle).Count>0)inside=middle;else outside=middle;
+                    }
+                    var boundary=Tuple.Create(inside,section(inside));
+                    if(outer)rows.Add(boundary);else rows.Insert(0,boundary);
+                }
+                for(int col=0;col<rows.Count;col++) {
+                    var cuts=rows[col].Item2;string key="eye-"+slot+"-"+sign+"-"+col;
+                    samples.Add(new Landmark{name=key+"-lower",position=cuts.OrderBy(p=>p.y).First()});
+                    samples.Add(new Landmark{name=key+"-upper",position=cuts.OrderByDescending(p=>p.y).First()});
+                }
+            }
+            File.WriteAllText("work/reference-review/eye-profile-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewFaceSections(Mesh baked,Transform snapshot) {

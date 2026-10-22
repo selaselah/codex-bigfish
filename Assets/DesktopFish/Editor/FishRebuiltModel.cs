@@ -750,6 +750,27 @@ namespace DesktopFish.Editor
                 if (feature != "") for (int i = start; i < face.p.Count; i++)
                     features.Add(Tuple.Create(i, V(xy.Average(p => p.x), .700f, 0), feature));
             }
+            Vector2 EyeInputPoint(Vector3 registered) {
+                float width=FishModelGuides.Point(V(1,registered.y,0),1).x,center=Mathf.Sign(registered.x)*.085f;
+                float x=center+(registered.x/width-center)/1.08f;
+                float y=.700f+(AuthorPoint(registered).y-.700f)/1.10f;return new Vector2(x,y);
+            }
+            public void GuidedUpperEyeLine(int sign,int bone) {
+                int start=face.p.Count,columns=FishEyeContourGuides.Columns(sign);const int rows=2;
+                for(int row=0;row<=rows;row++)for(int col=0;col<columns;col++) {
+                    Vector3 lower=FishEyeContourGuides.Point(sign,col,false),upper=FishEyeContourGuides.Point(sign,col,true);
+                    float center=(lower.y+upper.y)*.5f,half=Mathf.Max((upper.y-lower.y)*.5f,.000075f);
+                    Vector3 final=Vector3.Lerp(lower,upper,row/(float)rows);final.y=center+(row-rows*.5f)*half;
+                    Vector2 p=EyeInputPoint(final);int vertex=face.Add(FacePoint(p.x,p.y,.0035f),Hex("211D27"),bone);
+                    features.Add(Tuple.Create(vertex,V(sign*.085f,.700f,0),"lash"));
+                    float arc=1-Mathf.Clamp01(Mathf.Pow((p.x-sign*.085f)/.050f,2));
+                    float thickness=.0014f*(row-rows*.5f);
+                    closedLashes[vertex]=FacePoint(p.x,.698f-.008f*arc+thickness,.0035f);
+                    smilingLashes[vertex]=FacePoint(p.x,.694f+.016f*arc+thickness,.0035f);
+                }
+                int first=face.tri.Count;Grid(face,start,rows,columns-1);
+                if(sign<0)ReverseFaces(face,first);
+            }
             public void Iris(float x,int bone) {
                 int start=face.p.Count; const int rows=5,cols=28;
                 // One shared center and closed rings avoid repeated center/seam
@@ -1862,19 +1883,7 @@ namespace DesktopFish.Editor
                 a.Disk(a.face, new Vector2(x - .0048f, .7123f), new Vector2(.0028f, .0028f), Color.white, head, .0045f, "shine",16);
                 a.IrisReflection(x,head);
                 a.LowerEyeGlint(x,head);
-                var lash = new Vector2[25];
-                for (int i = 0; i < lash.Length; i++) {
-                    float t = Mathf.Lerp(.90f,.13f,i/24f)*Mathf.PI;
-                    lash[i] = new Vector2(x + sign*Mathf.Cos(t)*.047f,
-                        .695f+.0315f*Mathf.Pow(Mathf.Sin(t),.50f));
-                }
-                a.FaceLine(lash, .0080f, Hex("211D27"), head, "lash",x,.45f,1);
-                var wing=Enumerable.Range(0,7).Select(i=>{
-                    float t=i/6f;
-                    return Vector2.Lerp(lash[24],new Vector2(x+sign*.060f,.721f),t)
-                        +new Vector2(0,-.003f*Mathf.Sin(t*Mathf.PI));
-                }).ToArray();
-                a.FaceLine(wing,.0080f,Hex("211D27"),head,"lash",x,1,.12f);
+                a.GuidedUpperEyeLine(sign,head);
                 a.FaceLine(new[] { new Vector2(x - .031f, .742f), new Vector2(x, .748f), new Vector2(x + .029f, .742f) }, .0016f, Hex("83666B"), head,"brow");
             }
             a.Mouth(head);
