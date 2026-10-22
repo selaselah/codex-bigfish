@@ -1790,6 +1790,7 @@ namespace DesktopFish.Editor
         [MenuItem("Desktop Fish/Rebuilt Model/Review Default Pose")]
         public static void RenderIdle() { RenderAngles(false); }
         public static void RenderIdleLaceStudy() { RenderAngles(false,false,false,false,true); }
+        public static void RenderIdleFinStudy() { RenderAngles(false,false,false,false,false,false,false,true); }
         public static void RenderIdleFrontStudy() { RenderAngles(false,false,false,false,false,true); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
         public static void RenderIdleRearLayerStudy() { RenderAngles(false,false,false,false,false,false,true); }
@@ -1952,7 +1953,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false,bool includeFins=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -2085,6 +2086,17 @@ namespace DesktopFish.Editor
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(chestOnly);
                 RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+            }
+            if(includeFins) {
+                var isolated=UnityEngine.Object.Instantiate(completeBody);var selected=new List<int>();var st=completeBody.uv;
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    int v=bodyTriangles[k+j];return st[v].x>=.75f&&st[v].y<.058f&&Mathf.Abs(completeBody.vertices[v].x)>.13f&&completeBody.vertices[v].y>.60f;
+                }))selected.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                isolated.triangles=selected.ToArray();bodySnapshot.sharedMesh=isolated;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderHeadStudy(camera,"work/rebuilt-fin-isolated",1,Vector3.zero);
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(isolated);
             }
             if(!includeMotion) {
                 if(includeHandReview) {
@@ -3293,17 +3305,19 @@ namespace DesktopFish.Editor
             foreach(bool inner in new[]{false,true}) {
                 // Spend transverse samples on the visible rolled lip. The final
                 // index-only reduction still enforces the complete 20k budget.
-                int rows=inner?6:9,cols=inner?6:12;
+                int rows=FishModelGuides.FinRows(sign,inner),cols=inner?8:12;
                 int start=a.body.p.Count,triangles=a.body.tri.Count;
                 for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
                     float t=row/(float)rows,v=col/(float)cols;
                     Vector3 p=FishModelGuides.FinShell(sign,inner,t,row==rows?0:v);
                     // A narrow painted fold follows the front lip, not the whole oval.
                     float sheen=Mathf.Exp(-Mathf.Pow((t-.53f)/.36f,2)-Mathf.Pow((v-.20f)/.13f,2));
-                    Color color=inner?Color.Lerp(Hex("AFB9DE"),Hex("E3E5F8"),Mathf.Sin(v*Mathf.PI)):
+                    // The lining is lavender cloth with a pale lower return,
+                    // not a white center band across the entire open shell.
+                    Color color=inner?Color.Lerp(Hex("6976AC"),Hex("CED6EA"),.80f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.95f,v))):
                         Color.Lerp(Hex("333F88"),Hex("B7BFEB"),sheen*.90f);
                     Vector3 author=AuthorPoint(p);
-                    int vertex=a.body.Add(author,color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.70f)/.30f)));
+                    int vertex=a.body.Add(author,color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.95f)/.05f)));
                     // Evaluate the smooth guide tangent before polygon reduction.
                     // The collapsed tip keeps its mesh-derived normal.
                     if(row<rows) {

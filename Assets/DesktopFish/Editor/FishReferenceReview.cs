@@ -170,6 +170,11 @@ namespace DesktopFish.Editor
                 FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/front-layer-"+slot,.8f,new Vector3(0,-.056f,0));
                 snapshot.GetComponent<MeshFilter>().sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
             }
+            var finOnly=UnityEngine.Object.Instantiate(baked);
+            for(int sub=0;sub<finOnly.subMeshCount;sub++)finOnly.SetTriangles(sub>=22&&sub<=25?baked.GetTriangles(sub):Array.Empty<int>(),sub,false);
+            snapshot.GetComponent<MeshFilter>().sharedMesh=finOnly;
+            FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fins",.8f,new Vector3(0,-.056f,0));
+            snapshot.GetComponent<MeshFilter>().sharedMesh=baked;UnityEngine.Object.DestroyImmediate(finOnly);
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
             ReviewRearPaint(baked,snapshot.transform);
@@ -188,6 +193,7 @@ namespace DesktopFish.Editor
             ReviewFeatureGuides(baked,snapshot.transform);
             ReviewApronDetails(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
+            ReviewFinShells(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
             ReviewBibSurface(baked,snapshot,camera);
@@ -277,6 +283,53 @@ namespace DesktopFish.Editor
                 samples.Add(new Landmark{name="center-rear",position=cuts.OrderBy(p=>p.z).First()});
             }
             File.WriteAllText("work/reference-review/torso-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        // Sparse alpha-visible open-shell sections, with a stable angular order.
+        static void ReviewFinShells(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var guides=new System.Collections.Generic.List<Landmark>();
+            var diagnostics=new System.Collections.Generic.List<string>();
+            foreach(int slot in new[]{22,23,24,25}) {
+                int sign=slot<24?1:-1;var triangles=baked.GetTriangles(slot);
+                var rawTip=triangles.Distinct().Select(i=>points[i]).OrderByDescending(p=>p.x*sign).First();
+                float last=.25f,firstMissing=rawTip.x*sign+.0001f;
+                for(float x=.25f;x<=rawTip.x*sign+.0001f;x+=.001f) {
+                    if(VisibleSection(points,baked.uv,triangles,Vector3.right,x*sign,slot,maxStep:.00004f).Count>0)last=x;
+                    else if(x>last) {firstMissing=x;break;}
+                }
+                for(int j=0;j<18;j++) {
+                    float mid=(last+firstMissing)*.5f;
+                    if(VisibleSection(points,baked.uv,triangles,Vector3.right,mid*sign,slot,maxStep:.00004f).Count>0)last=mid;else firstMissing=mid;
+                }
+                var tipCut=VisibleSection(points,baked.uv,triangles,Vector3.right,(last-.000001f)*sign,slot,maxStep:.00002f);
+                Vector3 tip=Vector3.zero;foreach(var p in tipCut)tip+=p/tipCut.Count;
+                foreach(float distance in new[]{.140f,.150f,.160f,.180f,.200f,.220f,.240f,.260f,.275f}.Where(x=>x<tip.x*sign-.001f)) {
+                    var cuts=VisibleSection(points,baked.uv,triangles,Vector3.right,distance*sign,slot,maxStep:.00008f);
+                    float cy=(cuts.Min(p=>p.y)+cuts.Max(p=>p.y))*.5f,cz=(cuts.Min(p=>p.z)+cuts.Max(p=>p.z))*.5f;
+                    float ry=(cuts.Max(p=>p.y)-cuts.Min(p=>p.y))*.5f,rz=(cuts.Max(p=>p.z)-cuts.Min(p=>p.z))*.5f;
+                    Func<Vector3,float> angle=p=>Mathf.Repeat(Mathf.Atan2((p.y-cy)/ry,(p.z-cz)/rz),Mathf.PI*2);
+                    var ordered=cuts.OrderBy(angle).ToArray();float gap=-1;int after=0;
+                    for(int i=0;i<ordered.Length;i++) {
+                        float delta=Mathf.Repeat(angle(ordered[(i+1)%ordered.Length])-angle(ordered[i]),Mathf.PI*2);
+                        if(delta>gap){gap=delta;after=(i+1)%ordered.Length;}
+                    }
+                    float start=angle(ordered[after]),length=Mathf.PI*2-gap;
+                    if(start>Mathf.PI)start-=Mathf.PI*2;
+                    float end=Mathf.Min(start+length,4.5f);
+                    // Fixed angular landmarks keep root partial sections from
+                    // twisting their top/back quadrants into the frontal lip.
+                    for(int col=0;col<=8;col++) {
+                        float theta=col==0?start:col==8?end:Mathf.Clamp(.25f+(col-1)*.55f,start,end);
+                        var q=ordered.OrderBy(p=>Mathf.Abs(Mathf.DeltaAngle(theta*Mathf.Rad2Deg,angle(p)*Mathf.Rad2Deg))).First();
+                        guides.Add(new Landmark{name="shell-"+slot+"-x-"+distance.ToString("F3",System.Globalization.CultureInfo.InvariantCulture)+"-col-"+col,position=q});
+                    }
+                    diagnostics.Add(slot+" x="+distance+" start="+start+" end="+(start+length)+" gap="+gap);
+                }
+                guides.Add(new Landmark{name="shell-"+slot+"-tip",position=tip});
+            }
+            File.WriteAllText("work/reference-review/fin-shell-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=guides.ToArray()},true));
+            File.WriteAllLines("work/reference-review/fin-shell-diagnostics.txt",diagnostics);
         }
 
         static void ReviewFinSections(Mesh baked,Transform snapshot) {
