@@ -4,9 +4,24 @@ namespace DesktopFish.Editor {
     // Sparse alpha-visible color-transition positions registered from the local
     // reference. These are curve guides, never source pixels or source UVs.
     public static class FishRearPaintGuides {
-        // 161 sparse X stations: highest visible cyan and longest lower cyan interval.
+        // 189 sparse X stations, including the outer hooks:
         // These are edge positions only; RGB, UV and source texture pixels stay local.
         static readonly Vector3[] Rows = {
+            new Vector3(-0.3710938f,0.2856250f,0.2856250f),
+            new Vector3(-0.3671875f,0.3062500f,0.3062500f),
+            new Vector3(-0.3632813f,0.3175000f,0.3118750f),
+            new Vector3(-0.3593750f,0.3268750f,0.3268750f),
+            new Vector3(-0.3554688f,0.3362500f,0.3362500f),
+            new Vector3(-0.3515625f,0.2987500f,0.2987500f),
+            new Vector3(-0.3476562f,0.3156250f,0.3156250f),
+            new Vector3(-0.3437500f,0.3268750f,0.3268750f),
+            new Vector3(-0.3398437f,0.3381250f,0.3381250f),
+            new Vector3(-0.3359375f,0.3493750f,0.2725000f),
+            new Vector3(-0.3320312f,0.3550000f,0.2650000f),
+            new Vector3(-0.3281250f,0.3643750f,0.2593750f),
+            new Vector3(-0.3242188f,0.3700000f,0.2556250f),
+            new Vector3(-0.3203125f,0.3550000f,0.2537500f),
+            new Vector3(-0.3164063f,0.2518750f,0.2518750f),
             new Vector3(-0.3125000f,0.2481250f,0.2481250f),
             new Vector3(-0.3085938f,0.3362500f,0.2462500f),
             new Vector3(-0.3046875f,0.3268750f,0.3268750f),
@@ -168,6 +183,19 @@ namespace DesktopFish.Editor {
             new Vector3(0.3046875f,0.3043750f,0.2537500f),
             new Vector3(0.3085937f,0.3175000f,0.2556250f),
             new Vector3(0.3125000f,0.2593750f,0.2593750f),
+            new Vector3(0.3164063f,0.3643750f,0.2612500f),
+            new Vector3(0.3203125f,0.3662500f,0.2650000f),
+            new Vector3(0.3242187f,0.3587500f,0.2706250f),
+            new Vector3(0.3281250f,0.3512500f,0.2800000f),
+            new Vector3(0.3320312f,0.3456250f,0.2893750f),
+            new Vector3(0.3359375f,0.3625000f,0.3118750f),
+            new Vector3(0.3398438f,0.3550000f,0.3550000f),
+            new Vector3(0.3437500f,0.3418750f,0.3418750f),
+            new Vector3(0.3476562f,0.3212500f,0.3212500f),
+            new Vector3(0.3515625f,0.2931250f,0.2931250f),
+            new Vector3(0.3554688f,0.3062500f,0.3062500f),
+            new Vector3(0.3593750f,0.3437500f,0.3437500f),
+            new Vector3(0.3632812f,0.3231250f,0.2912500f),
         };
         static float Slope(float a,float b) => a*b<=0?0:2*a*b/(a+b);
         public static float Height(float x,bool broad=false) {

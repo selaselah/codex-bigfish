@@ -831,7 +831,9 @@ namespace DesktopFish.Editor
                         for(int j=0;j<sides;j++)center+=AuthorPoint(surface(neighbor,j/(float)sides))/sides;
                         Vector3 n=(author-center).normalized;
                         if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
-                    } else {
+                    } else if(panel>=2||y>FishSideCurlGuides.Bottom(panel)+.004f) {
+                        // Closing micro-rings use actual mesh normals. A guide
+                        // derivative is unstable next to the collapsed tip.
                         Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
                         Vector3 across=AuthorPoint(surface(y,u+.001f))-AuthorPoint(surface(y,u-.001f));
                         Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
@@ -1824,6 +1826,7 @@ namespace DesktopFish.Editor
         public static void RenderIdleFinStudy() { RenderAngles(false,false,false,false,false,false,false,true); }
         public static void RenderIdleFrontStudy() { RenderAngles(false,false,false,false,false,true); }
         public static void RenderIdleSurfaceStudy() { RenderAngles(false,false,true); }
+        public static void RenderIdleCurlStudy() { RenderAngles(false,includeSurfaceStudy:true,includeCurls:true); }
         public static void RenderIdleRearLayerStudy() { RenderAngles(false,false,false,false,false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
@@ -1984,7 +1987,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false,bool includeFins=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false,bool includeFins=false,bool includeCurls=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -2117,6 +2120,29 @@ namespace DesktopFish.Editor
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(chestOnly);
                 RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+            }
+            if(includeCurls) {
+                var bind=skins[0].sharedMesh.vertices;var st=completeBody.uv;int[] parents=Enumerable.Range(0,bind.Length).ToArray();
+                Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);var faces=new List<int>();
+                for(int k=0;k<bodyTriangles.Length;k+=3) {
+                    if(!Enumerable.Range(0,3).All(c=>{int i=bodyTriangles[k+c];Vector3 p=bind[i];float t=Mathf.Clamp01((1.03f-p.y)/.96f);return Mathf.Abs(st[i].x-Mathf.Clamp01(.5f+p.x/.82f))<.00001f&&Mathf.Abs(st[i].y-(LegacyPaintHeight+t*(RearPaintHeight-1))/PaintHeight)<.00001f;}))continue;
+                    faces.Add(k);parents[root(bodyTriangles[k+1])]=root(bodyTriangles[k]);parents[root(bodyTriangles[k+2])]=root(bodyTriangles[k]);
+                }
+                var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
+                foreach(var group in faces.GroupBy(k=>root(bodyTriangles[k]))) {
+                    var indices=group.SelectMany(k=>new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]}).ToArray();
+                    float top=indices.Max(i=>bind[i].y),bottom=indices.Min(i=>bind[i].y);
+                    if(top<.94f||bottom<.20f||bottom>.235f)continue;
+                    int component=indices.Average(i=>bind[i].x)<0?8:11;
+                    var isolated=UnityEngine.Object.Instantiate(completeBody);isolated.triangles=indices;bodySnapshot.sharedMesh=isolated;
+                    foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                    RenderBodyStudy(camera,"work/rebuilt-outer-hook-"+component,1,Vector3.zero);
+                    isolated.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),isolated.vertexCount).ToArray();
+                    var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=DiagnosticAlpha(original[0].mainTexture);material.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=material;
+                    RenderBodyStudy(camera,"work/rebuilt-outer-hook-clay-"+component,1,Vector3.zero,reviewMaterials:new[]{material});
+                    renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(isolated);
+                }
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             }
             if(includeFins) {
                 var isolated=UnityEngine.Object.Instantiate(completeBody);var selected=new List<int>();var st=completeBody.uv;

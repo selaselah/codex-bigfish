@@ -833,6 +833,7 @@ namespace DesktopFish.Editor
             ReviewChestBackingGuides(points,baked.uv,baked.GetTriangles(17),camera,baked,snapshot);
             ReviewRearEnvelope(points,baked.uv,envelopeFaces);
             ReviewSideCurlGuides(points,baked.uv,curlFaces);
+            ReviewOuterCurlRefinement(baked,snapshot.gameObject,camera,points,baked.uv,curlFaces);
             ReviewSideLockGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
@@ -953,6 +954,66 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/side-lock-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
             File.WriteAllText("work/reference-review/side-lock-envelope.json",JsonUtility.ToJson(new FaceSectionReport{samples=bounds.ToArray()},true));
+        }
+
+        // Sparse closed sections of the two visible lower side hooks. Local
+        // support hulls select positions only; source indices/UVs are not reused.
+        static void ReviewOuterCurlRefinement(Mesh baked,GameObject snapshot,Camera camera,Vector3[] points,Vector2[] uv,
+            System.Collections.Generic.Dictionary<int,int[]> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();
+            var rows=new System.Collections.Generic.List<string>();
+            foreach(int component in new[]{8,11}) {
+                int[] triangles=faces[component];var texture=GuideTexture(15);var all=triangles.Distinct().ToArray();
+                float low=all.Min(i=>points[i].y),high=all.Max(i=>points[i].y);
+                Func<float,System.Collections.Generic.List<Vector3>> section=y=>VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.00008f);
+                float first=low;
+                while(first<high&&section(first+.0000001f).Count==0)first+=.0005f;
+                float a=first-.0005f,b=first;for(int step=0;step<18;step++){float m=(a+b)*.5f;if(section(m).Count>0)b=m;else a=m;}
+                float tip=b;Vector3 previous=Vector3.zero;
+                var heights=new[]{.57f,.55f,.53f,.51f,.49f,.47f,.45f,.43f,.41f,.39f,.37f,.35f,.33f,.31f,.29f,.27f,.255f,.245f,.235f,.2275f,.2225f,.218f,.214f}
+                    .Select(y=>(y-.07f)/1.25f).Where(y=>y>tip+.00005f&&y<high).Concat(new[]{tip+.0002f,tip+.00004f}).Distinct().OrderByDescending(y=>y).ToArray();
+                int row=0;
+                foreach(float y in heights) {
+                    var cuts=section(y);if(cuts.Count<3)continue;
+                    var unique=cuts.GroupBy(q=>Vector3Int.RoundToInt(q*100000)).Select(g=>g.First()).ToArray();
+                    Vector3 center=Vector3.zero;foreach(var q in unique)center+=q/unique.Length;
+                    float xx=0,zz=0,xz=0;foreach(var q in unique){var d=q-center;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
+                    float angle=.5f*Mathf.Atan2(2*xz,xx-zz);Vector3 axis=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
+                    Vector3 normal=new Vector3(axis.z,0,-axis.x);
+                    if(previous==Vector3.zero?Vector3.Dot(normal,new Vector3(center.x,0,center.z))<0:Vector3.Dot(axis,previous)<0){axis=-axis;normal=-normal;}
+                    previous=axis;
+                    var projected=unique.Select(q=>new Vector2(Vector3.Dot(q-center,axis),Vector3.Dot(q-center,normal))).OrderBy(q=>q.x).ThenBy(q=>q.y).ToArray();
+                    Func<Vector2,Vector2,float> cross=(u,v)=>u.x*v.y-u.y*v.x;
+                    var hull=new System.Collections.Generic.List<Vector2>();
+                    foreach(var q in projected){while(hull.Count>=2&&cross(hull[hull.Count-1]-hull[hull.Count-2],q-hull[hull.Count-1])<=0)hull.RemoveAt(hull.Count-1);hull.Add(q);}
+                    int lower=hull.Count;for(int k=projected.Length-2;k>=0;k--){var q=projected[k];while(hull.Count>lower&&cross(hull[hull.Count-1]-hull[hull.Count-2],q-hull[hull.Count-1])<=0)hull.RemoveAt(hull.Count-1);hull.Add(q);}hull.RemoveAt(hull.Count-1);
+                    float lo=projected.Min(q=>q.x),hi=projected.Max(q=>q.x);
+                    for(int col=0;col<8;col++) {
+                        int quarter=col<=4?col:8-col;float d=Mathf.Lerp(lo+.00000001f,hi-.00000001f,quarter/4f);
+                        var hits=new System.Collections.Generic.List<float>();
+                        for(int k=0;k<hull.Count;k++) {
+                            Vector2 p=hull[k],q=hull[(k+1)%hull.Count];float width=q.x-p.x;
+                            if(Mathf.Abs(width)<1e-12f)continue;float u=(d-p.x)/width;
+                            if(u>=-.00001f&&u<=1.00001f)hits.Add(Mathf.Lerp(p.y,q.y,u));
+                        }
+                        if(hits.Count==0)throw new InvalidOperationException("No curl support hit "+component+"/"+row+"/"+col);
+                        float depth=col<=4?hits.Max():hits.Min();
+                        samples.Add(new Landmark{name="outer-hook-"+component+"-"+row+"-"+col,position=center+axis*d+normal*depth});
+                    }
+                    rows.Add(component+","+y.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+","+lo+","+hi+","+hull.Count);row++;
+                }
+                var tipSection=section(tip+.000001f);Vector3 endpoint=Vector3.zero;foreach(var q in tipSection)endpoint+=q/tipSection.Count;
+                samples.Add(new Landmark{name="outer-hook-"+component+"-tip",position=endpoint});
+                var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
+                var isolated=UnityEngine.Object.Instantiate(baked);for(int slot=0;slot<isolated.subMeshCount;slot++)isolated.SetTriangles(slot==15?triangles:Array.Empty<int>(),slot,false);filter.sharedMesh=isolated;
+                FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/outer-hook-"+component,.8f,new Vector3(0,-.056f,0));
+                isolated.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),isolated.vertexCount).ToArray();var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));
+                material.mainTexture=FishRebuiltModel.DiagnosticAlpha(texture);material.SetFloat("_OutlineWidth",0);renderer.sharedMaterials=Enumerable.Repeat(material,original.Length).ToArray();
+                FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/outer-hook-clay-"+component,.8f,new Vector3(0,-.056f,0),reviewMaterials:new[]{material});
+                filter.sharedMesh=baked;renderer.sharedMaterials=original;UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(isolated);
+            }
+            File.WriteAllText("work/reference-review/outer-hook-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllLines("work/reference-review/outer-hook-sections.csv",rows);
         }
 
         static void ReviewSideCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
@@ -1178,8 +1239,8 @@ namespace DesktopFish.Editor
             var p=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
             var rows=new System.Collections.Generic.List<Landmark>();
             var triangles=new[]{15,16}.Select(slot=>baked.GetTriangles(slot)).ToArray();
-            for(int column=0;column<=160;column++) {
-                float x=Mathf.Lerp(-.25f,.25f,column/160f);
+            for(int column=-20;column<=180;column++) {
+                float x=Mathf.LerpUnclamped(-.25f,.25f,column/160f);
                 var cyan=new System.Collections.Generic.List<Vector3>();
                 for(int row=0;row<=180;row++) {
                     float y=.075f+row*.0015f,nearest=float.PositiveInfinity;Color paint=Color.clear;Vector3 hit=Vector3.zero;
