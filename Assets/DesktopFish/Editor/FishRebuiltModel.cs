@@ -13,6 +13,7 @@ namespace DesktopFish.Editor
     public static class FishRebuiltModel
     {
         const string Folder = "Assets/DesktopFish/Rebuilt";
+        internal const int PaintWidth=1024, LegacyPaintHeight=1152, RearPaintHeight=512, PaintHeight=1664;
         static readonly Color Skin = Hex("FFF0E9"), Hair = Hex("304C91"), Tip = Hex("58B2D5"),
             Navy = Hex("252E5D"), White = Hex("FFFCF3"), Gold = Hex("E2C47D"), Ink = Hex("233150");
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out Color c); return c; }
@@ -71,7 +72,7 @@ namespace DesktopFish.Editor
                     float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z)))
                     throw new InvalidOperationException("Non-finite authored mesh vertex: " + name);
                 var mesh = new Mesh { name = name, indexFormat = p.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
-                mesh.SetVertices(p); mesh.SetColors(colors); mesh.SetUVs(0,uv.Select(v=>new Vector2(v.x,(v.y*1024+128)/1152)).ToList()); mesh.SetTriangles(tri, 0);
+                mesh.SetVertices(p); mesh.SetColors(colors); mesh.SetUVs(0,uv.Select(v=>new Vector2(v.x,(v.y*1024+128)/PaintHeight)).ToList()); mesh.SetTriangles(tri, 0);
                 mesh.boneWeights = weights.ToArray();
                 mesh.bindposes = bones.Select(b => b.worldToLocalMatrix * root.localToWorldMatrix).ToArray();
                 mesh.RecalculateNormals();
@@ -788,7 +789,7 @@ namespace DesktopFish.Editor
                     parts=budgets.Concat(new[]{new PartBudget{name="face-expressions",triangles=exports[1].triangles.Length/3}}).ToArray()},true));
                 AssetDatabase.SaveAssets();
                 PrefabUtility.SaveAsPrefabAsset(root, Folder + "/BigFish.prefab");
-                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"sparse_reference_controls\": true,\n  \"triangle_budget\": 20000,\n  \"paint_size\": [1024, 1152],\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
+                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"sparse_reference_controls\": true,\n  \"triangle_budget\": 20000,\n  \"paint_size\": [1024, 1664],\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
                 return root;
             }
         }
@@ -912,8 +913,8 @@ namespace DesktopFish.Editor
         static void WriteHairPaint() {
             const int size=1024;
             const int laceHeight=128;
-            var texture=new Texture2D(size,size+laceHeight,TextureFormat.RGBA32,false);
-            var pixels=new Color[size*(size+laceHeight)];
+            var texture=new Texture2D(size,PaintHeight,TextureFormat.RGBA32,false);
+            var pixels=new Color[size*PaintHeight];
             float[] brushCenters={.08f,.48f,.88f};
             float[] brushStarts={.56f,.68f,.61f};
             float[] brushWidths={.43f,.35f,.40f};
@@ -1036,10 +1037,55 @@ namespace DesktopFish.Editor
                     tint.a=alpha;pixels[y*size+x]=tint;
                 } else pixels[y*size+x]=new Color(fold,fold,fold,alpha);
             }
+            // A continuous rear field decouples the broad cyan masses from the
+            // nine geometric lock patches. Legacy hair/lace pixels stay intact.
+            for(int y=0;y<RearPaintHeight;y++)for(int x=0;x<size;x++) {
+                float u=x/(float)(size-1),t=y/(float)(RearPaintHeight-1);
+                // Extend the neutral swatch upward so lower mip levels cannot bleed rear blue into unpainted cloth.
+                pixels[(LegacyPaintHeight+y)*size+x]=u>.98f?Color.white:RearPaintColor((u-.5f)*.82f,1.03f-t*.96f);
+            }
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
         }
+        // Thirteen alpha-visible color-boundary heights, registered locally.
+        // Texture pixels are freshly painted; no reference texture is sampled at build time.
+        static readonly float[] RearCyanBoundary={0.3013f,0.3063f,0.3362f,0.3213f,0.3262f,0.3013f,0.3613f,0.3912f,0.3362f,0.3162f,0.3362f,0.3313f,0.3463f};
+        static Vector2 RearPaintUV(Vector3 p) {
+            if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
+            p=FishModelGuides.Point(FitPoint(p),2);
+            float u=Mathf.Clamp01(.5f+p.x/.82f),t=Mathf.Clamp01((1.03f-p.y)/.96f);
+            return new Vector2(u,(LegacyPaintHeight+t*(RearPaintHeight-1)-128)/1024f);
+        }
+        static readonly float[] RearBlueCenters={-.286f,-.218f,-.157f,-.092f,-.028f,.047f,.122f,.183f,.271f};
+        static readonly float[] RearBlueWidths={.006f,.010f,.006f,.008f,.004f,.010f,.005f,.009f,.006f};
+        static Color RearPaintColor(float x,float y) {
+            float section=Mathf.Clamp((x+.30f)/.05f,0,12);int index=Mathf.Min(11,(int)section);
+            float boundary=Mathf.Lerp(RearCyanBoundary[index],RearCyanBoundary[index+1],section-index);
+            // A varied narrow brush edge complements the sparse broad boundary.
+            // It describes pointed paint tongues, not another stack of mesh strips.
+            float broken=.012f*Mathf.Sin(x*133+1.7f)+.009f*Mathf.Sin(x*227-.8f);
+            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(boundary+.008f+broken,boundary-.027f+broken,y));
+            Color blue=Color.Lerp(Hex("34559C"),Hex("567CBA"),.55f*Mathf.Exp(-Mathf.Pow((y-.68f)/.16f,2)));
+            Color color=Color.Lerp(blue,Hex("67C0F0"),cyan*.96f);
+            // A few unequal blue returns split the cyan into painted fans.
+            for(int i=0;i<RearBlueCenters.Length;i++) {
+                float bend=.015f*Mathf.Sin(i*2.4f)*(1-y/.45f);
+                float foot=.170f+.022f*Mathf.Sin(i*1.9f),span=Mathf.Clamp01((y-foot)/.14f);
+                float line=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,
+                    Mathf.Abs(x-RearBlueCenters[i]-bend)/(RearBlueWidths[i]*1.5f*span+.001f)));
+                float fade=Mathf.SmoothStep(0,1,span)*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,.42f,y)));
+                color=Color.Lerp(color,Hex("345391"),line*fade*cyan*.90f);
+            }
+            // Two long, curved partings retain the reference's broad divisions.
+            float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,.66f,y))*
+                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.94f,y)));
+            float curve=.105f+.055f*Mathf.Sin(Mathf.Clamp01((y-.50f)/.45f)*Mathf.PI);
+            float part=Mathf.Exp(-Mathf.Pow((Mathf.Abs(x)-curve)/.0012f,2));
+            color=Color.Lerp(color,Hex("182C63"),part*upper*.64f);color.a=1;
+            return color;
+        }
+
         static Vector2 LaceUV(int tile,float u,float r) {
             return new Vector2((tile*256+8+239*u)/1024f,(16+96*r-128)/1024f);
         }
@@ -1304,6 +1350,7 @@ namespace DesktopFish.Editor
             RenderBibStudy(camera,"work/rebuilt-bib",1,Vector3.zero);
             RenderFootStudy(camera,"work/rebuilt-foot",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-aligned",1,Vector3.zero);
+            RenderBodyStudy(camera,"work/rebuilt-small",1,Vector3.zero,180,240);
             var defaultHand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_R_Hand");
             RenderDefaultHandStudy(camera,"work/rebuilt-hand-default",defaultHand.position+V(0,-.014f,.015f),1);
             // Inspect the skin separately from fringe occlusion. Head skin is
@@ -1527,21 +1574,21 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 
-        public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset) {
+        public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset,int width=720,int height=960) {
             // Use the same approximate crown/sole calibration as head studies.
             // Fixed framing prevents different auto-fit margins from hiding
             // overall proportion differences between reference and rebuild.
             var position=camera.transform.position;var rotation=camera.transform.rotation;
             var oldTarget=camera.targetTexture;float size=camera.orthographicSize,aspect=camera.aspect;
-            var target=new RenderTexture(720,960,24){antiAliasing=4};
-            var frame=new Texture2D(720,960,TextureFormat.RGBA32,false);
+            var target=new RenderTexture(width,height,24){antiAliasing=4};
+            var frame=new Texture2D(width,height,TextureFormat.RGBA32,false);
             Vector3 focus=V(0,.56f,-.05f)*scale+offset;
             camera.targetTexture=target;camera.aspect=.75f;camera.orthographicSize=.64f*scale;
             foreach(int angle in new[]{0,35,90,180,360}) {
                 Vector3 direction=angle==360?V(0,.64f,3):Quaternion.Euler(0,angle,0)*V(0,.24f,3);
                 camera.transform.position=focus+direction*scale;camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=target;
-                frame.ReadPixels(new Rect(0,0,720,960),0,0);frame.Apply();
+                frame.ReadPixels(new Rect(0,0,width,height),0,0);frame.Apply();
                 File.WriteAllBytes(prefix+"-"+(angle==360?"top":angle.ToString())+".png",frame.EncodeToPNG());
             }
             camera.targetTexture=oldTarget;camera.orthographicSize=size;camera.aspect=aspect;
@@ -1724,6 +1771,7 @@ namespace DesktopFish.Editor
                 Vector3 massSlope=RearMassSlope(shaped);
                 a.body.p[i]=RoundRearMass(shaped);
                 if(i<mantleEnd)a.body.p[i]=InnerEdgePoint(a.body.p[i]);
+                if(i<mantleEnd||i>=radialStart)a.body.uv[i]=RearPaintUV(a.body.p[i]);
                 if(a.body.normalBlends.TryGetValue(i,out var blend)) {
                     Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz);
                     n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;

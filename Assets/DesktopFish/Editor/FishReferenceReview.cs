@@ -108,8 +108,10 @@ namespace DesktopFish.Editor
             FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/small",.8f,new Vector3(0,-.056f,0),180,240);
             ReviewSectionParts(baked, snapshot, camera, bounds, frame, target);
             ReviewHairHem(baked,snapshot.transform);
+            ReviewRearPaint(baked,snapshot.transform);
             ReviewFaceSections(baked,snapshot.transform);
             ReviewHeadEnvelope(baked,snapshot.transform);
             ReviewFrontCrown(baked,snapshot.transform);
@@ -621,6 +623,38 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
+        // Sparse color-boundary heights, not copied reference pixels or UVs.
+        static void ReviewRearPaint(Mesh baked,Transform snapshot) {
+            var p=baked.vertices.Select(snapshot.TransformPoint).ToArray();var uv=baked.uv;
+            var rows=new System.Collections.Generic.List<Landmark>();
+            for(int column=0;column<=12;column++) {
+                float x=Mathf.Lerp(-.24f,.24f,column/12f),top=float.NegativeInfinity;
+                Vector3 hit=Vector3.zero;
+                for(int row=0;row<=80;row++) {
+                    float y=.065f+row*.004f,nearest=float.PositiveInfinity;Color paint=Color.clear;
+                    Vector3 point=Vector3.zero;
+                    foreach(int slot in new[]{15,16}) {
+                        var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                        for(int i=0;i<triangles.Length;i+=3) {
+                            int ai=triangles[i],bi=triangles[i+1],ci=triangles[i+2];
+                            Vector3 a=p[ai],ab=p[bi]-a,ac=p[ci]-a;
+                            float det=ab.x*ac.y-ab.y*ac.x;if(Mathf.Abs(det)<1e-10f)continue;
+                            float dx=x-a.x,dy=y-a.y;
+                            float u=(dx*ac.y-dy*ac.x)/det,v=(ab.x*dy-ab.y*dx)/det;
+                            if(u<0||v<0||u+v>1)continue;
+                            Vector3 q=a+ab*u+ac*v;if(q.z>=nearest)continue;
+                            Vector2 st=uv[ai]+(uv[bi]-uv[ai])*u+(uv[ci]-uv[ai])*v;
+                            Color c=texture.GetPixelBilinear(st.x,st.y);if(c.a<.5f)continue;
+                            nearest=q.z;paint=c;point=q;
+                        }
+                    }
+                    if(paint.a>.5f&&paint.g>paint.b*.62f&&paint.g>.25f) {top=y;hit=point;}
+                }
+                if(!float.IsNegativeInfinity(top))rows.Add(new Landmark{name="cyan-upper-"+column,position=hit});
+            }
+            File.WriteAllText("work/reference-review/rear-paint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
         static void ReviewFeatureGuides(Mesh baked,Transform snapshot) {
             var vertices=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var guides=new System.Collections.Generic.List<Landmark>();

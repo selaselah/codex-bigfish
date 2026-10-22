@@ -3,9 +3,9 @@
   "source_3d_assets_loaded": false,
   "sparse_reference_controls": true,
   "triangle_budget": 20000,
-  "paint_size": [1024, 1152],
-  "body_vertices": 12929,
+  "paint_size": [1024, 1664],
+  "body_vertices": 12912,
   "face_vertices": 1756,
-  "triangles": 19966,
+  "triangles": 19932,
   "bones": 51
 }
