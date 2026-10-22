@@ -20,6 +20,19 @@ namespace DesktopFish.Editor {
             new Vector4(0.980000f,1.330000f,1.170000f,-0.045000f),
             new Vector4(1.100000f,1.000000f,1.000000f,-0.045000f)
         };
+        // Registered alpha-visible rear/side section extrema, compared with
+        // the previous generated crown. The sparse correction is confined to
+        // the rear hemisphere; measured frontal strips are left independent.
+        static readonly Vector4[] RearCrownCorrection = {
+            new Vector4(.8700f,1.000f,0,0),
+            new Vector4(.9075f,.995f,.0036f,0),
+            new Vector4(.9325f,1.039f,.0075f,0),
+            new Vector4(.9575f,1.005f,.0086f,0),
+            new Vector4(.9700f,.943f,.0125f,0),
+            new Vector4(.97625f,.958f,.0008f,0),
+            new Vector4(.9825f,.881f,-.0088f,0),
+            new Vector4(.9900f,1f,0,0)
+        };
         static readonly Vector4[] SkinWidth = {
             new Vector4(0.540000f,1.000000f,0.000000f,0.000000f),
             new Vector4(0.551250f,1.002454f,0.000000f,0.000000f),
@@ -807,6 +820,11 @@ namespace DesktopFish.Editor {
                 float excess=Mathf.Max(0,radius-.252f);
                 float radial=1-.8f*excess*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.018f,excess))*crown/Mathf.Max(.001f,radius);
                 p.x*=radial;p.y=.72f+(p.y-.72f)*radial;p.z-=.03f*crown;
+                if(p.y>.87f&&p.y<.99f) {
+                    Vector4 rearGuide=Sample(RearCrownCorrection,p.y);
+                    float rear=Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.02f,-.12f,p.z));
+                    p.x*=Mathf.Lerp(1,rearGuide.y,rear);p.z+=rearGuide.z*rear;
+                }
                 return p;
             }
             return p;

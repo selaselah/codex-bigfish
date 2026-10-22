@@ -194,6 +194,16 @@ namespace DesktopFish.Editor
                 int start=body.p.Count; int rows=HairRows(samples>0?samples:controls.Length>4?36:24);
                 sides=Mathf.Min(sides,8);
                 var path=Curve(controls,rows);
+                if(outward.HasValue&&controls.Length==13) {
+                    // Spend one third of the longitudinal stations on the high
+                    // curvature crown; keep the lower Bezier guides unchanged.
+                    for(int i=0;i<=rows;i++) {
+                        float t=i/(float)rows;
+                        float parameter=RearHairParameter(t);
+                        float local=parameter*4;int segment=Mathf.Min(3,(int)local);
+                        path[i]=Bezier(controls.Skip(segment*3).Take(4).ToArray(),local-segment);
+                    }
+                }
                 var boundaryA=edgeA==null?null:Curve(edgeA,rows);
                 var boundaryB=edgeB==null?null:Curve(edgeB,rows);
                 Vector3 facing=outward??Vector3.forward;
@@ -217,6 +227,7 @@ namespace DesktopFish.Editor
                 Vector3 previousSide=Vector3.zero;
                 for(int row=0;row<=rows;row++) {
                     float t=row/(float)rows;
+                    if(outward.HasValue&&controls.Length==13)t=RearHairParameter(t);
                     Vector3 tangent=(path[Mathf.Min(row+1,rows)]-path[Mathf.Max(row-1,0)]).normalized;
                     // Independent locks can turn their broad surface toward the
                     // side without invoking the radial scalp-root construction.
@@ -473,12 +484,14 @@ namespace DesktopFish.Editor
             }
             public void HairMantle(int head) {
                 const int rows=14,cols=40;
+                // Concentrate the unchanged station budget near the crown arc.
+                float[] stations={0f,.025f,.060f,.105f,.160f,.240f,.320f,.400f,.500f,.600f,.700f,.790f,.870f,.940f,1f};
                 int[] breaks={0,8,15,20,25,32,40};
                 float[] tips={.125f,.098f,.090f,.088f,.100f,.130f};
                 for(int layer=0;layer<1;layer++) {
                     int layerStart=body.p.Count;
                     for(int row=0;row<=rows;row++)for(int i=0;i<=cols;i++) {
-                        float t=row/(float)rows,theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
+                        float t=stations[row],theta=Mathf.Lerp(1.10f,Mathf.PI*2-1.10f,i/(float)cols);
                         float side=Mathf.Abs(theta-Mathf.PI)/(Mathf.PI-1.10f);
                         float y=.978f-.490f*t-.130f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.60f,1,t))
                             -Mathf.Lerp(.205f,.240f,side*side)*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.80f,1,t));
@@ -880,6 +893,7 @@ namespace DesktopFish.Editor
             float depth = Mathf.Sqrt(Mathf.Max(.05f, 1 - sourceX * sourceX / (.214f * .214f) - (y - .773f) * (y - .773f) / (.187f * .187f)));
             var p=ShapeHeadPoint(V(sourceX,y,.166f*depth));p.x=x;p.z+=offset;return p;
         }
+        static float RearHairParameter(float t) => t<=1f/3 ? t*.75f : .25f+(t-1f/3)*1.125f;
         static int HairRows(int authored) => Mathf.Max(8,Mathf.CeilToInt(authored*.68f));
 
         static Vector3 Bezier(Vector3[] p, float t) => Mathf.Pow(1 - t, 3) * p[0] +
@@ -1633,10 +1647,10 @@ namespace DesktopFish.Editor
             int rearStart=a.body.p.Count;
             a.HairMantle(head);
             int mantleEnd=a.body.p.Count;
-            int start=a.body.p.Count; const int rings=6,sides=24;
+            int start=a.body.p.Count; const int rings=6,sides=20;
             for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
                 float theta=x*Mathf.PI*2/sides,front=(Mathf.Cos(theta)+1)*.5f;
-                float phi=y/(float)rings*Mathf.Lerp(2.05f,1.10f,front);
+                float phi=Mathf.Pow(y/(float)rings,1.2f)*Mathf.Lerp(2.05f,1.10f,front);
                 a.body.Add(V(Mathf.Sin(theta)*Mathf.Sin(phi)*.232f,
                     .765f+Mathf.Cos(phi)*.215f,Mathf.Cos(theta)*Mathf.Sin(phi)*.182f),Hair,head);
             }
@@ -1752,7 +1766,7 @@ namespace DesktopFish.Editor
                         a.body.p[root+Mathf.Max(0,row-1)*9+j];
                     Vector3 across=a.body.p[root+row*9+(j+1)%8]-a.body.p[root+row*9+(j+7)%8];
                     Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
-                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(radialRows*.84f,radialRows*.91f,row));
+                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.91f,RearHairParameter(row/(float)radialRows)));
                     a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
             foreach(int sign in new[]{-1,1}) {
