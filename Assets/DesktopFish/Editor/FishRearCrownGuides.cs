@@ -104,7 +104,10 @@ namespace DesktopFish.Editor {
             float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.66f,.76f,p.y));if(weight<=0)return p;
             float elevation,angle;Angles(p,out elevation,out angle);
             Vector3 target=Surface(elevation,angle),outward=(target-new Vector3(0,.77f,-.05f)).normalized;
-            return Vector3.Lerp(p,target-outward*.0015f+(p-target)*.04f,weight);
+            // The clearance grows only inside the overlap. Preserve a little
+            // layer depth so thin inward returns do not collapse or flip.
+            float clearance=.003f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.745f,.79f,target.y));
+            return Vector3.Lerp(p,target-outward*clearance+(p-target)*.04f,weight);
         }
         public static Vector3 Normal(Vector3 p) {
             float elevation,angle;Angles(p,out elevation,out angle);

@@ -1942,8 +1942,26 @@ namespace DesktopFish.Editor
                 float angle=col*360f/domeCols;
                 float front=Mathf.SmoothStep(0,1,Mathf.Cos(angle*Mathf.Deg2Rad));
                 Vector3 final=FishRearCrownGuides.Surface(Mathf.Lerp(-5+35*front,90,row/(float)domeRows),angle);
-                final-= (final-V(0,.77f,-.05f)).normalized*(.003f*front*(1-row/(float)domeRows)+
-                    .0014f*(1-Mathf.SmoothStep(0,1,row/2f)));
+                final-=(final-V(0,.77f,-.05f)).normalized*(.003f*front*(1-row/(float)domeRows));
+                // Match the low cap edge to the actual retained triangles,
+                // not only to their analytic envelope. Chord error otherwise
+                // leaves a narrow shadow-producing ledge in lit exports.
+                if(row<2&&front<.5f) {
+                    Vector3 edge=FishRearCrownGuides.Surface(-5+35*front,angle);
+                    Vector3 origin=V(0,edge.y,-.05f),ray=(edge-origin).normalized;
+                    float hit=0;
+                    for(int k=0;k<upperFaces.Count;k+=3) {
+                        Vector3 pa=upperPoints[upperFaces[k]],pb=upperPoints[upperFaces[k+1]],pc=upperPoints[upperFaces[k+2]];
+                        Vector3 ab=pb-pa,ac=pc-pa,h=Vector3.Cross(ray,ac);float det=Vector3.Dot(ab,h);
+                        if(Mathf.Abs(det)<1e-9f)continue;
+                        Vector3 d=origin-pa;float u=Vector3.Dot(d,h)/det;if(u<0||u>1)continue;
+                        Vector3 q=Vector3.Cross(d,ab);float v=Vector3.Dot(ray,q)/det;if(v<0||u+v>1)continue;
+                        float distance=Vector3.Dot(ac,q)/det;if(distance>hit)hit=distance;
+                    }
+                    float radius=(edge-origin).magnitude;
+                    if(hit>0&&Mathf.Abs(hit-radius)<.01f)
+                        final+=ray*(hit-radius-.00025f)*(1-row/2f)*(1-front*2);
+                }
                 Vector3 author=AuthorPoint(final);
                 int vertex=a.body.Add(author,Color.white*.97f,head,RearPaintFinalUV(final));
                 Vector3 normal=FishRearCrownGuides.Normal(final);
