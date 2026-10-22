@@ -483,13 +483,17 @@ namespace DesktopFish.Editor
                 int first=body.tri.Count;Grid(body,start,rows,cols);if(surface==0)ReverseFaces(body,first);
                 body.region=oldRegion;
             }
-            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,int[] upperFaces) {
+            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,int[] upperFaces,bool fork=false,int[] seam=null) {
                 int start=body.p.Count,region=body.region;body.region=0;
-                float[] stations=FishRearHairGuides.Stations(panel);int cols=panel>=5?2:4;
-                int bone=panel>=5?head:ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
+                float[] stations=fork?FishRearForkGuides.Stations(panel):FishRearHairGuides.Stations(panel);
+                if(seam!=null)stations=new[]{seam.Average(i=>upperPoints[i].y)}.Concat(stations).ToArray();
+                int cols=fork?FishRearForkGuides.Columns(panel):panel>=5?2:4;
+                int bone=fork?ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"]:
+                    panel>=5?head:ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
                 for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
-                    Vector3 final=FishRearHairGuides.Point(panel,stations[row],col*4/cols);
-                    if(panel<5&&final.y>.49f) {
+                    Vector3 final=seam!=null&&row==0?upperPoints[seam[col]]:fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):
+                        FishRearHairGuides.Point(panel,stations[row],col*4/cols);
+                    if(!fork&&panel<5&&final.y>.49f) {
                         float depth=float.PositiveInfinity;
                         for(int k=0;k<upperFaces.Length;k+=3) {
                             Vector3 a=upperPoints[upperFaces[k]],b=upperPoints[upperFaces[k+1]],c=upperPoints[upperFaces[k+2]];
@@ -506,7 +510,13 @@ namespace DesktopFish.Editor
                     }
                     Vector3 p=AuthorPoint(final);
                     float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
-                    body.Add(p,Color.white*(panel>=5?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
+                    int vertex=body.Add(p,Color.white*(!fork&&panel>=5?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
+                    if(seam!=null&&row==0) {
+                        int source=seam[col];body.p[vertex]=body.p[source];
+                        body.regions[vertex]=body.regions[source];body.weights[vertex]=body.weights[source];
+                        body.uv[vertex]=body.uv[source];body.colors[vertex]=body.colors[source];
+                        body.smoothNormalPairs.Add(new Vector2Int(source,vertex));
+                    }
                 }
                 // The reference's flat strips are represented by one curved
                 // two-sided sheet, spending triangles on the visible outline.
@@ -1851,8 +1861,8 @@ namespace DesktopFish.Editor
                     a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
                 }
             // Replace the lower central curtain, preserving the joined crown
-            // and outer curls. Their apex/branched tips require a different
-            // section parameterization from these monotone lower sheets.
+            // and outer curls. Forked mid-side ends use separate branch
+            // contours so their opening is not filled by a convex section.
             int oldRearEnd=a.body.p.Count;
             var upperPoints=a.body.p.Select(p=> {
                 if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
@@ -1861,6 +1871,21 @@ namespace DesktopFish.Editor
             var upperFaces=new List<int>();
             for(int i=0;i<a.body.tri.Count;i+=3)if(a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd))
                 upperFaces.AddRange(a.body.tri.GetRange(i,3));
+            // Join the two new trunks at an existing complete radial ring.
+            // Matching positions, UVs, weights and normals avoids a cut-off
+            // curtain edge or a shadow-producing overlap in other renderers.
+            var forkSeamRows=new Dictionary<int,int>();var forkSeams=new Dictionary<int,int[]>();
+            foreach(int lockIndex in new[]{2,6}) {
+                int row=1;
+                for(int j=1;j<radialRows;j++) {
+                    float height=Enumerable.Range(0,5).Average(col=>a.body.p[radialStart+lockIndex*radialStride+j*9+col].y);
+                    if(height>=.69f)row=j;
+                }
+                forkSeamRows[lockIndex]=row;
+                int[] seam=Enumerable.Range(0,5).Select(col=>radialStart+lockIndex*radialStride+row*9+col).ToArray();
+                if(upperPoints[seam[0]].x>upperPoints[seam[4]].x)Array.Reverse(seam);
+                forkSeams[lockIndex==6?0:3]=seam;
+            }
             var crownTriangles=new List<int>();var cornerMap=new Dictionary<int,int>();
             for(int i=0;i<a.body.tri.Count;i+=3) {
                 bool keep=true;
@@ -1868,21 +1893,25 @@ namespace DesktopFish.Editor
                     int v=a.body.tri[i+j];
                     if(v>=rearStart&&v<oldRearEnd) {
                         int lockIndex=v>=radialStart?(v-radialStart)/radialStride:-1;
+                        if(forkSeamRows.TryGetValue(lockIndex,out var seamRow)) {
+                            if((v-radialStart)%radialStride/9>seamRow)keep=false;
+                            continue;
+                        }
                         int mantleColumn=v<mantleEnd?(v-rearStart)%41:-1;
                         bool mantleEdge=mantleColumn>=0&&(mantleColumn<=4||mantleColumn>=36);
-                        bool outerLock=lockIndex>=0&&(lockIndex<3||lockIndex>5);
+                        bool outerLock=lockIndex>=0&&(lockIndex<2||lockIndex>6);
                         if(outerLock||mantleEdge||(v>=mantleEnd&&v<radialStart))continue;
                         if(a.body.p[v].y<.55f)keep=false;
                     }
                 }
-                // The two lower side panels only need their outward sheet;
-                // the material is already two-sided. Keep the silhouette edge
-                // while removing the hidden inward half of the closed tube.
+                // Two side tips and the fork trunks only need their outward
+                // sheets under the two-sided material. Remove hidden returns
+                // that otherwise end as dark inner walls at the new seam.
                 if(keep) {
                     var face=a.body.tri.GetRange(i,3);
-                    if(face.All(v=>v>=radialStart&&v<oldRearEnd&&a.body.p[v].y<.55f&&
-                        ((v-radialStart)/radialStride==0||(v-radialStart)/radialStride==8)&&
-                        (v-radialStart)%9>=4))keep=false;
+                    if(face.All(v=>v>=radialStart&&v<oldRearEnd&&(v-radialStart)%9>=4&&
+                        (((v-radialStart)/radialStride==0||(v-radialStart)/radialStride==8)&&a.body.p[v].y<.55f||
+                         ((v-radialStart)/radialStride==2||(v-radialStart)/radialStride==6)&&a.body.p[v].y<.85f)))keep=false;
                 }
                 if(keep)for(int j=0;j<3;j++) {
                     cornerMap[i+j]=crownTriangles.Count;crownTriangles.Add(a.body.tri[i+j]);
@@ -1894,7 +1923,9 @@ namespace DesktopFish.Editor
             // A short overlap at the shoulder closes the connection to the
             // existing upper mass. Five outer and six inner sections retain
             // different tip lengths and rear depths without closed tube backs.
+            // Two adjoining locks are split into a trunk and separate fork tips.
             for(int panel=0;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray());
+            for(int panel=0;panel<FishRearForkGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,upperFaces.ToArray(),true,forkSeams.TryGetValue(panel,out var seam)?seam:null);
             foreach(int sign in new[]{-1,1}) {
                 int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
                 // An outer lower curl and a higher folded ribbon describe

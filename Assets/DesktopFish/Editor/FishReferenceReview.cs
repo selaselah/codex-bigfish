@@ -23,7 +23,7 @@ namespace DesktopFish.Editor
             RenderTexture.active=previous;RenderTexture.ReleaseTemporary(rt);guideTextures[slot]=readable;return readable;
         }
         static System.Collections.Generic.List<Vector3> VisibleSection(Vector3[] points,Vector2[] uv,int[] triangles,
-            Vector3 normal,float plane,int slot,Func<Vector3,Vector2,bool> keep=null) {
+            Vector3 normal,float plane,int slot,Func<Vector3,Vector2,bool> keep=null,float maxStep=0) {
             var result=new System.Collections.Generic.List<Vector3>();var texture=GuideTexture(slot);
             for(int i=0;i<triangles.Length;i+=3) {
                 var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
@@ -34,13 +34,64 @@ namespace DesktopFish.Editor
                     float t=da/(da-db);cuts.Add(Vector3.Lerp(a,b,t));tex.Add(Vector2.Lerp(uv[ai],uv[bi],t));
                 }
                 if(cuts.Count!=2)continue;
-                for(int k=0;k<=24;k++) {
-                    float t=k/24f;Vector3 point=Vector3.Lerp(cuts[0],cuts[1],t);Vector2 st=Vector2.Lerp(tex[0],tex[1],t);
+                int steps=maxStep>0?Mathf.Max(24,Mathf.CeilToInt(Vector3.Distance(cuts[0],cuts[1])/maxStep)):24;
+                for(int k=0;k<=steps;k++) {
+                    float t=k/(float)steps;Vector3 point=Vector3.Lerp(cuts[0],cuts[1],t);Vector2 st=Vector2.Lerp(tex[0],tex[1],t);
                     if(texture&&texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
                     if(keep==null||keep(point,st))result.Add(point);
                 }
             }
             return result;
+        }
+        // A near-touching fork can merge under Euclidean clustering. Use the
+        // two local branches below the junction to measure each contour on its
+        // own, then sample alpha along its section; only sparse controls leave
+        // this local review, never source triangles or source image pixels.
+        static void ReviewRearBranches(Vector3[] points,Vector2[] uv,int[] triangles,int component) {
+            foreach(float split in new[]{.26f}) {
+                var used=triangles.Distinct().Where(i=>points[i].y<split).ToArray();
+                var ids=new System.Collections.Generic.HashSet<int>(used);
+                var parents=Enumerable.Range(0,points.Length).ToArray();
+                Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+                for(int k=0;k<triangles.Length;k+=3) {
+                    var lower=new[]{triangles[k],triangles[k+1],triangles[k+2]}.Where(ids.Contains).ToArray();
+                    if(lower.Length>1)for(int j=1;j<lower.Length;j++)parents[root(lower[j])]=root(lower[0]);
+                }
+                foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))) {
+                    int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);
+                }
+                var groups=used.GroupBy(root).OrderBy(g=>g.Average(i=>points[i].x)).ToArray();
+                if(groups.Length!=2)throw new InvalidOperationException("Expected two lower rear branches: "+component);
+                Debug.Log("Fork topology "+component+" below "+split+": "+string.Join("; ",groups.Select(g=>g.Count()+" vertices min="+g.Min(i=>points[i].y)+" x="+g.Average(i=>points[i].x))));
+                var measured=new System.Collections.Generic.List<Landmark>();
+                int branch=0;
+                foreach(var group in groups) {
+                    var members=new System.Collections.Generic.HashSet<int>(group);var selected=new System.Collections.Generic.List<int>();
+                    for(int k=0;k<triangles.Length;k+=3) {
+                        var face=new[]{triangles[k],triangles[k+1],triangles[k+2]};
+                        if(face.Any(members.Contains))selected.AddRange(face);
+                    }
+                    var texture=GuideTexture(15);
+                    var tip=group.Where(i=>!texture||texture.GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f)
+                        .Select(i=>points[i]).OrderBy(q=>q.y).First();
+                    foreach(float y in new[]{.26f,.24f,.22f,.20f,.18f,.16f,.14f,.12f,.10f,.085f,.075f,.068f}.Where(y=>y>tip.y+.001f)) {
+                        var section=VisibleSection(points,uv,selected.ToArray(),Vector3.up,y,15,maxStep:.0005f);
+                        if(section.Count==0)continue;
+                        Vector3 center=Vector3.zero;foreach(var q in section)center+=q/section.Count;
+                        float xx=0,zz=0,xz=0;foreach(var q in section){var d=q-center;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
+                        float angle=.5f*Mathf.Atan2(2*xz,xx-zz);var axis=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
+                        var normal=new Vector3(axis.z,0,-axis.x);if(Vector3.Dot(normal,new Vector3(center.x,0,center.z))<0){axis=-axis;normal=-normal;}
+                        float lo=section.Min(q=>Vector3.Dot(q-center,axis)),hi=section.Max(q=>Vector3.Dot(q-center,axis));
+                        for(int col=0;col<5;col++) {
+                            float d=Mathf.Lerp(lo,hi,col/4f),nearest=section.Min(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d));
+                            float depth=section.Where(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-d)<=nearest+.00025f).Max(q=>Vector3.Dot(q-center,normal));
+                            measured.Add(new Landmark{name="branch-"+branch+"-col-"+col,position=center+axis*d+normal*depth});
+                        }
+                    }
+                    measured.Add(new Landmark{name="branch-"+branch+"-tip",position=tip});branch++;
+                }
+                File.WriteAllText("work/reference-review/rear-branch-guides-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=measured.ToArray()},true));
+            }
         }
         public static void Render()
         {
@@ -412,6 +463,13 @@ namespace DesktopFish.Editor
                             }
                         }
                         frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
+                    }
+                    if(slot==15&&(index==1||index==2)) {
+                        var members=new System.Collections.Generic.HashSet<int>(group);
+                        var selected=new System.Collections.Generic.List<int>();
+                        for(int ti=0;ti<triangles.Length;ti+=3)if(members.Contains(triangles[ti]))
+                            selected.AddRange(new[]{triangles[ti],triangles[ti+1],triangles[ti+2]});
+                        ReviewRearBranches(points,baked.uv,selected.ToArray(),index-1);
                     }
                     if((slot==15&&new[]{0,1,2,3,4,5,6,7,8,9,10,11,13}.Contains(index-1))||slot==16) {
                         int component=index-1;string prefix=(slot==16?"inner-":"component-")+component;
