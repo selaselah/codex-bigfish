@@ -477,7 +477,7 @@ namespace DesktopFish.Editor
                         }
                         frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
                     }
-                    if(slot==15&&new[]{8,11,12,14,15,16}.Contains(index-1)) {
+                    if(slot==15&&new[]{4,5,8,9,11,12,13,14,15,16}.Contains(index-1)) {
                         var members=new System.Collections.Generic.HashSet<int>(group);
                         curlFaces[index-1]=Enumerable.Range(0,triangles.Length/3).Where(i=>members.Contains(triangles[i*3]))
                             .SelectMany(i=>new[]{triangles[i*3],triangles[i*3+1],triangles[i*3+2]}).ToArray();
@@ -739,6 +739,7 @@ namespace DesktopFish.Editor
             ReviewChestLoftGuides(points,baked.uv,chestFaces);
             ReviewRearEnvelope(points,baked.uv,envelopeFaces);
             ReviewSideCurlGuides(points,baked.uv,curlFaces);
+            ReviewSideLockGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
@@ -805,6 +806,26 @@ namespace DesktopFish.Editor
                 row++;
             }
             File.WriteAllText("work/reference-review/rear-envelope-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
+
+        static void ReviewSideLockGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();var bounds=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
+            for(int side=0;side<2;side++) {
+                int first=side==0?4:5,second=side==0?9:13;var triangles=faces[first].Concat(faces[second]).ToArray();
+                var visible=triangles.Distinct().Where(i=>texture.GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f).ToArray();
+                Vector3 root=visible.Select(i=>points[i]).OrderByDescending(p=>p.y).First(),tip=visible.Select(i=>points[i]).OrderBy(p=>p.y).First();
+                samples.Add(new Landmark{name="side-lock-"+side+"-root",position=root});float phase=float.NaN;
+                foreach(float y in new[]{.725f,.72f,.71f,.69f,.66f,.63f,.60f,.57f,.54f,.51f,.48f,.45f,.42f,.39f,.36f,.33f,.30f,.27f,.24f,.21f,.18f,.15f,.13f,.11f,tip.y+.006f}.Where(y=>y>tip.y+.002f&&y<root.y-.001f).Distinct().OrderByDescending(y=>y)) {
+                    var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0004f);if(cuts.Count<2)continue;
+                    var ring=PhaseAlignedCurlRing(cuts,ref phase);string name="side-lock-"+side+"-"+y.ToString("F5",System.Globalization.CultureInfo.InvariantCulture);
+                    bounds.Add(new Landmark{name=name+"-minimum",position=new Vector3(cuts.Min(p=>p.x),y,cuts.Min(p=>p.z))});
+                    bounds.Add(new Landmark{name=name+"-maximum",position=new Vector3(cuts.Max(p=>p.x),y,cuts.Max(p=>p.z))});
+                    for(int col=0;col<16;col++)samples.Add(new Landmark{name="side-lock-"+side+"-ring-"+col,position=ring[col]});
+                }
+                samples.Add(new Landmark{name="side-lock-"+side+"-tip",position=tip});
+            }
+            File.WriteAllText("work/reference-review/side-lock-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/side-lock-envelope.json",JsonUtility.ToJson(new FaceSectionReport{samples=bounds.ToArray()},true));
         }
 
         static void ReviewSideCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {

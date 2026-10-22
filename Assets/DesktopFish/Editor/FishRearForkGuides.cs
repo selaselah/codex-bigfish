@@ -6,6 +6,8 @@ namespace DesktopFish.Editor {
     public static class FishRearForkGuides {
         static readonly Vector3[][] Rows = {
             new[] { // component 0, trunk
+                new Vector3(0.1511571f,0.8075001f,-0.2681970f),new Vector3(0.1880076f,0.8075001f,-0.2351530f),new Vector3(0.1906199f,0.8075001f,-0.1861833f),new Vector3(0.2331103f,0.8075001f,-0.1557627f),new Vector3(0.2334216f,0.8075001f,-0.1057226f),
+                new Vector3(0.1556311f,0.7074974f,-0.2815806f),new Vector3(0.1916220f,0.7074974f,-0.2509752f),new Vector3(0.2203541f,0.7074974f,-0.2167857f),new Vector3(0.2386515f,0.7074974f,-0.1774440f),new Vector3(0.2422377f,0.7074974f,-0.1308386f),
                 new Vector3(0.143897f,0.607500f,-0.288979f),new Vector3(0.180902f,0.607500f,-0.260721f),new Vector3(0.211690f,0.607500f,-0.229355f),new Vector3(0.226452f,0.607500f,-0.189974f),new Vector3(0.228741f,0.607500f,-0.144357f),
                 new Vector3(0.139431f,0.507499f,-0.294786f),new Vector3(0.180415f,0.507499f,-0.268736f),new Vector3(0.211276f,0.507499f,-0.237547f),new Vector3(0.225907f,0.507499f,-0.198117f),new Vector3(0.227378f,0.507499f,-0.152007f),
                 new Vector3(0.168279f,0.420000f,-0.312679f),new Vector3(0.206911f,0.420000f,-0.289489f),new Vector3(0.206331f,0.420000f,-0.244924f),new Vector3(0.249282f,0.420000f,-0.224090f),new Vector3(0.248976f,0.420000f,-0.179674f),
@@ -41,6 +43,8 @@ namespace DesktopFish.Editor {
                 new Vector3(0.233671f,0.155133f,-0.294208f),new Vector3(0.233671f,0.155133f,-0.294208f),new Vector3(0.233671f,0.155133f,-0.294208f),new Vector3(0.233671f,0.155133f,-0.294208f),new Vector3(0.233671f,0.155133f,-0.294208f),
             },
             new[] { // component 1, trunk
+                new Vector3(-0.2311303f,0.8074980f,-0.1128539f),new Vector3(-0.2298963f,0.8074980f,-0.1593747f),new Vector3(-0.2012161f,0.8074980f,-0.1941760f),new Vector3(-0.1880246f,0.8074980f,-0.2355909f),new Vector3(-0.1493680f,0.8074980f,-0.2661321f),
+                new Vector3(-0.2405792f,0.7075013f,-0.1329610f),new Vector3(-0.2372544f,0.7075013f,-0.1792455f),new Vector3(-0.2196755f,0.7075013f,-0.2178990f),new Vector3(-0.1916759f,0.7075013f,-0.2509738f),new Vector3(-0.1535375f,0.7075013f,-0.2786209f),
                 new Vector3(-0.228900f,0.607498f,-0.144540f),new Vector3(-0.226228f,0.607498f,-0.189055f),new Vector3(-0.200294f,0.607498f,-0.222216f),new Vector3(-0.181900f,0.607498f,-0.259057f),new Vector3(-0.144329f,0.607498f,-0.286539f),
                 new Vector3(-0.228452f,0.507498f,-0.152947f),new Vector3(-0.226144f,0.507498f,-0.198944f),new Vector3(-0.210940f,0.507498f,-0.237272f),new Vector3(-0.181314f,0.507498f,-0.267019f),new Vector3(-0.139670f,0.507498f,-0.289619f),
                 new Vector3(-0.248752f,0.419999f,-0.178936f),new Vector3(-0.217984f,0.419999f,-0.209307f),new Vector3(-0.206991f,0.419999f,-0.251217f),new Vector3(-0.192250f,0.419999f,-0.290940f),new Vector3(-0.153850f,0.419999f,-0.316858f),

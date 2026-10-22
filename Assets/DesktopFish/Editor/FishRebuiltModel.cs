@@ -497,6 +497,74 @@ namespace DesktopFish.Editor
                 for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
                 body.region=oldRegion;
             }
+            public void GuidedSideLock(int panel,int bone,bool fork=false) {
+                int head=ids["J_Bip_C_Head"],start=body.p.Count,firstFace=body.tri.Count,oldRegion=body.region;body.region=0;
+                int columns=fork?4:8,sign=fork?(panel==0?1:-1):(panel==0?-1:1);
+                Func<float,float,Vector3> raw=(height,u)=>{
+                    if(!fork)return FishSideLockGuides.Outer(panel,height,u);
+                    float f=Mathf.Clamp01(u)*4;int col=Mathf.Min(3,(int)f);
+                    return Vector3.Lerp(FishRearForkGuides.Point(panel,height,col),FishRearForkGuides.Point(panel,height,col+1),f-col);
+                };
+                int orientation=sign*(raw(.66f,1).z>raw(.66f,0).z?1:-1);
+                Func<int,Vector3> capCorner=edge=>{
+                    float angle=edge*360f/RearDomeColumns,front=Mathf.SmoothStep(0,1,Mathf.Cos(angle*Mathf.Deg2Rad));
+                    Vector3 p=FishRearCrownGuides.Surface(-5+35*front,angle);
+                    return p-(p-V(0,.77f,-.05f)).normalized*(.003f*front);
+                };
+                Func<float,Vector3> capAtZ=z=>{
+                    Vector3 nearest=Vector3.zero;float best=float.PositiveInfinity;int first=sign<0?RearDomeColumns/2:0;
+                    for(int edge=first;edge<first+RearDomeColumns/2;edge++) {
+                        Vector3 a=capCorner(edge),b=capCorner(edge+1),q=Vector3.Lerp(a,b,Mathf.Clamp01((z-a.z)/(b.z-a.z)));
+                        float error=Mathf.Abs(q.z-z);if(error<best){best=error;nearest=q;}
+                    }
+                    return nearest;
+                };
+                Func<float,Vector3> root=u=>capAtZ(raw(.745f,u).z);
+                Func<float,float,Vector3> surface=(height,u)=>{
+                    if(height<=.66f)return raw(height,u);
+                    Vector3 top=root(u),lower=raw(.66f,u);if(height>=top.y)return top;
+                    float h=top.y-.66f,t=Mathf.Clamp01((height-.66f)/h),t2=t*t,t3=t2*t;
+                    Vector3 slope=(raw(.6602f,u)-raw(.6598f,u))/.0004f;
+                    Vector3 n=FishRearCrownGuides.Normal(top),topSlope=V(-n.y/n.x,1,0);
+                    Vector3 p=(2*t3-3*t2+1)*lower+(t3-2*t2+t)*h*slope+(-2*t3+3*t2)*top+(t3-t2)*h*topSlope;
+                    p.y=height;return p;
+                };
+                var ys=new[]{.745f,.7075f,.68f,.66f}.Concat((fork?FishRearForkGuides.Stations(panel):FishSideLockGuides.Stations(panel)).Where(y=>y<.66f)).ToArray();
+                Action<int,Vector3> rootNormal=(vertex,p)=>{Vector3 n=FishRearCrownGuides.Normal(p);float derivative;FitHeight(body.p[vertex].y,out derivative);n.y*=derivative;body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);};
+                for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++) {
+                    float u=col/(float)columns,y=ys[row];Vector3 final=row==0?root(u):surface(y,u);
+                    float headWeight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,final.y));
+                    int vertex=body.Add(AuthorPoint(final),Color.white*.98f,bone,RearPaintFinalUV(final),head,headWeight);
+                    if(row==0)rootNormal(vertex,final);
+                    else if(row<ys.Length-2) {
+                        Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
+                        Vector3 across=AuthorPoint(surface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(surface(y,Mathf.Max(0,u-.001f)));
+                        Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized*orientation;
+                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                    }
+                }
+                // Add the real cap corners to the attachment border, then
+                // zipper to the side ribbon's regular second row.
+                var roots=Enumerable.Range(0,columns+1).Select(c=>new KeyValuePair<float,int>(c/(float)columns,start+c)).ToList();
+                float left=root(0).z,right=root(1).z;int firstEdge=sign<0?RearDomeColumns/2:0;
+                for(int edge=firstEdge+1;edge<firstEdge+RearDomeColumns/2;edge++) {
+                    Vector3 p=capCorner(edge);if(p.z<=Mathf.Min(left,right)||p.z>=Mathf.Max(left,right))continue;
+                    // Fork columns are not evenly spaced in depth. Invert
+                    // the actual boundary parameter before sorting the zipper.
+                    float lo=0,hi=1;
+                    for(int step=0;step<24;step++){float mid=(lo+hi)*.5f;if((root(mid).z<p.z)==(right>left))lo=mid;else hi=mid;}
+                    float u=(lo+hi)*.5f;var near=roots.OrderBy(pair=>Mathf.Abs(pair.Key-u)).First();
+                    if(Mathf.Abs(near.Key-u)<.0001f){body.p[near.Value]=AuthorPoint(p);body.uv[near.Value]=RearPaintFinalUV(p);rootNormal(near.Value,p);}
+                    else {int vertex=body.Add(AuthorPoint(p),Color.white*.98f,bone,RearPaintFinalUV(p),head,1);rootNormal(vertex,p);roots.Add(new KeyValuePair<float,int>(u,vertex));}
+                }
+                roots=roots.OrderBy(pair=>pair.Key).ToList();foreach(var pair in roots)rearAttachmentReport.Add(RearAttachmentLine(fork?"fork-root":"side-root",panel,FitPoint(body.p[pair.Value])));
+                int upper=0,lowerIndex=0;
+                while(upper<roots.Count-1||lowerIndex<columns) {
+                    if(upper<roots.Count-1&&(lowerIndex==columns||roots[upper+1].Key<=(lowerIndex+1)/(float)columns)) {body.Face(roots[upper].Value,roots[upper+1].Value,start+columns+1+lowerIndex);upper++;}
+                    else {body.Face(roots[upper].Value,start+columns+2+lowerIndex,start+columns+1+lowerIndex);lowerIndex++;}
+                }
+                Grid(body,start+columns+1,ys.Length-2,columns);if(orientation<0)ReverseFaces(body,firstFace);body.region=oldRegion;
+            }
             public void GuidedRearCurtain(int head) {
                 int oldRegion=body.region;body.region=0;
                 const int columns=40,perLock=8;const float join=.3825f,release=.30f;
@@ -604,20 +672,19 @@ namespace DesktopFish.Editor
                 }
                 body.region=oldRegion;
             }
-            public void GuidedRearPanel(int panel,int head,Vector3[] upperPoints,bool fork=false,int[] seam=null) {
+            public void GuidedRearPanel(int panel,int head,bool fork=false) {
                 int start=body.p.Count,region=body.region;body.region=0;
                 float[] stations=fork?FishRearForkGuides.Stations(panel):FishRearHairGuides.Stations(panel);
-                if(seam!=null)stations=new[]{seam.Average(i=>upperPoints[i].y)}.Concat(stations).ToArray();
-                int cols=fork?FishRearForkGuides.Columns(panel):2;
+                bool sideUnderlay=!fork&&(panel==5||panel==10);
+                if(sideUnderlay)stations=new[]{FishRearHairGuides.Top(panel),.78f,.75f,.72f,.69f,.66f,.63f}.Concat(stations.Where(y=>y<.63f)).ToArray();
+                int cols=fork?FishRearForkGuides.Columns(panel):sideUnderlay?4:2;
                 int bone=fork?ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"]:head;
                 for(int row=0;row<stations.Length;row++)for(int col=0;col<=cols;col++) {
-                    Vector3 final=seam!=null&&row==0?upperPoints[seam[col]]:fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):FishRearHairGuides.Surface(panel,stations[row],col/(float)cols);
+                    Vector3 final=fork?FishRearForkGuides.Point(panel,stations[row],col*4/cols):FishRearHairGuides.Surface(panel,stations[row],col/(float)cols);
+                    if(sideUnderlay)final=FishRearCrownGuides.Point(final);
                     Vector3 p=AuthorPoint(final);float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
                     int vertex=body.Add(p,Color.white*(!fork?.94f:.97f),bone,RearPaintFinalUV(final),head,bone==head?0:anchored);
-                    if(seam!=null&&row==0) {
-                        int source=seam[col];body.p[vertex]=body.p[source];body.regions[vertex]=body.regions[source];body.weights[vertex]=body.weights[source];body.uv[vertex]=body.uv[source];body.colors[vertex]=body.colors[source];
-                        body.smoothNormalPairs.Add(new Vector2Int(source,vertex));
-                    }
+
                 }
                 Grid(body,start,stations.Length-1,cols);body.region=region;
             }
@@ -1903,212 +1970,22 @@ namespace DesktopFish.Editor
 
         static void BuildHair(Author a, int head)
         {
-            int rearStart=a.body.p.Count;
-            a.HairMantle(head);
-            int mantleEnd=a.body.p.Count;
-            int start=a.body.p.Count; const int rings=6,sides=20;
-            for(int y=0;y<=rings;y++)for(int x=0;x<=sides;x++) {
-                float theta=x*Mathf.PI*2/sides,front=(Mathf.Cos(theta)+1)*.5f;
-                float phi=Mathf.Pow(y/(float)rings,1.2f)*Mathf.Lerp(2.05f,1.10f,front);
-                a.body.Add(V(Mathf.Sin(theta)*Mathf.Sin(phi)*.232f,
-                    .765f+Mathf.Cos(phi)*.215f,Mathf.Cos(theta)*Mathf.Sin(phi)*.182f),Hair,head);
-            }
-            Grid(a.body,start,rings,sides);
+            // All rear surfaces now come from authored sparse-section
+            // reconstructions; keep the original five secondary bone frames.
             for(int i=0;i<5;i++) {
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/4f);
                 a.Bone("J_Sec_Hair"+(i+1)+"_01",head,V(Mathf.Sin(theta)*.16f,.90f,Mathf.Cos(theta)*.13f));
             }
-            // Radial locks wrap the back of the head. Each has its own transverse
-            // direction, so it retains width in a side view and curls at the hem.
-            int radialStart=a.body.p.Count;int radialRows=HairRows(44),radialStride=(radialRows+1)*9;
-            for(int i=0;i<9;i++) {
-                float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/8f);
-                Func<float,float,float,Vector3> radial=(rx,y,rz)=>V(Mathf.Sin(theta)*rx,y,Mathf.Cos(theta)*rz);
-                int bone=a.ids["J_Sec_Hair"+(1+Mathf.RoundToInt(i*.5f))+"_01"];
-                int group=Mathf.Min(i,8-i);
-                float lift=new[]{.008f,.055f,.022f,.085f,.035f}[group];
-                float layer=new[]{.008f,-.006f,.013f,-.010f,.006f}[group];
-                float lowerWidth=new[]{.77f,.66f,.80f,.70f,.78f}[group];
-                float taperAt=new[]{.74f,.73f,.75f,.72f,.73f}[group];
-                var controls=new[]{radial(.008f,.979f,.006f),radial(.150f,.979f,.118f),
-                    radial(.244f,.88f,.192f),radial(.244f,.735f,.192f),
-                    radial(.244f,.65f,.205f),radial(.243f+layer*.25f,.56f,.225f+layer*.25f),
-                    radial(.265f+layer,.48f+lift*.18f,.248f+layer),
-                    radial(.325f+layer,.33f+lift*.60f,.310f+layer),
-                    Vector3.zero,Vector3.zero,Vector3.zero,Vector3.zero,Vector3.zero};
-                // Rounded lower guides set long side tips and shorter inner
-                // layers. Their last span travels down/forward instead of
-                // curling every tip back upward into a repeating ringlet.
-                if(group==1)controls[7]=radial(.295f,.405f,.280f);
-                if(group==3)controls[7]=radial(.295f,.405f,.275f);
-                float edgeBias=group==2?(i<4?.035f:-.035f):i==4?-.035f:0;
-                for(int k=8;k<=12;k++) {
-                    Vector3 guide=RearHemControls[group][k-8];
-                    if(i>4)guide.x=-guide.x;
-                    controls[k]=guide;
-                }
-                a.HairPanel(controls,.067f,bone,true,i,V(Mathf.Sin(theta),0,Mathf.Cos(theta)),8,44,
-                    tipStart:taperAt,backSweep:HairSweepAtAngle(theta),lowerWidth:lowerWidth,tipBias:edgeBias,
-                    tipPower:new[]{.60f,.38f,.47f,.38f,.40f}[group]);
-            }
-            // The rear volume shares one depth profile across the cap, inner
-            // mantle and long locks. This keeps their overlap intact as the
-            // shoulder-to-hem silhouette opens behind the head.
-            Vector3 sectionCenter=Vector3.zero;
-            for(int i=rearStart;i<a.body.p.Count;i++) {
-                Vector3 p=a.body.p[i];float dy,dz;
-                Vector3 coverageSlope=Vector3.zero;
-                Vector3 shaped=ShapeRearHair(p,out dy,out dz);
-                if(i>=radialStart) {
-                    if((i-radialStart)%9==0) {
-                        sectionCenter=Vector3.zero;
-                        for(int j=0;j<8;j++)sectionCenter+=a.body.p[i+j]/8;
-                    }
-                    // Translate each lower section as a whole; independently
-                    // stretching its front and rear edges produces a broad paddle.
-                    Vector3 section=V(p.x,p.y,p.z+RearHairPoint(sectionCenter).z-sectionCenter.z);
-                    float crown=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,sectionCenter.y));
-                    shaped=Vector3.Lerp(section,shaped,.30f+.70f*crown);
-                    int lockIndex=(i-radialStart)/radialStride,group=Mathf.Min(lockIndex,8-lockIndex);
-                    float side=1-group/4f;
-                    float theta=Mathf.Atan2(p.x,p.z);
-                    float angularSide=Mathf.Clamp01((Mathf.PI-Mathf.Abs(theta))/(Mathf.PI-1.12f));
-                    side=Mathf.Lerp(side,angularSide,crown);
-                    Vector3 coverage=SideHairCoverage(sectionCenter.y);
-                    Vector3 scale=V(Mathf.Sign(p.x)*Mathf.Pow(side,1.2f),0,Mathf.Pow(side,1.6f));
-                    shaped+=Vector3.Scale(coverage,scale);
-                    coverageSlope=Vector3.Scale((SideHairCoverage(sectionCenter.y+.0001f)-
-                        SideHairCoverage(sectionCenter.y-.0001f))/.0002f,scale);
-                }
-                Vector3 massSlope=RearMassSlope(shaped);
-                a.body.p[i]=RoundRearMass(shaped);
-                if(i<mantleEnd)a.body.p[i]=InnerEdgePoint(a.body.p[i]);
-                if(i<mantleEnd||i>=radialStart)a.body.uv[i]=RearPaintUV(a.body.p[i]);
-                if(a.body.normalBlends.TryGetValue(i,out var blend)) {
-                    Vector3 n=V(blend.x,blend.y-dy*blend.z/dz,blend.z/dz);
-                    n.y-=coverageSlope.x*n.x+coverageSlope.z*n.z;
-                    n=V(n.x-massSlope.x*n.z/(1+massSlope.z),
-                        n.y-massSlope.y*n.z/(1+massSlope.z),n.z/(1+massSlope.z)).normalized;
-                    a.body.normalBlends[i]=new Vector4(n.x,n.y,n.z,blend.w);
-                }
-            }
-            // Join the visible upper surfaces across lock boundaries. Closed
-            // panel edges include inner faces, so their ordinary averaged mesh
-            // normals make dark channels even when neighboring edges coincide.
-            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=1;row<radialRows;row++)
-                for(int j=0;j<=4;j++) {
-                    int index=radialStart+lockIndex*radialStride+row*9+j;
-                    Vector3 p=a.body.p[index];
-                    float join=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.480f,.610f,p.y))*
-                        (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.820f,.900f,p.y)));
-                    if(join<=0)continue;
-                    Vector3 along=a.body.p[index+9]-a.body.p[index-9];
-                    Vector3 minus=j>0?a.body.p[index-1]:lockIndex<8?a.body.p[index+radialStride+3]:p;
-                    Vector3 plus=j<4?a.body.p[index+1]:lockIndex>0?a.body.p[index-radialStride-3]:p;
-                    Vector3 normal=Vector3.Cross(along,plus-minus).normalized;
-                    if(normal.sqrMagnitude<.1f)continue;
-                    float weight=join;
-                    if(a.body.normalBlends.TryGetValue(index,out var old)) {
-                        weight=old.w*(1-join)+join;
-                        normal=(V(old.x,old.y,old.z)*old.w*(1-join)+normal*join).normalized;
-                    }
-                    var target=new Vector4(normal.x,normal.y,normal.z,weight);
-                    a.body.normalBlends[index]=target;
-                    // The closing column belongs only to the inward half.
-                }
-            // Tiny closed ends need a section derivative rather than the
-            // area average of the thin closing faces. Preserve a rounded tip
-            // without letting its inward face darken the visible outer edge.
-            for(int lockIndex=0;lockIndex<9;lockIndex++)for(int row=Mathf.FloorToInt(radialRows*.84f);row<=radialRows;row++)
-                for(int j=0;j<=8;j++) {
-                    int root=radialStart+lockIndex*radialStride,index=root+row*9+j;
-                    Vector3 along=a.body.p[root+Mathf.Min(radialRows,row+1)*9+j]-
-                        a.body.p[root+Mathf.Max(0,row-1)*9+j];
-                    Vector3 across=a.body.p[root+row*9+(j+1)%8]-a.body.p[root+row*9+(j+7)%8];
-                    Vector3 normal=Vector3.Cross(along.normalized,across.normalized).normalized;
-                    float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.91f,RearHairParameter(row/(float)radialRows)));
-                    a.body.normalBlends[index]=new Vector4(normal.x,normal.y,normal.z,weight);
-                }
-            // Replace the central upper pipes and lower curtain, preserving
-            // side curls. Forked mid-side ends use separate branch
-            // contours so their opening is not filled by a convex section.
-            int oldRearEnd=a.body.p.Count;
-            // Refit retained side joins below the dome and anchor their upper rings to the head.
-            for(int i=rearStart;i<oldRearEnd;i++) {
-                a.body.regions[i]=8;float y=FitPoint(a.body.p[i]).y;
-                var w=a.body.weights[i];float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.76f,y));
-                if(weight>0&&w.boneIndex0!=head){w.boneIndex1=head;w.weight1=Mathf.Lerp(w.weight1,1,weight);w.weight0=1-w.weight1;a.body.weights[i]=w;}
-            }
-            var upperPoints=a.body.p.Select(p=> {
-                if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
-                return FishModelGuides.Point(FitPoint(p),8);
-            }).ToArray();
-            var upperFaces=new List<int>();
-            for(int i=0;i<a.body.tri.Count;i+=3)if(a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd))
-                upperFaces.AddRange(a.body.tri.GetRange(i,3));
-            // Join the two new trunks at an existing complete radial ring.
-            // Matching positions, UVs, weights and normals avoids a cut-off
-            // curtain edge or a shadow-producing overlap in other renderers.
-            var forkSeamRows=new Dictionary<int,int>();var forkSeams=new Dictionary<int,int[]>();
-            foreach(int lockIndex in new[]{2,6}) {
-                int row=1;
-                for(int j=1;j<radialRows;j++) {
-                    float height=Enumerable.Range(0,5).Average(col=>a.body.p[radialStart+lockIndex*radialStride+j*9+col].y);
-                    if(height>=.69f)row=j;
-                }
-                forkSeamRows[lockIndex]=row;
-                int[] seam=Enumerable.Range(0,5).Select(col=>radialStart+lockIndex*radialStride+row*9+col).ToArray();
-                if(upperPoints[seam[0]].x>upperPoints[seam[4]].x)Array.Reverse(seam);
-                forkSeams[lockIndex==6?0:3]=seam;
-            }
-            var crownTriangles=new List<int>();var cornerMap=new Dictionary<int,int>();
-            for(int i=0;i<a.body.tri.Count;i+=3) {
-                bool keep=true;
-                for(int j=0;j<3;j++) {
-                    int v=a.body.tri[i+j];
-                    if(v>=rearStart&&v<oldRearEnd) {
-                        int lockIndex=v>=radialStart?(v-radialStart)/radialStride:-1;
-                        if(forkSeamRows.TryGetValue(lockIndex,out var seamRow)) {
-                            if((v-radialStart)%radialStride/9>seamRow)keep=false;
-                            continue;
-                        }
-                        // The old scalp proxy left a rear-only band after
-                        // crown clipping. The measured dome and attached sheets
-                        // now cover it; keeping that band creates a hidden ledge.
-                        if(v>=mantleEnd&&v<radialStart){keep=false;continue;}
-                        int mantleColumn=v<mantleEnd?(v-rearStart)%41:-1;
-                        bool mantleEdge=mantleColumn>=0&&(mantleColumn<=4||mantleColumn>=36);
-                        bool outerLock=lockIndex>=0&&(lockIndex<2||lockIndex>6);
-                        if(outerLock||mantleEdge)continue;
-                        keep=false; // Extended central sheets replace this old upper layer.
-                    }
-                }
-                if(keep&&a.body.tri.GetRange(i,3).All(v=>v>=rearStart&&v<oldRearEnd)) {
-                    if(a.body.tri.GetRange(i,3).Any(v=>upperPoints[v].y>.79f))keep=false;
-                }
-                // Two side tips and the fork trunks only need their outward
-                // sheets under the two-sided material. Remove hidden returns
-                // that otherwise end as dark inner walls at the new seam.
-                if(keep) {
-                    var face=a.body.tri.GetRange(i,3);
-                    if(face.All(v=>v>=radialStart&&v<oldRearEnd&&(v-radialStart)%9>=4&&
-                        (((v-radialStart)/radialStride==0||(v-radialStart)/radialStride==8)&&a.body.p[v].y<.55f||
-                         ((v-radialStart)/radialStride==2||(v-radialStart)/radialStride==6)&&a.body.p[v].y<.85f)))keep=false;
-                }
-                if(keep)for(int j=0;j<3;j++) {
-                    cornerMap[i+j]=crownTriangles.Count;crownTriangles.Add(a.body.tri[i+j]);
-                }
-            }
-            a.body.tri.Clear();a.body.tri.AddRange(crownTriangles);
-            foreach(var key in a.body.splitNormalCorners.Keys.ToArray())
-                a.body.splitNormalCorners[key]=a.body.splitNormalCorners[key].Where(cornerMap.ContainsKey).Select(c=>cornerMap[c]).ToList();
             // One connected measured envelope reaches the actual cap border.
             // Shared lower-row indices branch into independently shaped tips;
             // sparse side underlays and fork contours retain separate coverage.
             // Two adjoining locks are split into a trunk and separate fork tips.
             a.GuidedRearCurtain(head);
-            for(int panel=5;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints);
-            for(int panel=0;panel<FishRearForkGuides.Count;panel++)a.GuidedRearPanel(panel,head,upperPoints,true,forkSeams.TryGetValue(panel,out var seam)?seam:null);
+            for(int panel=5;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head);
+            for(int panel=0;panel<FishRearForkGuides.Count;panel++) {
+                if(panel==0||panel==3)a.GuidedSideLock(panel,a.ids["J_Sec_Hair"+FishRearForkGuides.BoneGroup(panel)+"_01"],true);
+                else a.GuidedRearPanel(panel,head,true);
+            }
             // One low-density upper dome replaces the overlapping crown pipes.
             int domeStart=a.body.p.Count,oldRegion=a.body.region;a.body.region=0;
             const int domeRows=12,domeCols=RearDomeColumns;
@@ -2117,26 +1994,11 @@ namespace DesktopFish.Editor
                 float front=Mathf.SmoothStep(0,1,Mathf.Cos(angle*Mathf.Deg2Rad));
                 Vector3 final=FishRearCrownGuides.Surface(Mathf.Lerp(-5+35*front,90,row/(float)domeRows),angle);
                 final-=(final-V(0,.77f,-.05f)).normalized*(.003f*front*(1-row/(float)domeRows));
-                // Side cap edges follow retained side geometry. The central
-                // back edge is shared by the new outer-sheet attachments.
-                if(row<2&&front<.5f&&Mathf.Cos(angle*Mathf.Deg2Rad)>-.5f) {
-                    Vector3 edge=FishRearCrownGuides.Surface(-5+35*front,angle);
-                    Vector3 origin=V(0,edge.y,-.05f),ray=(edge-origin).normalized;
-                    float hit=0;
-                    for(int k=0;k<upperFaces.Count;k+=3) {
-                        Vector3 pa=upperPoints[upperFaces[k]],pb=upperPoints[upperFaces[k+1]],pc=upperPoints[upperFaces[k+2]];
-                        Vector3 ab=pb-pa,ac=pc-pa,h=Vector3.Cross(ray,ac);float det=Vector3.Dot(ab,h);
-                        if(Mathf.Abs(det)<1e-9f)continue;
-                        Vector3 d=origin-pa;float u=Vector3.Dot(d,h)/det;if(u<0||u>1)continue;
-                        Vector3 q=Vector3.Cross(d,ab);float v=Vector3.Dot(ray,q)/det;if(v<0||u+v>1)continue;
-                        float distance=Vector3.Dot(ac,q)/det;if(distance>hit)hit=distance;
-                    }
-                    float radius=(edge-origin).magnitude;
-                    if(hit>0&&Mathf.Abs(hit-radius)<.01f)
-                        final+=ray*(hit-radius-.00025f)*(1-row/2f)*(1-front*2);
-                }
+                // Measured side locks conform beneath the analytic dome; do
+                // not project its edge back onto the replaced hand-drawn pipes.
                 Vector3 author=AuthorPoint(final);
                 if(row==0&&col>=domeCols/4&&col<=domeCols*3/4)a.rearAttachmentReport.Add(RearAttachmentLine("cap",col,final));
+                if(row==0)a.rearAttachmentReport.Add(RearAttachmentLine("side-cap",col,final));
                 int vertex=a.body.Add(author,Color.white*.97f,head,RearPaintFinalUV(final));
                 Vector3 normal=FishRearCrownGuides.Normal(final);
                 float derivative;FitHeight(author.y,out derivative);normal.y*=derivative;
@@ -2151,6 +2013,7 @@ namespace DesktopFish.Editor
                 // An outer lower curl and a higher folded ribbon describe
                 // different silhouettes. Their depth follows the back curtain,
                 // instead of putting three parallel wisps in front of the shoulder.
+                a.GuidedSideLock(sign<0?0:1,bone);
                 a.GuidedSideCurl(sign<0?0:1,bone,head);
                 // Each higher Ref curl has a front and back surface at almost
                 // the same contour. Their combined visible sections form one
