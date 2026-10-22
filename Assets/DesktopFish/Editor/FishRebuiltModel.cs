@@ -647,11 +647,11 @@ namespace DesktopFish.Editor
                 for(int panel=0;panel<5;panel++) {
                     int bone=ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
                     Func<float,float,Vector3> lowerSurface=(height,u)=>{
-                        Vector3 measured=FishRearHairGuides.Surface(panel,height,u);
+                        Vector3 measured=FishLowerRearGuides.Surface(panel,height,u);
                         float merge=Mathf.SmoothStep(0,1,Mathf.InverseLerp(release,join,height));
                         return Vector3.Lerp(measured,surface(height,Mathf.Lerp(cuts[panel],cuts[panel+1],u)),merge);
                     };
-                    var rows=new[]{join,.36f,.34f,.32f,release}.Concat(FishRearHairGuides.Stations(panel).Where(y=>y<release-.00001f)).ToArray();
+                    var rows=new[]{join,.36f,.34f,.32f,release}.Concat(FishLowerRearGuides.Stations(panel).Where(y=>y<release-.00001f)).ToArray();
                     int[] previous=Enumerable.Range(0,perLock+1).Select(c=>shared+panel*perLock+c).ToArray();
                     for(int row=1;row<rows.Length;row++) {
                         var current=new int[perLock+1];float y=rows[row];
@@ -659,7 +659,7 @@ namespace DesktopFish.Editor
                             float u=col/(float)perLock;Vector3 final=lowerSurface(y,u);
                             float rootShare=Mathf.SmoothStep(0,1,Mathf.InverseLerp(release,join,y));
                             int vertex=body.Add(AuthorPoint(final),Color.white*.97f,bone,RearPaintFinalUV(final),middle,bone==middle?0:rootShare);current[col]=vertex;
-                            if(y>FishRearHairGuides.Bottom(panel)+.0003f) {
+                            if(y>FishLowerRearGuides.Bottom(panel)+.002f) {
                                 Vector3 along=AuthorPoint(lowerSurface(y-.0003f,u))-AuthorPoint(lowerSurface(y+.0003f,u));
                                 Vector3 across=AuthorPoint(lowerSurface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(lowerSurface(y,Mathf.Max(0,u-.001f)));
                                 Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;

@@ -496,6 +496,7 @@ namespace DesktopFish.Editor
                         var selected=new System.Collections.Generic.List<int>();
                         for(int ti=0;ti<triangles.Length;ti+=3)if(members.Contains(triangles[ti]))
                             selected.AddRange(new[]{triangles[ti],triangles[ti+1],triangles[ti+2]});
+                        if(slot==15&&new[]{3,7,10,6,2}.Contains(component))ReviewLowerRearGuides(points,baked.uv,selected.ToArray(),component);
                         rearPanels.Add(new Landmark{name=prefix+"-root",position=group.Select(i=>points[i]).OrderByDescending(p=>p.y).First()});
                         Vector3 tip=group.Select(i=>points[i]).OrderBy(p=>p.y).First();
                         Vector3 previous=Vector3.right;
@@ -909,6 +910,38 @@ namespace DesktopFish.Editor
                 Vector2 p=center+ray*nearest;ring[col]=new Vector3(p.x,y,p.y);
             }
             return ring;
+        }
+
+        // Rear-facing lower ribbons use a stable left-to-right projection.
+        // A changing PCA section axis can rotate/reverse at the curled tip.
+        static void ReviewLowerRearGuides(Vector3[] points,Vector2[] uv,int[] triangles,int component) {
+            var used=triangles.Distinct().ToArray();float bottom=used.Min(i=>points[i].y);
+            var samples=new System.Collections.Generic.List<Landmark>();
+            System.Collections.Generic.List<Vector3> first=null;float tipY=bottom;
+            for(int step=1;step<=200;step++) {
+                tipY=bottom+step*.00005f;first=VisibleSection(points,uv,triangles,Vector3.up,tipY,15,maxStep:.0002f);
+                if(first.Count>0)break;
+            }
+            if(first==null||first.Count==0)throw new InvalidOperationException("No alpha-visible lower tip "+component);
+            var texture=GuideTexture(15);
+            foreach(float y in new[]{.25f,.23f,.21f,.19f,.17f,.155f,.14f,.125f,.11f,.095f,.085f,tipY+.004f,tipY+.001f,tipY}.Where(y=>y>=tipY).Distinct().OrderByDescending(y=>y)) {
+                var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0002f);if(cuts.Count==0)continue;
+                float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
+                for(int col=0;col<5;col++) {
+                    float x=Mathf.Lerp(lo+.0000001f,hi-.0000001f,col/4f),z=float.PositiveInfinity;
+                    for(int i=0;i<triangles.Length;i+=3) {
+                        int ai=triangles[i],bi=triangles[i+1],ci=triangles[i+2];Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a;
+                        float det=ab.x*ac.y-ab.y*ac.x;if(Mathf.Abs(det)<1e-12f)continue;
+                        float dx=x-a.x,dy=y-a.y,u=(dx*ac.y-dy*ac.x)/det,v=(ab.x*dy-ab.y*dx)/det;
+                        if(u<-.000001f||v<-.000001f||u+v>1.000001f)continue;
+                        Vector2 st=uv[ai]+(uv[bi]-uv[ai])*u+(uv[ci]-uv[ai])*v;if(texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        z=Mathf.Min(z,(a+ab*u+ac*v).z);
+                    }
+                    if(float.IsInfinity(z)) {float nearest=cuts.Min(q=>Mathf.Abs(q.x-x));z=cuts.Where(q=>Mathf.Abs(q.x-x)<=nearest+.0001f).Min(q=>q.z);}
+                    samples.Add(new Landmark{name="lower-"+component+"-col-"+col,position=new Vector3(x,y,z)});
+                }
+            }
+            File.WriteAllText("work/reference-review/lower-rear-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         // Sparse color-boundary heights, not copied reference pixels or UVs.
