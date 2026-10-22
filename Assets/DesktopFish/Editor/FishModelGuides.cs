@@ -512,6 +512,61 @@ namespace DesktopFish.Editor {
 
         // Visible shoe edges include alpha-cut instep holes. These sparse
         // measured rings feed a new loft, independent of reference topology.
+        // Two sparse alpha-visible garment boundaries, measured on radial
+        // cuts; the independent loft supplies the gathered fabric between them.
+        static readonly Vector3[] NavyHem = {
+            new Vector3(0.000000f,0.184421f,0.260688f),
+            new Vector3(0.068149f,0.185757f,0.254335f),
+            new Vector3(0.128508f,0.184327f,0.222582f),
+            new Vector3(0.162032f,0.187844f,0.162032f),
+            new Vector3(0.192172f,0.190928f,0.110951f),
+            new Vector3(0.208748f,0.197523f,0.055934f),
+            new Vector3(0.216107f,0.199699f,-0.000000f),
+            new Vector3(0.212157f,0.205372f,-0.056847f),
+            new Vector3(0.207256f,0.197807f,-0.119660f),
+            new Vector3(0.181620f,0.193829f,-0.181620f),
+            new Vector3(0.150423f,0.192890f,-0.260541f),
+            new Vector3(0.082751f,0.186698f,-0.308832f),
+            new Vector3(-0.000000f,0.184207f,-0.317808f),
+            new Vector3(-0.082752f,0.186697f,-0.308836f),
+            new Vector3(-0.150895f,0.191820f,-0.261358f),
+            new Vector3(-0.181620f,0.193829f,-0.181619f),
+            new Vector3(-0.207863f,0.196589f,-0.120010f),
+            new Vector3(-0.212157f,0.205372f,-0.056847f),
+            new Vector3(-0.215416f,0.201193f,0.000000f),
+            new Vector3(-0.208780f,0.196936f,0.055942f),
+            new Vector3(-0.192172f,0.190928f,0.110951f),
+            new Vector3(-0.162242f,0.187333f,0.162242f),
+            new Vector3(-0.128826f,0.183003f,0.223133f),
+            new Vector3(-0.068149f,0.185758f,0.254335f),
+        };
+        static readonly Vector3[] WhiteHem = {
+            new Vector3(-0.000000f,0.157707f,0.269852f),
+            new Vector3(0.071279f,0.156515f,0.266018f),
+            new Vector3(0.133086f,0.156655f,0.230512f),
+            new Vector3(0.165402f,0.160321f,0.165402f),
+            new Vector3(0.194577f,0.164709f,0.112339f),
+            new Vector3(0.211074f,0.172364f,0.056557f),
+            new Vector3(0.218104f,0.177101f,-0.000000f),
+            new Vector3(0.220332f,0.173695f,-0.059038f),
+            new Vector3(0.211548f,0.175802f,-0.122137f),
+            new Vector3(0.187320f,0.172126f,-0.187320f),
+            new Vector3(0.158224f,0.170685f,-0.274051f),
+            new Vector3(0.087621f,0.167344f,-0.327007f),
+            new Vector3(-0.000000f,0.166564f,-0.335408f),
+            new Vector3(-0.086779f,0.169650f,-0.323865f),
+            new Vector3(-0.158878f,0.169479f,-0.275185f),
+            new Vector3(-0.187320f,0.172126f,-0.187320f),
+            new Vector3(-0.209538f,0.179143f,-0.120977f),
+            new Vector3(-0.218705f,0.176319f,-0.058602f),
+            new Vector3(-0.219578f,0.174528f,0.000000f),
+            new Vector3(-0.210643f,0.172836f,0.056442f),
+            new Vector3(-0.193410f,0.167333f,0.111665f),
+            new Vector3(-0.164535f,0.162460f,0.164535f),
+            new Vector3(-0.133650f,0.154309f,0.231489f),
+            new Vector3(-0.071423f,0.155729f,0.266554f),
+        };
+        public static Vector3 HemEdge(float t,bool white) => ClosedFootCurve(white?WhiteHem:NavyHem,t);
         static readonly Vector3[] ShoeRim={
             new Vector3(0.111125f,0.124703f,-0.015000f),
             new Vector3(0.109153f,0.117690f,0.012892f),

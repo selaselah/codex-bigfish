@@ -120,6 +120,7 @@ namespace DesktopFish.Editor
             ReviewBibGuides(baked,snapshot.transform);
             ReviewCollarRibbonGuides(baked,snapshot.transform);
             ReviewFootGuides(baked,snapshot.transform);
+            ReviewHemGuides(baked,snapshot.transform);
             var defaultHand=skin.bones.First(t=>t.name=="J_Bip_R_Hand");
             FishRebuiltModel.RenderDefaultHandStudy(camera,"work/reference-review/hand-default",defaultHand.position+new Vector3(0,-.0112f,.012f),.8f);
             ReviewHandBounds(reference,baked,skin,snapshot.transform);
@@ -232,7 +233,7 @@ namespace DesktopFish.Editor
             var filter=snapshot.GetComponent<MeshFilter>();
             var points=baked.vertices.Select(snapshot.transform.TransformPoint).ToArray();
             var sections=new System.Collections.Generic.List<HairSection>();
-            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,37}) {
+            foreach(int slot in new[]{1,3,4,6,10,11,12,15,16,17,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37}) {
                 int[] triangles=baked.GetTriangles(slot);
                 float[] heights=slot>=26&&slot<=28?new[]{.01f,.02f,.03f,.04f,.05f,.06f,.07f,.08f,.09f,.10f}:
                     new[]{.04f,.06f,.08f,.10f,.15f,.20f,.25f,.30f,.35f,.40f,.45f,.50f,.55f,.60f,.65f,.70f};
@@ -266,6 +267,7 @@ namespace DesktopFish.Editor
                 if(slot==10||slot==11)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-hair-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==29||slot==30)FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib-cloth-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot>=26&&slot<=28)FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot-part-"+slot,.8f,new Vector3(0,-.056f,0));
+                if(slot==34||slot==35||slot==36)FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/hem-part-"+slot,.8f,new Vector3(0,-.056f,0));
                 if(slot==3)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-skin",.8f,new Vector3(0,-.056f,0));
                 if(slot>=22&&slot<=25)FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head-fin-"+slot,.8f,new Vector3(0,-.056f,0));
                 filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
@@ -721,6 +723,25 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/front-crown.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
         }
 
+        static void ReviewHemGuides(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int slot in new[]{34,35})for(int i=0;i<24;i++) {
+                float theta=i*Mathf.PI*2/24;var radial=new Vector3(Mathf.Sin(theta),0,Mathf.Cos(theta));
+                var normal=new Vector3(Mathf.Cos(theta),0,-Mathf.Sin(theta));
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(slot),normal,0,slot,
+                    (p,st)=>Vector3.Dot(p,radial)>.04f&&p.y<.21f);
+                if(cuts.Count==0)continue;
+                samples.Add(new Landmark{name=slot+"/edge/"+i,position=cuts.OrderBy(p=>p.y).First()});
+                foreach(float y in new[]{.045f,.055f,.065f,.075f,.085f,.095f,.11f,.14f,.18f}) {
+                    var near=cuts.Where(p=>Mathf.Abs(p.y-y)<.0015f).ToArray();
+                    if(near.Length==0)continue;
+                    var q=near.OrderByDescending(p=>Vector3.Dot(p,radial)).First();q.y=y;
+                    samples.Add(new Landmark{name=slot+"/y/"+y.ToString("F3")+"/"+i,position=q});
+                }
+            }
+            File.WriteAllText("work/reference-review/hem-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+        }
         static void ReviewFootGuides(Mesh baked,Transform snapshot) {
             var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
             var samples=new System.Collections.Generic.List<Landmark>();

@@ -1001,14 +1001,23 @@ namespace DesktopFish.Editor
             }
             // Authored cutout tiles: continuous curved sheets retain volume,
             // while rounded lace scallops are resolved in the alpha channel.
-            int[] scallops={16,20,24,12};
+            int[] scallops={16,20,8,12};
             for(int y=0;y<laceHeight;y++)for(int x=0;x<size;x++) {
                 int tile=x/256;float u=(x%256-8)/239f,r=(y-16)/96f;
                 float wave=Mathf.Repeat(u*scallops[tile],1)*2-1;
                 float edge=.78f+.20f*Mathf.Sqrt(Mathf.Max(0,1-wave*wave));
                 float alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.012f,edge+.012f,r));
                 float fold=.94f+.06f*Mathf.Cos(u*scallops[tile]*Mathf.PI*2);
-                pixels[y*size+x]=new Color(fold,fold,fold,alpha);
+                if(tile==2) {
+                    // Broad fabric lobes, a narrow lavender stitched edge and
+                    // shallow pleat creases are authored inside the alpha strip.
+                    float phase=Mathf.Repeat(u*scallops[tile],1),crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
+                    float shade=.99f-.11f*crease*Mathf.Sin(r*Mathf.PI*.8f);
+                    Color cloth=new Color(shade,shade,1,alpha);
+                    float border=1-Mathf.SmoothStep(0,1,Mathf.Abs(r-edge+.013f)/.021f);
+                    Color tint=Color.Lerp(cloth,new Color(.65f,.71f,.86f,alpha),border*.72f);
+                    tint.a=alpha;pixels[y*size+x]=tint;
+                } else pixels[y*size+x]=new Color(fold,fold,fold,alpha);
             }
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
@@ -1878,10 +1887,6 @@ namespace DesktopFish.Editor
             int dressStart=a.body.p.Count;
             // Four height intervals and 48 angular samples retain the broad drape.
             Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,4,48);
-            Lathe(a,hips,.133f,.170f,t=>Mathf.Lerp(.214f,.222f,t),
-                t=>Mathf.Lerp(.134f,.138f,t),White*.96f,2,48);
-            Ruffle(a,hips,.164f,.223f,.138f,.022f,24);
-            Ruffle(a,hips,.145f,.213f,.130f,.022f,24,Mathf.PI*.65f);
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,1,24);
             GuidedBelt(a,hips);
             GuidedBib(a,chest);
@@ -1972,7 +1977,72 @@ namespace DesktopFish.Editor
             // apron artwork and both lace layers. Keep the waist attachment fixed
             // while giving the hem a deeper, longer bell silhouette.
             for(int i=dressStart;i<a.body.p.Count;i++)
-                if(a.body.weights[i].boneIndex0==hips)a.body.p[i]=DressVolume(a.body.p[i]);
+                if(a.body.weights[i].boneIndex0==hips) {
+                    Vector3 p=DressVolume(a.body.p[i]);
+                    a.body.p[i]=a.body.regions[i]==5?p:CalibrateLowerHem(p);
+                }
+            GuidedHem(a,hips);
+        }
+
+        static Vector3 FinalBodyPoint(Vector3 p) {
+            if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
+            return FitPoint(p);
+        }
+        static Vector3 CalibrateLowerHem(Vector3 p) {
+            Vector3 q=FinalBodyPoint(p);if(q.y>=.31f)return p;
+            float angle=Mathf.Atan2(q.x,q.z),t=Mathf.Repeat(angle/(Mathf.PI*2),1);
+            Vector3 ray=V(Mathf.Sin(angle),0,Mathf.Cos(angle)),previous=FinalBodyPoint(DressVolume(SkirtSurface(0,.173f)));
+            Vector3 oldEdge=previous;
+            // Intersect the former authored ring with this ray. Decorations
+            // follow the same smooth correction, preserving thick gold borders.
+            for(int i=1;i<=96;i++) {
+                Vector3 next=FinalBodyPoint(DressVolume(SkirtSurface(i*Mathf.PI*2/96,.173f)));
+                float a=previous.x*ray.z-previous.z*ray.x,b=next.x*ray.z-next.z*ray.x;
+                if((a<=0&&b>0)||(b<=0&&a>0)) {
+                    Vector3 hit=Vector3.Lerp(previous,next,a/(a-b));
+                    if(Vector3.Dot(hit,ray)>0){oldEdge=hit;break;}
+                }
+                previous=next;
+            }
+            float weight=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(oldEdge.y,.31f,q.y));
+            return AuthorPoint(q+(FishModelGuides.HemEdge(t,false)-oldEdge)*weight);
+        }
+        static void GuidedHem(Author a,int bone) {
+            // Five strips repeat only this atlas tile. Eight scallops per tile
+            // leave enough texels for a rounded alpha silhouette and stitched rim.
+            const int panels=5,sides=32,rows=3;
+            var attachment=Enumerable.Range(0,49).Select(i=>FinalBodyPoint(CalibrateLowerHem(
+                DressVolume(SkirtSurface(i*Mathf.PI*2/48,.173f))))).ToArray();
+            Func<float,Vector3> join=t=> {
+                Vector3 ray=V(Mathf.Sin(t*Mathf.PI*2),0,Mathf.Cos(t*Mathf.PI*2));
+                for(int i=0;i<48;i++) {
+                    Vector3 p=attachment[i],q=attachment[i+1];
+                    float a0=p.x*ray.z-p.z*ray.x,b0=q.x*ray.z-q.z*ray.x;
+                    if((a0<=0&&b0>0)||(b0<=0&&a0>0)) {
+                        Vector3 hit=Vector3.Lerp(p,q,a0/(a0-b0));if(Vector3.Dot(hit,ray)>0)return hit;
+                    }
+                }
+                return FishModelGuides.HemEdge(t,false);
+            };
+            var starts=new List<int>();
+            for(int panel=0;panel<panels;panel++) {
+                int start=a.body.p.Count,first=a.body.tri.Count;starts.Add(start);
+                for(int j=0;j<=rows;j++)for(int i=0;i<=sides;i++) {
+                    float u=i/(float)sides,t=(panel+u)/panels,r=j/(float)rows,angle=t*Mathf.PI*2;
+                    Vector3 inner=join(t),outer=FishModelGuides.HemEdge(t,true);
+                    Vector3 radial=V(Mathf.Sin(angle),0,Mathf.Cos(angle));
+                    inner-=radial*.005f;inner.y+=.003f;
+                    float fold=-Mathf.Cos(t*Mathf.PI*80);
+                    Vector3 p=Vector3.Lerp(inner,outer,r);
+                    p+=radial*((.008f+.006f*fold)*Mathf.Sin(r*Mathf.PI)*r-.003f*fold*r*r);
+                    p.y-=.0020f*fold*r;
+                    Color cloth=Color.Lerp(Hex("D3D9E9"),White,.60f+.40f*(fold+1)*.5f);cloth.a=1;
+                    a.body.Add(AuthorPoint(p),cloth,bone,LaceUV(2,u,r));
+                }
+                Grid(a.body,start,rows,sides);ReverseFaces(a.body,first);
+            }
+            for(int panel=0;panel<panels;panel++)for(int row=0;row<=rows;row++)
+                a.body.smoothNormalPairs.Add(new Vector2Int(starts[panel]+row*(sides+1)+sides,starts[(panel+1)%panels]+row*(sides+1)));
         }
 
         static Vector3 ChestVolumePoint(Vector3 p) {
@@ -2193,22 +2263,6 @@ namespace DesktopFish.Editor
             }
             Grid(a.body,start,rows,sides);
         }
-        static void Ruffle(Author a,int bone,float y,float rx,float rz,float width,int lobes,float phase=0) {
-            int start=a.body.p.Count;const int sides=72,rows=2;
-            for(int j=0;j<=rows;j++)for(int i=0;i<=sides;i++) {
-                float theta=i/(float)sides*Mathf.PI*2,t=j/(float)rows;
-                float fold=Mathf.Cos(theta*lobes+phase),opening=Mathf.Sin(t*Mathf.PI*.5f);
-                float gather=Mathf.SmoothStep(0,1,t);
-                float radius=1+width*opening/rx*(1+.08f*fold*gather);
-                float drop=.019f*(1-Mathf.Cos(t*Mathf.PI*.5f))+.0032f*fold*t*t;
-                a.body.Add(V(Mathf.Sin(theta)*rx*radius,y-drop,Mathf.Cos(theta)*rz*radius),
-                    Color.Lerp(White*(.95f-.06f*t),White,(fold+1)*.5f),bone,LaceUV(2,i/(float)sides,t));
-            }
-            int firstTriangle=a.body.tri.Count;
-            Grid(a.body,start,rows,sides);
-            ReverseFaces(a.body,firstTriangle);
-        }
-
         static Vector3 SleeveSection(float x) {
             // The compact body map compresses sleeve height; a fuller cuff
             // opens around the wrist while its depth stays restrained.
