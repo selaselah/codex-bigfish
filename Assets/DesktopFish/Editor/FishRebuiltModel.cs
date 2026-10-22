@@ -1114,19 +1114,19 @@ namespace DesktopFish.Editor
         static readonly float[] RearBlueWidths={.006f,.010f,.006f,.008f,.004f,.010f,.005f,.009f,.006f};
         static Color RearPaintColor(float x,float y) {
             float section=Mathf.Clamp((x+.30f)/.05f,0,12);int index=Mathf.Min(11,(int)section);
-            float boundary=Mathf.Lerp(RearCyanBoundary[index],RearCyanBoundary[index+1],section-index);
-            // A varied narrow brush edge complements the sparse broad boundary.
-            // It describes pointed paint tongues, not another stack of mesh strips.
-            float broken=.012f*Mathf.Sin(x*133+1.7f)+.009f*Mathf.Sin(x*227-.8f);
-            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(boundary+.008f+broken,boundary-.027f+broken,y));
+            float boundary=Mathf.Lerp(RearCyanBoundary[index],RearCyanBoundary[index+1],Mathf.SmoothStep(0,1,section-index));
+            // The sparse boundary supplies broad color fans. A restrained uneven
+            // brush edge and unequal curved returns retain narrow painted tips.
+            float broken=.006f*Mathf.Sin(x*133+1.7f)+.003f*Mathf.Sin(x*227-.8f);
+            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(boundary+.006f+broken,boundary-.024f+broken,y));
             Color blue=Color.Lerp(Hex("34559C"),Hex("567CBA"),.55f*Mathf.Exp(-Mathf.Pow((y-.68f)/.16f,2)));
-            Color color=Color.Lerp(blue,Hex("67C0F0"),cyan*.96f);
+            Color color=Color.Lerp(blue,Hex("6AB7FF"),cyan*.96f);
             // A few unequal blue returns split the cyan into painted fans.
             for(int i=0;i<RearBlueCenters.Length;i++) {
-                float bend=.015f*Mathf.Sin(i*2.4f)*(1-y/.45f);
-                float foot=.170f+.022f*Mathf.Sin(i*1.9f),span=Mathf.Clamp01((y-foot)/.14f);
+                float bend=.022f*Mathf.Sin(i*2.4f)*Mathf.Pow(Mathf.Clamp01(1-y/.45f),1.3f);
+                float foot=.155f+.034f*Mathf.Sin(i*1.9f),span=Mathf.Clamp01((y-foot)/.18f);
                 float line=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,
-                    Mathf.Abs(x-RearBlueCenters[i]-bend)/(RearBlueWidths[i]*1.5f*span+.001f)));
+                    Mathf.Abs(x-RearBlueCenters[i]-bend)/(RearBlueWidths[i]*1.8f*span+.001f)));
                 float fade=Mathf.SmoothStep(0,1,span)*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,.42f,y)));
                 color=Color.Lerp(color,Hex("345391"),line*fade*cyan*.90f);
             }
