@@ -104,7 +104,7 @@ namespace DesktopFish.Editor
             }
             var mesh=Extract(source,new List<int>{0},new[]{result});mesh.name=source.name;
             Debug.Log($"Rebuilt reduction: {indices.Length/3} -> {result.Length/3}; error={error}; locked={locked.Count(x=>x!=0)}");
-            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries"},true));
+            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries; guard new opposed shading facets"},true));
             UnityEngine.Object.DestroyImmediate(source);return mesh;
         }
 

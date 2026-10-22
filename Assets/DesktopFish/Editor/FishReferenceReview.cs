@@ -468,7 +468,7 @@ namespace DesktopFish.Editor
                         }
                         frontPanels.Add(new Landmark{name=name+"-tip",position=group.Select(i=>points[i]).OrderBy(p=>p.y).First()});
                     }
-                    if(slot==15&&(index-1==8||index-1==11)) {
+                    if(slot==15&&new[]{8,11,12,14,15,16}.Contains(index-1)) {
                         var members=new System.Collections.Generic.HashSet<int>(group);
                         curlFaces[index-1]=Enumerable.Range(0,triangles.Length/3).Where(i=>members.Contains(triangles[i*3]))
                             .SelectMany(i=>new[]{triangles[i*3],triangles[i*3+1],triangles[i*3+2]}).ToArray();
@@ -578,7 +578,7 @@ namespace DesktopFish.Editor
                             filter.sharedMesh=baked;UnityEngine.Object.DestroyImmediate(isolated);
                         }
                     }
-                    if(slot==15&&(index-1==11||index-1==14||index-1==16)) {
+                    if(slot==15&&new[]{11,12,14,15,16}.Contains(index-1)) {
                         int component=index-1;
                         var membership=new System.Collections.Generic.HashSet<int>(group);
                         var selected=new System.Collections.Generic.List<int>();
@@ -717,7 +717,7 @@ namespace DesktopFish.Editor
                         if(!float.IsInfinity(rear))profiles.Add(new Landmark{name="rear-profile",position=new Vector3(x,y,rear)});
                     }
             }
-            ReviewOuterCurlGuides(points,baked.uv,curlFaces);
+            ReviewSideCurlGuides(points,baked.uv,curlFaces);
             File.WriteAllText("work/reference-review/rear-panel-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=rearPanels.ToArray()},true));
             File.WriteAllText("work/reference-review/inner-tip-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=innerTips.ToArray()},true));
             File.WriteAllText("work/reference-review/visible-components.json",JsonUtility.ToJson(new AccessoryReport{parts=visibleParts.ToArray()},true));
@@ -733,18 +733,28 @@ namespace DesktopFish.Editor
             File.WriteAllText("work/reference-review/accessory-components.json",
                 JsonUtility.ToJson(new AccessoryReport{parts=parts.ToArray()},true));
         }
-        static void ReviewOuterCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
-            var samples=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
-            foreach(int component in new[]{8,11}) {
-                var triangles=faces[component];
+        static void ReviewSideCurlGuides(Vector3[] points,Vector2[] uv,System.Collections.Generic.Dictionary<int,int[]> faces) {
+            var samples=new System.Collections.Generic.List<Landmark>();var outer=new System.Collections.Generic.List<Landmark>();var envelope=new System.Collections.Generic.List<Landmark>();var texture=GuideTexture(15);
+            foreach(int component in new[]{8,11,12,14,15,16,120,140}) {
+                var triangles=component==120?faces[12].Concat(faces[15]).ToArray():component==140?faces[14].Concat(faces[16]).ToArray():faces[component];
                 var visible=triangles.Distinct().Where(i=>texture.GetPixelBilinear(uv[i].x,uv[i].y).a>=.5f).ToArray();
                 Vector3 tip=visible.Select(i=>points[i]).OrderBy(p=>p.y).First();
                 Vector3 root=visible.Select(i=>points[i]).OrderByDescending(p=>p.y).First();
+                float previousPhase=float.NaN;
+                int first=samples.Count;
                 samples.Add(new Landmark{name="curl-"+component+"-root",position=root});
-                foreach(float y in new[]{.725f,.715f,.69f,.65f,.60f,.55f,.50f,.45f,.40f,.35f,.30f,.27f,.24f,.21f,.18f,.15f,.12f,tip.y+.003f}
-                    .Where(y=>y>tip.y+.001f&&y<root.y-.001f).Distinct().OrderByDescending(y=>y)) {
+                float[] stations=component==8||component==11?new[]{.725f,.715f,.69f,.65f,.60f,.55f,.50f,.45f,.40f,.35f,.30f,.27f,.24f,.21f,.18f,.15f,.12f,tip.y+.003f}:new[]{.725f,.715f,.69f,.65f,.60f,.55f,.50f,.45f,.40f,.375f,.35f,.34f,.33f,.32f,.31f,.30f,.29f,.28f,.27f,.26f,.25f,.24f,.23f,.22f,.21f,.20f,.19f,.18f,.165f,.15f,.12f,tip.y+.003f};
+                foreach(float y in stations.Where(y=>y>tip.y+.001f&&y<root.y-.001f).Distinct().OrderByDescending(y=>y)) {
                     var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0004f);
                     if(cuts.Count<2)continue;
+                    if(component>=12) {
+                        var ring=PhaseAlignedCurlRing(cuts,ref previousPhase);
+                        string key="curl-"+component+"-"+y.ToString("F5",System.Globalization.CultureInfo.InvariantCulture);
+                        envelope.Add(new Landmark{name=key+"-minimum",position=new Vector3(cuts.Min(p=>p.x),y,cuts.Min(p=>p.z))});
+                        envelope.Add(new Landmark{name=key+"-maximum",position=new Vector3(cuts.Max(p=>p.x),y,cuts.Max(p=>p.z))});
+                        for(int col=0;col<16;col++)samples.Add(new Landmark{name="curl-"+component+"-ring-"+col,position=ring[col]});
+                        continue;
+                    }
                     Vector3 center=Vector3.zero;foreach(var q in cuts)center+=q/cuts.Count;
                     float xx=0,zz=0,xz=0;foreach(var q in cuts){var d=q-center;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
                     float angle=.5f*Mathf.Atan2(2*xz,xx-zz);Vector3 axis=new Vector3(Mathf.Cos(angle),0,Mathf.Sin(angle));
@@ -760,8 +770,49 @@ namespace DesktopFish.Editor
                     }
                 }
                 samples.Add(new Landmark{name="curl-"+component+"-tip",position=tip});
+                if(component==8||component==11)outer.AddRange(samples.Skip(first));
             }
-            File.WriteAllText("work/reference-review/outer-curl-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/outer-curl-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=outer.ToArray()},true));
+            File.WriteAllText("work/reference-review/folded-curl-envelope-bounds.json",JsonUtility.ToJson(new FaceSectionReport{samples=envelope.ToArray()},true));
+            File.WriteAllText("work/reference-review/folded-curl-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.Where(p=>!p.name.StartsWith("curl-8-")&&!p.name.StartsWith("curl-11-")).ToArray()},true));
+        }
+
+        static Vector3[] PhaseAlignedCurlRing(System.Collections.Generic.List<Vector3> cuts,ref float previousPhase) {
+            // A nearly round section can swap PCA eigenvectors by 90 degrees.
+            // Uniform angular rays with a continuous phase preserve a
+            // consistent longitudinal correspondence across those stations.
+            Func<Vector2,Vector2,float> cross=(a,b)=>a.x*b.y-a.y*b.x;
+            var sorted=cuts.Select(p=>new Vector2(p.x,p.z)).Distinct().OrderBy(p=>p.x).ThenBy(p=>p.y).ToArray();
+            var hull=new System.Collections.Generic.List<Vector2>();
+            foreach(var p in sorted) {
+                while(hull.Count>=2&&cross(hull[hull.Count-1]-hull[hull.Count-2],p-hull[hull.Count-1])<=0)hull.RemoveAt(hull.Count-1);
+                hull.Add(p);
+            }
+            int lower=hull.Count;
+            for(int i=sorted.Length-2;i>=0;i--) {
+                var p=sorted[i];while(hull.Count>lower&&cross(hull[hull.Count-1]-hull[hull.Count-2],p-hull[hull.Count-1])<=0)hull.RemoveAt(hull.Count-1);
+                hull.Add(p);
+            }
+            hull.RemoveAt(hull.Count-1);
+            Vector2 center=new Vector2((sorted.Min(p=>p.x)+sorted.Max(p=>p.x))*.5f,(sorted.Min(p=>p.y)+sorted.Max(p=>p.y))*.5f);
+            Vector3 mean=Vector3.zero;foreach(var q in cuts)mean+=q/cuts.Count;
+            float xx=0,zz=0,xz=0;foreach(var q in cuts){var d=q-mean;xx+=d.x*d.x;zz+=d.z*d.z;xz+=d.x*d.z;}
+            float phase=.5f*Mathf.Atan2(2*xz,xx-zz),step=Mathf.PI/8;
+            if(!float.IsNaN(previousPhase))phase+=Mathf.Round((previousPhase-phase)/step)*step;
+            previousPhase=phase;
+            var ring=new Vector3[16];float y=cuts.Average(p=>p.y);
+            for(int col=0;col<16;col++) {
+                float angle=phase+col*Mathf.PI/8;Vector2 ray=new Vector2(Mathf.Cos(angle),Mathf.Sin(angle));float nearest=float.PositiveInfinity;
+                for(int i=0;i<hull.Count;i++) {
+                    Vector2 a=hull[i],edge=hull[(i+1)%hull.Count]-a;float det=cross(ray,edge);
+                    if(Mathf.Abs(det)<1e-12f)continue;
+                    float t=cross(a-center,edge)/det,u=cross(a-center,ray)/det;
+                    if(t>=0&&u>=-.00001f&&u<=1.00001f)nearest=Mathf.Min(nearest,t);
+                }
+                if(float.IsInfinity(nearest))throw new InvalidOperationException("No visible curl envelope intersection");
+                Vector2 p=center+ray*nearest;ring[col]=new Vector3(p.x,y,p.y);
+            }
+            return ring;
         }
 
         // Sparse color-boundary heights, not copied reference pixels or UVs.

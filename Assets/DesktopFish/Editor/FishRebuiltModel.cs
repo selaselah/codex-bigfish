@@ -532,7 +532,7 @@ namespace DesktopFish.Editor
                 body.region=region;
             }
             public void GuidedSideCurl(int panel,int bone,int head) {
-                int start=body.p.Count,region=body.region;body.region=0;const int sides=8;
+                int start=body.p.Count,region=body.region;body.region=0;int sides=FishSideCurlGuides.Sides(panel);
                 var ys=FishSideCurlGuides.Stations(panel);
                 // The measured upper tip belongs under a different scalp mass.
                 // Embed only the hidden attachment into the rebuilt crown.
@@ -547,7 +547,7 @@ namespace DesktopFish.Editor
                     int vertex=body.Add(author,Color.white*.97f,bone,RearPaintFinalUV(final),head,headWeight);
                     if(row==0||row==ys.Length-1) {
                         float neighbor=ys[row==0?1:ys.Length-2];Vector3 center=Vector3.zero;
-                        for(int j=0;j<8;j++)center+=AuthorPoint(surface(neighbor,j/8f))/8;
+                        for(int j=0;j<sides;j++)center+=AuthorPoint(surface(neighbor,j/(float)sides))/sides;
                         Vector3 n=(author-center).normalized;
                         if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
                     } else {
@@ -2048,18 +2048,10 @@ namespace DesktopFish.Editor
                 // different silhouettes. Their depth follows the back curtain,
                 // instead of putting three parallel wisps in front of the shoulder.
                 a.GuidedSideCurl(sign<0?0:1,bone,head);
-                a.HairPanel(new[]{V(sign*.170f,.90f,-.033f),V(sign*.230f,.84f,-.040f),
-                    V(sign*.235f,.73f,-.045f),V(sign*.260f,.655f,-.060f),
-                    V(sign*.275f,.590f,-.080f),V(sign*.330f,.560f,-.110f),V(sign*.340f,.525f,-.130f),
-                    V(sign*.350f,.490f,-.150f),V(sign*.290f,.470f,-.180f),V(sign*.270f,.380f,-.240f),
-                    V(sign*.220f,.310f,-.285f),V(sign*.270f,.265f,-.272f),V(sign*.280f,.214f,-.255f)},
-                    .025f,bone,true,3,rootScale:1.20f,sideTurn:sign*44,rootTurn:sign*35,fullness:.85f,
-                    tipStart:.72f,tipPower:.85f,paintStart:.24f,surfaceThickness:true);
-                a.HairPanel(new[]{V(sign*.235f,.700f,-.040f),V(sign*.280f,.610f,-.060f),
-                    V(sign*.350f,.560f,-.100f),V(sign*.345f,.520f,-.130f),
-                    V(sign*.330f,.490f,-.160f),V(sign*.270f,.430f,-.230f),V(sign*.270f,.380f,-.250f)},
-                    .010f,bone,true,4,sideTurn:sign*45,fullness:.70f,rootTaper:.24f,
-                    paintStart:.20f,surfaceThickness:true);
+                // Each higher Ref curl has a front and back surface at almost
+                // the same contour. Their combined visible sections form one
+                // closed ribbon, preserving both edges without a duplicate wisp.
+                a.GuidedSideCurl(sign<0?2:3,bone,head);
                 // The main S curve and shorter outward fork use two separate
                 // measured section families. Separate outer/inner samples retain
                 // their folded transverse volume without copying source topology.
