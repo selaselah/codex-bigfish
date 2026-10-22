@@ -447,6 +447,21 @@ namespace DesktopFish.Editor
                 int first=body.tri.Count;Grid(body,start,rows,cols);ReverseFaces(body,first);
                 body.region=oldRegion;
             }
+            public void GuidedChestPanel(int panel,int sign,int bone,int surface) {
+                int rows=panel==0?26:18;const int cols=4;
+                int start=body.p.Count,oldRegion=body.region;body.region=0;
+                int head=ids["J_Bip_C_Head"];
+                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
+                    float t=row/(float)rows,u=col/(float)cols;
+                    Vector3 p=AuthorPoint(FishModelGuides.ChestPanel(panel*2+surface,sign,t,u));
+                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,p.y));
+                    float paintT=Mathf.InverseLerp(.82f,.405f,FishModelGuides.ChestPanel(panel*2+surface,sign,t,u).y);
+                    body.Add(p,Color.white*.98f,bone,new Vector2(.75f+panel/12f+.004f+u*.075f,
+                        .02f+.94f*paintT),head,anchored);
+                }
+                int first=body.tri.Count;Grid(body,start,rows,cols);if(surface==0)ReverseFaces(body,first);
+                body.region=oldRegion;
+            }
             public void HairMantle(int head) {
                 const int rows=14,cols=40;
                 int[] breaks={0,8,15,20,25,32,40};
@@ -1046,7 +1061,7 @@ namespace DesktopFish.Editor
             BuildDress(a, hips, chest);a.Mark("dress-apron-lace-gold");
             BuildLimbs(a, hips, chest);a.Mark("limbs-hands-shoes");
             BuildAccessories(a, head, chest, hips);a.Mark("headband-bows-fins-ribbon");
-            BuildChestForks(a);a.Mark("chest-lock-tips");
+
             // Shape the default upper garment as one volume. The chest share
             // of the sleeve roots follows it; bone/skin attachment data stays fixed.
             for(int i=0;i<a.body.p.Count;i++) {
@@ -1096,6 +1111,50 @@ namespace DesktopFish.Editor
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
         public static void RenderIdleSkinningAndBuild() { BuildWithSkinningReview(false); }
         public static void RenderIdleHandSkinningAndBuild() { BuildWithSkinningReview(true); }
+        // Localized regression for hair topology/attachments: head-look extrema,
+        // different secondary-sway phases and the raised working posture.
+        public static void RenderIdleHairCheckAndBuild() {
+            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
+            var motion=new FishMotion(companion.model){randomActions=false};
+            var skins=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
+            var snapshots=new List<MeshFilter>();
+            foreach(var skin in skins) {
+                var obj=new GameObject("Hair regression snapshot");obj.transform.SetParent(skin.transform,false);
+                var filter=obj.AddComponent<MeshFilter>();filter.sharedMesh=new Mesh();snapshots.Add(filter);
+                obj.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;skin.enabled=false;
+            }
+            var camera=companion.view;
+            var target=new RenderTexture(360,480,24){antiAliasing=4};camera.targetTexture=target;
+            var frame=new Texture2D(360,480,TextureFormat.RGBA32,false);
+            var sheet=new Texture2D(1440,960,TextureFormat.RGBA32,false);
+            Vector2 min=Vector2.one,max=Vector2.zero;
+            for(int pose=0;pose<8;pose++) {
+                motion.Play(FishMotion.Gesture.None,0);
+                motion.Tick(pose*.73f,1,pose%2==0?-1:1,pose%3==0?-1:1,pose>=6?"working":"idle",false);
+                for(int i=0;i<skins.Length;i++) {
+                    var mesh=snapshots[i].sharedMesh;skins[i].BakeMesh(mesh);
+                    foreach(var point in mesh.vertices) {
+                        Vector3 p=camera.WorldToViewportPoint(skins[i].transform.TransformPoint(point));
+                        if(float.IsNaN(p.x)||float.IsNaN(p.y)||float.IsInfinity(p.x)||float.IsInfinity(p.y))
+                            throw new InvalidOperationException("Non-finite hair regression pose "+pose);
+                        min=Vector2.Min(min,p);max=Vector2.Max(max,p);
+                    }
+                }
+                camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,360,480),0,0);frame.Apply();
+                sheet.SetPixels((pose%4)*360,(1-pose/4)*480,360,480,frame.GetPixels());
+            }
+            if(min.x<.02f||min.y<.02f||max.x>.98f||max.y>.98f)
+                throw new InvalidOperationException("Hair regression outside viewport: "+min+" / "+max);
+            sheet.Apply();File.WriteAllBytes("work/rebuilt-hair-regression.png",sheet.EncodeToPNG());
+            File.WriteAllText("work/hair-motion-validation.json","{\n  \"sampled_poses\": 8,\n  \"scope\": \"head look, secondary hair sway, working posture\",\n  \"finite_and_viewport_passed\": true,\n  \"intersection_test\": false\n}\n");
+            Debug.Log("Targeted hair validation passed: 8 poses; viewport "+min+" / "+max);
+            camera.targetTexture=null;RenderTexture.active=null;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);UnityEngine.Object.DestroyImmediate(sheet);
+            foreach(var snapshot in snapshots){UnityEngine.Object.DestroyImmediate(snapshot.sharedMesh);UnityEngine.Object.DestroyImmediate(snapshot.gameObject);}
+            RenderIdle();Build();
+        }
         public static void RenderIdleLowPolyValidationAndBuild() {
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
@@ -1586,33 +1645,11 @@ namespace DesktopFish.Editor
                     V(sign*.330f,.490f,-.160f),V(sign*.270f,.430f,-.230f),V(sign*.270f,.380f,-.250f)},
                     .010f,bone,true,4,sideTurn:sign*45,fullness:.70f,rootTaper:.24f,
                     paintStart:.20f,surfaceThickness:true);
-                // The front drape starts behind the temple, turns forward at
-                // the collar, and opens into a flat S-shaped tip. Independent
-                // edges keep that turn from twisting the lock into a tube.
-                var drapeInner=new[]{V(sign*.18f,.90f,.035f),V(sign*.19f,.84f,.045f),
-                    V(sign*.18f,.74f,.041f),V(sign*.160f,.655f,.042f),
-                    V(sign*.140f,.615f,.075f),V(sign*.130f,.57f,.110f),V(sign*.110f,.53f,.125f),
-                    V(sign*.105f,.51f,.150f),V(sign*.125f,.485f,.158f),V(sign*.145f,.46f,.146f),
-                    V(sign*.150f,.435f,.145f),V(sign*.148f,.400f,.147f),V(sign*.141f,.385f,.144f)};
-                var drapeOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.245f,.84f,-.030f),
-                    V(sign*.242f,.74f,-.034f),V(sign*.212f,.655f,-.022f),
-                    V(sign*.195f,.615f,-.005f),V(sign*.170f,.57f,.020f),V(sign*.175f,.53f,.048f),
-                    V(sign*.190f,.51f,.078f),V(sign*.202f,.485f,.110f),V(sign*.190f,.46f,.128f),
-                    V(sign*.175f,.435f,.137f),V(sign*.150f,.400f,.145f),V(sign*.141f,.385f,.144f)};
-                a.HairPanel(drapeInner.Zip(drapeOuter,(l,r)=>(l+r)*.5f).ToArray(),.030f,bone,true,5,
-                    fullness:.65f,tipPaintEase:.85f,edgeA:drapeInner,edgeB:drapeOuter,paintOffset:.08f,wrapDepth:.032f,surfaceThickness:true);
-                var layerInner=new[]{V(sign*.180f,.90f,.035f),V(sign*.180f,.84f,.052f),
-                    V(sign*.170f,.74f,.059f),V(sign*.166f,.655f,.080f),
-                    V(sign*.150f,.615f,.130f),V(sign*.147f,.57f,.151f),V(sign*.160f,.53f,.158f),
-                    V(sign*.170f,.51f,.165f),V(sign*.177f,.485f,.172f),V(sign*.177f,.46f,.171f),
-                    V(sign*.175f,.435f,.170f),V(sign*.157f,.40f,.172f),V(sign*.148f,.375f,.171f)};
-                var layerOuter=new[]{V(sign*.215f,.90f,.020f),V(sign*.225f,.84f,.015f),
-                    V(sign*.215f,.74f,.012f),V(sign*.201f,.655f,.024f),
-                    V(sign*.187f,.615f,.043f),V(sign*.185f,.57f,.057f),V(sign*.185f,.53f,.110f),
-                    V(sign*.190f,.51f,.135f),V(sign*.194f,.485f,.150f),V(sign*.193f,.46f,.160f),
-                    V(sign*.180f,.435f,.166f),V(sign*.160f,.40f,.169f),V(sign*.148f,.375f,.171f)};
-                a.HairPanel(layerInner.Zip(layerOuter,(l,r)=>(l+r)*.5f).ToArray(),.024f,bone,true,6,
-                    samples:24,fullness:.55f,edgeA:layerInner,edgeB:layerOuter,tipPaintEase:.92f,paintOffset:.08f,wrapDepth:.010f,surfaceThickness:true);
+                // The main S curve and shorter outward fork use two separate
+                // measured section families. Separate outer/inner samples retain
+                // their folded transverse volume without copying source topology.
+                for(int panel=0;panel<2;panel++)for(int surface=0;surface<2;surface++)
+                    a.GuidedChestPanel(panel,sign,bone,surface);
                 for(int panel=0;panel<7;panel++)a.GuidedFrontPanel(panel,sign,head,panel%3);
                 a.GuidedFrontPanel(7,sign,head,sign);
             }
@@ -1625,23 +1662,6 @@ namespace DesktopFish.Editor
                 V(.10f,1.10f,-.090f),V(.12f,1.03f,-.095f)},24),
                 t=>.013f*tuftProfile(t),t=>.0075f*tuftProfile(t),t=>Hair,head,8);
             for(int row=0;row<24;row++)a.body.smoothNormalPairs.Add(new Vector2Int(tuftStart+row*9,tuftStart+row*9+8));
-        }
-
-        static void BuildChestForks(Author a) {
-            // The shorter outer tip grows beneath the existing long layer.
-            // Its receding depth leaves a narrow opening between the two tips.
-            foreach(int sign in new[]{-1,1}) {
-                int bone=a.ids[sign<0?"J_Sec_Hair1_01":"J_Sec_Hair5_01"];
-                var inner=new[]{V(sign*.185f,.555f,.068f),V(sign*.181f,.540f,.085f),
-                    V(sign*.182f,.520f,.110f),V(sign*.190f,.505f,.120f),
-                    V(sign*.204f,.486f,.126f),V(sign*.217f,.470f,.125f),V(sign*.224f,.465f,.122f)};
-                var outer=new[]{V(sign*.187f,.555f,.062f),V(sign*.188f,.540f,.070f),
-                    V(sign*.190f,.520f,.085f),V(sign*.202f,.505f,.100f),
-                    V(sign*.210f,.486f,.112f),V(sign*.217f,.470f,.122f),V(sign*.224f,.465f,.122f)};
-                a.HairPanel(inner.Zip(outer,(l,r)=>(l+r)*.5f).ToArray(),.016f,bone,true,6,
-                    samples:12,fullness:.50f,tipStart:.45f,edgeA:inner,edgeB:outer,rootTaper:.35f,
-                    paintOffset:.57f,tipPaintEase:.92f,surfaceThickness:true);
-            }
         }
 
         // Height-based shaping keeps the uneven inner hem in one consistent
