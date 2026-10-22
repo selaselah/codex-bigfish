@@ -2403,12 +2403,17 @@ namespace DesktopFish.Editor
             float finalY=target.y;
             target=UndressPoint(AuthorPoint(target));
             float centerDepth=DressVolume(ApronSurface(0,target.y)).z;
+            float sheetLift=DressVolume(ApronSurface(target.x,target.y)+Vector3.forward*lift).z-DressVolume(ApronSurface(target.x,target.y)).z;
             target=DressVolume(ApronSurface(target.x,target.y)+Vector3.forward*lift);
             float centerWeight=Mathf.Pow(Mathf.Clamp01(1-Mathf.Pow(target.x/.096f,2)),2);
             float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,.37f,finalY));
             target.z+=(FishModelGuides.ApronDepth(finalY)-centerDepth)*centerWeight*upper;
             if(target.y<.585f)target.y=.585f-(.585f-target.y)*.88f;
-            return FitPoint(target);
+            target=FitPoint(target);
+            float blend=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.37f,.398f,target.y));
+            float folds=.0015f*ApronGather(old.x,old.y);
+            target.z=Mathf.Lerp(target.z,FishModelGuides.ApronSheetDepth(target.x,target.y)+sheetLift+folds,blend);
+            return target;
         }
         static Vector3 ApronSurface(float x,float y) {
             float t=Mathf.InverseLerp(.173f,.375f,y);

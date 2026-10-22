@@ -576,6 +576,35 @@ namespace DesktopFish.Editor {
             new Vector4(.400000f,.130263f,0,0)
         };
         public static float ApronDepth(float y) => Sample(ApronUpperDepth,y).y;
+        // Refit a smooth cloth sheet to the sparse visible 3D probes. The same
+        // curve is used for lace and the seam, preserving their relative lift.
+        static readonly double[] ApronSheetFit=FitApronSheet();
+        static double[] ApronTerms(double x,double y) {
+            x/=.1;y=(y-.32)/.1;return new[]{1d,x,y,x*x,x*y,y*y};
+        }
+        static double[] FitApronSheet() {
+            var points=new System.Collections.Generic.List<Vector3>(ApronDetailAnchors);
+            foreach(var p in ApronUpperDepth)points.Add(new Vector3(0,p.x,p.y));
+            var m=new double[6,7];
+            foreach(var p in points) {
+                var row=ApronTerms(p.x,p.y);
+                for(int i=0;i<6;i++) {
+                    for(int j=0;j<6;j++)m[i,j]+=row[i]*row[j];m[i,6]+=row[i]*p.z;
+                }
+            }
+            for(int i=0;i<6;i++) {
+                int pivot=i;for(int k=i+1;k<6;k++)if(System.Math.Abs(m[k,i])>System.Math.Abs(m[pivot,i]))pivot=k;
+                for(int j=0;j<7;j++){double temp=m[i,j];m[i,j]=m[pivot,j];m[pivot,j]=temp;}
+                double scale=m[i,i];if(System.Math.Abs(scale)<1e-12)throw new System.InvalidOperationException("Singular apron sheet fit");
+                for(int j=0;j<7;j++)m[i,j]/=scale;
+                for(int k=0;k<6;k++)if(k!=i){double factor=m[k,i];for(int j=0;j<7;j++)m[k,j]-=factor*m[i,j];}
+            }
+            return new[]{m[0,6],m[1,6],m[2,6],m[3,6],m[4,6],m[5,6]};
+        }
+        public static float ApronSheetDepth(float x,float y) {
+            var row=ApronTerms(x,y);double z=0;for(int i=0;i<6;i++)z+=row[i]*ApronSheetFit[i];return (float)z;
+        }
+
 
         public static readonly Vector3[] BeltStuds={
             new Vector3(-0.033360f,0.398500f,0.112992f),
