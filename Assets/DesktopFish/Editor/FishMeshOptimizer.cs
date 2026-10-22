@@ -31,11 +31,17 @@ namespace DesktopFish.Editor
 
         // Rebuilt meshes already have sparse authored surface grids. This final
         // index-only pass keeps all retained UV/color/normal/skin data exact.
-        public static Mesh ReduceRebuilt(Mesh source,int targetTriangles,int headBone) {
+        public static Mesh ReduceRebuilt(Mesh source,int targetTriangles,int headBone,int[] handBones) {
             Directory.CreateDirectory("work");
             var p=source.vertices;var n=source.normals;var uv=source.uv;var w=source.boneWeights;
             var indices=source.triangles;if(indices.Length/3<=targetTriangles)return source;
             var locked=new byte[p.Length];
+            // Tiny curved finger segments can collapse into coincident opposing
+            // triangles when the global budget is redistributed. Keep hand and
+            // finger joints exact; their shape matters more than the saved faces.
+            var preserveHands=new HashSet<int>(handBones);
+            for(int i=0;i<p.Length;i++)if(preserveHands.Contains(w[i].boneIndex0)||
+                (w[i].weight1>0&&preserveHands.Contains(w[i].boneIndex1)))locked[i]=1;
             // The absolute body tolerance is larger than tiny button thickness.
             // Keep small connected ornaments, authored with sparse grids, intact
             // so a closed bead cannot collapse into opposing coincident sheets.

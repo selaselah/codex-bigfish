@@ -157,6 +157,7 @@ namespace DesktopFish.Editor
             File.WriteAllBytes("work/reference-review/ref-top.png",frame.EncodeToPNG());
             FishRebuiltModel.RenderHeadStudy(camera,"work/reference-review/head",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBibStudy(camera,"work/reference-review/bib",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderApronStudy(camera,"work/reference-review/apron",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderFootStudy(camera,"work/reference-review/foot",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/aligned",.8f,new Vector3(0,-.056f,0));
             FishRebuiltModel.RenderBodyStudy(camera,"work/reference-review/small",.8f,new Vector3(0,-.056f,0),180,240);
@@ -169,6 +170,7 @@ namespace DesktopFish.Editor
             ReviewRearCrown(baked,snapshot.transform);
             ReviewFringeCoverage(baked,snapshot.transform);
             ReviewFeatureGuides(baked,snapshot.transform);
+            ReviewApronDetails(baked,snapshot.transform);
             ReviewFinSections(baked,snapshot.transform);
             ReviewTorsoSections(baked,snapshot.transform);
             ReviewBibGuides(baked,snapshot.transform);
@@ -754,6 +756,56 @@ namespace DesktopFish.Editor
                 if(!float.IsNegativeInfinity(top))rows.Add(new Landmark{name="cyan-upper-"+column,position=hit});
             }
             File.WriteAllText("work/reference-review/rear-paint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=rows.ToArray()},true));
+        }
+
+        static void ReviewApronDetails(Mesh baked,Transform snapshot) {
+            var points=baked.vertices.Select(snapshot.TransformPoint).ToArray();
+            var texture=GuideTexture(37);var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(float y in new[]{.135f,.140f,.150f,.165f,.180f,.200f,.220f,.240f,.250f,.260f,.264f}) {
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(37),Vector3.up,y,37,
+                    (p,st)=>st.y<.5f&&p.z>=.04f,.00025f);
+                if(cuts.Count==0)continue;
+                string label="visible/"+y.ToString("F3",System.Globalization.CultureInfo.InvariantCulture);
+                samples.Add(new Landmark{name=label+"/left",position=cuts.OrderBy(p=>p.x).First()});
+                samples.Add(new Landmark{name=label+"/right",position=cuts.OrderByDescending(p=>p.x).First()});
+            }
+            // Sparse visible motif/edge probes picked in the fixed frontal study.
+            // Intersect the actual surface and reject transparent texels; keep only
+            // the landmark coordinate, never the source triangles or image pixels.
+            var probes=new[]{
+                new Vector2(219,320),new Vector2(312,242),new Vector2(380,290),new Vector2(374,363),new Vector2(300,389),
+                new Vector2(240,352),new Vector2(288,344),new Vector2(340,380),new Vector2(279,385),
+                new Vector2(470,266),new Vector2(418,256),new Vector2(435,311),
+                new Vector2(465,402),new Vector2(521,331),new Vector2(531,374),new Vector2(496,389),
+                new Vector2(474,354),new Vector2(451,362),new Vector2(331,208),new Vector2(358,219),
+                new Vector2(170,236),new Vector2(179,424),new Vector2(360,490),new Vector2(550,417),new Vector2(550,245),
+                new Vector2(240,270),new Vector2(361,261),new Vector2(224,355),new Vector2(253,379),
+                new Vector2(274,318),new Vector2(231,353),new Vector2(272,383)
+            };
+            var names=new[]{"whale-head","whale-crown","whale-shoulder","whale-flank","whale-bottom",
+                "belly-start","belly-upper","belly-end","belly-bottom","tail-tip","tail-root","tail-turn",
+                "boat-left","boat-top","boat-right","boat-notch","spray-0","spray-1","spout-0","spout-1",
+                "edge-left-upper","edge-left-lower","edge-bottom","edge-right-lower","edge-right-upper","whale-upper-left","whale-upper-right","whale-lower-left","whale-lower-arc","eye","belly-left","belly-lower"};
+            Vector3 focus=new Vector3(0,.315f,.22f)*.8f+new Vector3(0,-.056f,0);
+            Vector3 view=new Vector3(0,.24f,3).normalized,up=new Vector3(0,view.z,-view.y);
+            var triangles=baked.GetTriangles(37);var uv=baked.uv;
+            for(int probe=0;probe<probes.Length;probe++) {
+                Vector2 pixel=probes[probe];Vector3 origin=focus+Vector3.left*((pixel.x/720-.5f)*.224f)+up*((.5f-pixel.y/720)*.224f)+view*2;
+                Vector3 direction=-view,hit=Vector3.zero;float nearest=float.PositiveInfinity;
+                for(int k=0;k<triangles.Length;k+=3) {
+                    int ai=triangles[k],bi=triangles[k+1],ci=triangles[k+2];Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a;
+                    Vector3 h=Vector3.Cross(direction,ac);float det=Vector3.Dot(ab,h);if(Mathf.Abs(det)<1e-9f)continue;
+                    Vector3 rel=origin-a;float u=Vector3.Dot(rel,h)/det;if(u<0||u>1)continue;
+                    Vector3 q=Vector3.Cross(rel,ab);float v=Vector3.Dot(direction,q)/det;if(v<0||u+v>1)continue;
+                    float distance=Vector3.Dot(ac,q)/det;if(distance<0||distance>=nearest)continue;
+                    Vector2 st=uv[ai]+(uv[bi]-uv[ai])*u+(uv[ci]-uv[ai])*v;
+                    if(st.y>=.5f||texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                    nearest=distance;hit=origin+direction*distance;
+                }
+                if(float.IsPositiveInfinity(nearest))throw new InvalidOperationException("Apron probe missed "+names[probe]);
+                samples.Add(new Landmark{name="motif/"+names[probe],position=hit});
+            }
+            File.WriteAllText("work/reference-review/apron-edge-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
         }
 
         static void ReviewFeatureGuides(Mesh baked,Transform snapshot) {

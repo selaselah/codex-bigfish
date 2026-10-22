@@ -13,7 +13,7 @@ namespace DesktopFish.Editor
     public static class FishRebuiltModel
     {
         const string Folder = "Assets/DesktopFish/Rebuilt";
-        internal const int PaintWidth=1024, LegacyPaintHeight=1152, RearPaintHeight=512, PaintHeight=1664;
+        internal const int PaintWidth=1024, LegacyPaintHeight=1152, RearPaintHeight=512, PaintHeight=2048;
         static readonly Color Skin = Hex("FFF0E9"), Hair = Hex("304C91"), Tip = Hex("58B2D5"),
             Navy = Hex("252E5D"), White = Hex("FFFCF3"), Gold = Hex("E2C47D"), Ink = Hex("233150");
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out Color c); return c; }
@@ -788,7 +788,8 @@ namespace DesktopFish.Editor
                     FitProportions(mesh);
                     FishModelGuides.Apply(mesh,geo.regions.ToArray());
                     mesh=CompactMesh(mesh);
-                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"]);
+                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"],
+                        ids.Where(pair=>new[]{"_Hand","_Thumb","_Index","_Middle","_Ring","_Little"}.Any(partName=>pair.Key.Contains(partName))).Select(pair=>pair.Value).ToArray());
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
                         var deltas = new Vector3[mesh.vertexCount];
@@ -829,7 +830,7 @@ namespace DesktopFish.Editor
                     parts=budgets.Concat(new[]{new PartBudget{name="face-expressions",triangles=exports[1].triangles.Length/3}}).ToArray()},true));
                 AssetDatabase.SaveAssets();
                 PrefabUtility.SaveAsPrefabAsset(root, Folder + "/BigFish.prefab");
-                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"sparse_reference_controls\": true,\n  \"triangle_budget\": 20000,\n  \"paint_size\": [1024, 1664],\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
+                File.WriteAllText(Folder + "/provenance.json", "{\n  \"generator\": \"FishRebuiltModel.cs\",\n  \"source_3d_assets_loaded\": false,\n  \"sparse_reference_controls\": true,\n  \"triangle_budget\": 20000,\n  \"paint_size\": [1024, 2048],\n  \"body_vertices\": " + exports[0].vertices.Length + ",\n  \"face_vertices\": " + exports[1].vertices.Length + ",\n  \"triangles\": " + exports.Sum(m=>m.triangles.Length) / 3 + ",\n  \"bones\": " + bones.Count + "\n}\n");
                 return root;
             }
         }
@@ -1063,10 +1064,18 @@ namespace DesktopFish.Editor
             for(int y=0;y<laceHeight;y++)for(int x=0;x<size;x++) {
                 int tile=x/256;float u=(x%256-8)/239f,r=(y-16)/96f;
                 float wave=Mathf.Repeat(u*scallops[tile],1)*2-1;
-                float edge=.78f+.20f*Mathf.Sqrt(Mathf.Max(0,1-wave*wave));
+                float edge=(tile==1?.66f:.78f)+(tile==1?.32f:.20f)*Mathf.Sqrt(Mathf.Max(0,1-wave*wave));
                 float alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.012f,edge+.012f,r));
                 float fold=.94f+.06f*Mathf.Cos(u*scallops[tile]*Mathf.PI*2);
-                if(tile==2) {
+                if(tile==1) {
+                    float phase=Mathf.Repeat(u*scallops[tile],1);
+                    float crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
+                    float shade=1-.10f*crease*Mathf.Sin(Mathf.Clamp01(r)*Mathf.PI*.8f);
+                    Color cloth=new Color(shade,shade,1,alpha);
+                    float border=1-Mathf.SmoothStep(0,1,Mathf.Abs(r-edge+.012f)/.018f);
+                    Color tint=Color.Lerp(cloth,new Color(.70f,.76f,.88f,alpha),border*.45f);
+                    tint.a=alpha;pixels[y*size+x]=tint;
+                } else if(tile==2) {
                     // Broad fabric lobes, a narrow lavender stitched edge and
                     // shallow pleat creases are authored inside the alpha strip.
                     float phase=Mathf.Repeat(u*scallops[tile],1),crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
@@ -1084,6 +1093,7 @@ namespace DesktopFish.Editor
                 // Extend the neutral swatch upward so lower mip levels cannot bleed rear blue into unpainted cloth.
                 pixels[(LegacyPaintHeight+y)*size+x]=u>.98f?Color.white:RearPaintColor((u-.5f)*.82f,1.03f-t*.96f);
             }
+            PaintApron(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
@@ -1391,6 +1401,7 @@ namespace DesktopFish.Editor
             File.Copy("work/rebuilt-angle-0.png","work/rebuilt-idle.png",true);
             RenderHeadStudy(camera,"work/rebuilt-head",1,Vector3.zero);
             RenderBibStudy(camera,"work/rebuilt-bib",1,Vector3.zero);
+            RenderApronStudy(camera,"work/rebuilt-apron",1,Vector3.zero);
             RenderFootStudy(camera,"work/rebuilt-foot",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-aligned",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-small",1,Vector3.zero,180,240);
@@ -1670,6 +1681,27 @@ namespace DesktopFish.Editor
             var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
             Vector3 focus=V(0,.465f,.09f)*scale+offset;
             camera.targetTexture=target;camera.aspect=1;camera.orthographicSize= .135f*scale;
+            foreach(int angle in new[]{0,35,90}) {
+                camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.24f,3)*scale;
+                camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
+                frame.ReadPixels(new Rect(0,0,size,size),0,0);frame.Apply();
+                File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());
+            }
+            camera.targetTexture=oldTarget;camera.orthographicSize=oldSize;camera.aspect=oldAspect;
+            camera.transform.SetPositionAndRotation(oldPosition,oldRotation);RenderTexture.active=null;
+            UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
+
+        public static void RenderApronStudy(Camera camera,string prefix,float scale,Vector3 offset) {
+            // Identical pitch and world-space framing expose modelling differences
+            // independently of the full-body camera's gesture clearance.
+            var oldPosition=camera.transform.position;var oldRotation=camera.transform.rotation;
+            var oldTarget=camera.targetTexture;float oldSize=camera.orthographicSize,oldAspect=camera.aspect;
+            const int size=720;
+            var target=new RenderTexture(size,size,24){antiAliasing=4};
+            var frame=new Texture2D(size,size,TextureFormat.RGBA32,false);
+            Vector3 focus=V(0,.315f,.22f)*scale+offset;
+            camera.targetTexture=target;camera.aspect=1;camera.orthographicSize= .14f*scale;
             foreach(int angle in new[]{0,35,90}) {
                 camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.24f,3)*scale;
                 camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;
@@ -2153,14 +2185,20 @@ namespace DesktopFish.Editor
                 V(.092f,.226f,0),V(.052f,.207f,0),V(0,.207f,0),
                 V(-.052f,.207f,0),V(-.092f,.226f,0),V(-.106f,.262f,0),
                 V(-.120f,.296f,0),V(-.108f,.350f,0),V(-.078f,.374f,0)};
-            var outline=Curve(apronControls,48);
+            // Keep the outer silhouette while widening the lower lace toward
+            // the measured inner hem; a narrow blue seam separates the layers.
+            Func<Vector3,Vector3> innerEdge=p=>{
+                float lower=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,.22f,p.y));
+                p.x*=Mathf.Lerp(1,.94f,lower);p.y+=.016f*lower;return p;
+            };
+            var outline=Curve(apronControls,48).Select(innerEdge).ToArray();
             int apronStart=a.body.p.Count;const int apronRings=4;
             for(int row=0;row<=apronRings;row++)for(int i=0;i<outline.Length;i++) {
                 float r=row/(float)apronRings;
                 Vector3 p=Vector3.Lerp(V(0,.293f,0),outline[i],r);
                 float gather=ApronGather(p.x,p.y);
                 Color cloth=White*Mathf.Lerp(.91f,1,(gather+1)*.5f);cloth.a=1;
-                a.body.Add(ApronSurface(p.x,p.y),cloth,hips);
+                a.body.Add(ApronSurface(p.x,p.y),cloth,hips,new Vector2(.5f,3));
             }
             Grid(a.body,apronStart,apronRings,outline.Length-1);
             var lacePath=Curve(apronControls.Skip(3).ToArray(),80);
@@ -2172,31 +2210,13 @@ namespace DesktopFish.Editor
                 Vector3 outward=V(-tangent.y,tangent.x,0);
                 float fold=Mathf.Cos(t*Mathf.PI*40);
                 float end=Mathf.SmoothStep(0,1,Mathf.Min(t,1-t)/.045f);
-                Vector3 p=lacePath[i]+outward*.019f*r*end;
+                Vector3 p=Vector3.Lerp(innerEdge(lacePath[i]),lacePath[i]+outward*.019f*end,r);
                 p=ApronSurface(p.x,p.y)+Vector3.forward*(Mathf.Sin(r*Mathf.PI)*.004f+fold*r*.002f)*end;
                 a.body.Add(p,White,hips,LaceUV(1,t,r));
             }
             Grid(a.body,laceStart,laceRows,lacePath.Length-1);
-            ApronStroke(a,outline,.0011f,White*.85f,hips);
-            // Surface artwork keeps the large whale, without hidden sphere backs.
-            int whaleStart=a.body.p.Count,whaleTriangles=a.body.tri.Count;
-            Color blue=Hex("577FAE");
-            ApronOval(a,V(-.014f,.281f,0),new Vector2(.046f,.030f),blue,hips,.0015f,24,5);
-            ApronOval(a,V(-.027f,.268f,0),new Vector2(.030f,.012f),White,hips,.0024f,24,3);
-            ApronStroke(a,Curve(new[]{V(.015f,.276f,0),V(.040f,.278f,0),
-                V(.038f,.309f,0),V(.050f,.317f,0)},20),.0085f,blue,hips);
-            foreach(int sign in new[]{-1,1})ApronOval(a,V(.050f+sign*.010f,.319f,0),
-                new Vector2(.013f,.008f),blue,hips,.0015f,16,2);
-            ApronOval(a,V(-.040f,.286f,0),new Vector2(.0022f,.0022f),White,hips,.0024f,12,1);
-            foreach(int sign in new[]{-1,1})ApronStroke(a,Curve(new[]{V(-.018f,.315f,0),
-                V(-.020f,.327f,0),V(-.018f+sign*.009f,.334f,0),V(-.018f+sign*.012f,.326f,0)},12),.002f,blue,hips);
-            for(int i=whaleStart;i<a.body.p.Count;i++) {
-                Vector3 p=a.body.p[i];
-                float lift=p.z-ApronSurface(p.x,p.y).z;
-                p=ApronSurface(-p.x,p.y)+Vector3.forward*(lift+.004f);
-                a.body.p[i]=p;
-            }
-            ReverseFaces(a.body,whaleTriangles);
+            var inset=outline.Select(p=>Vector3.Lerp(V(0,.293f,0),p,.975f)).ToArray();
+            ApronStroke(a,inset,.0009f,Hex("9FAAC7"),hips);
             a.body.region=0;
             // Shape the whole hip-bound garment together, including embroidery,
             // apron artwork and both lace layers. Keep the waist attachment fixed
@@ -2294,6 +2314,74 @@ namespace DesktopFish.Editor
             return p;
         }
 
+        static Vector3[] ClosedArtworkCurve(Vector3[] points,int count) {
+            var path=new Vector3[count+1];
+            for(int i=0;i<=count;i++) {
+                float f=(i/(float)count)*points.Length;int j=(int)f%points.Length;float t=f-Mathf.Floor(f);
+                Vector3 p0=points[(j+points.Length-1)%points.Length],p1=points[j],p2=points[(j+1)%points.Length],p3=points[(j+2)%points.Length];
+                path[i]=.5f*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t*t*t);
+            }
+            float area=0;for(int i=0;i<count;i++)area+=path[i].x*path[i+1].y-path[i+1].x*path[i].y;
+            if(area>0)Array.Reverse(path);return path;
+        }
+        // Surface artwork is painted into the apron UV field, avoiding floating
+        // overlay polygons and allocating those triangles to the curved model.
+        static System.Collections.Generic.List<Tuple<Vector3[],Color>> ApronPaintShapes() {
+            var shapes=new System.Collections.Generic.List<Tuple<Vector3[],Color>>();
+            Action<Vector3[],Color> patch=(path,color)=>shapes.Add(Tuple.Create(path,color));
+            Action<Vector3,Vector2,Color,int> oval=(center,size,color,sides)=>
+                patch(Enumerable.Range(0,sides+1).Select(i=>center+V(Mathf.Cos(-i/(float)sides*Mathf.PI*2)*size.x,Mathf.Sin(-i/(float)sides*Mathf.PI*2)*size.y,0)).ToArray(),color);
+            var g=FishModelGuides.ApronDetailAnchors;Color blue=Hex("577FAE");
+            patch(ClosedArtworkCurve(new[]{g[0],g[25],g[1],g[26],g[2],g[3],g[4],g[28],g[27]},64),blue);
+            var tail=Curve(new[]{g[3]+V(.008f,.006f,0),g[11]+V(.009f,-.008f,0),g[11],(g[9]+g[10])*.5f},28);
+            var left=new Vector3[tail.Length];var right=new Vector3[tail.Length];
+            for(int i=0;i<tail.Length;i++) {
+                Vector3 tangent=(tail[Mathf.Min(i+1,tail.Length-1)]-tail[Mathf.Max(0,i-1)]).normalized;
+                Vector3 side=V(tangent.y,-tangent.x,0)*Mathf.Lerp(.009f,.0048f,i/(float)(tail.Length-1));
+                left[i]=tail[i]+side;right[i]=tail[i]-side;
+            }
+            patch(left.Concat(right.Reverse()).ToArray(),blue);
+            oval(g[9]+V(.005f,-.001f,0),new Vector2(.009f,.006f),blue,32);
+            oval(g[10]+V(-.002f,-.001f,0),new Vector2(.006f,.009f),blue,32);
+            patch(ClosedArtworkCurve(new[]{g[30],g[6],g[7],g[8],g[31]},48),Color.white);
+            oval(g[29],new Vector2(.0025f,.0028f),Color.white,24);
+            oval(g[18],new Vector2(.0038f,.005f),blue,24);
+            oval(g[19],new Vector2(.0048f,.0026f),blue,24);
+            oval((g[18]+g[19])*.5f+V(-.004f,.010f,0),new Vector2(.0018f,.0024f),blue,20);
+            patch(new[]{g[12],g[13],g[14],g[15]},Hex("819BBE"));
+            patch(new[]{g[15],g[15]+V(.001f,.009f,0),g[14]+V(.001f,-.001f,0)},Color.white);
+            oval(g[16],new Vector2(.0025f,.0017f),Hex("78ADCE"),20);
+            oval(g[17],new Vector2(.0020f,.0010f),Hex("9BC6DC"),20);
+            return shapes;
+        }
+        internal static Vector2 ApronPaintUV(Vector3 p) => new Vector2(
+            (16+(p.x+.106f)/.212f*480)/PaintWidth,(1680+(p.y-.235f)/.175f*352)/PaintHeight);
+        static bool InsideArtwork(Vector3[] polygon,float x,float y) {
+            bool inside=false;
+            for(int i=0,j=polygon.Length-1;i<polygon.Length;j=i++) {
+                Vector3 a=polygon[i],b=polygon[j];
+                if((a.y>y)!=(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+            }
+            return inside;
+        }
+        static void PaintApron(Color[] pixels) {
+            for(int y=1664;y<PaintHeight;y++)for(int x=0;x<PaintWidth;x++)pixels[y*PaintWidth+x]=Color.white;
+            foreach(var shape in ApronPaintShapes()) {
+                var path=shape.Item1;float minX=path.Min(p=>p.x),maxX=path.Max(p=>p.x),minY=path.Min(p=>p.y),maxY=path.Max(p=>p.y);
+                int x0=Mathf.FloorToInt(16+(minX+.106f)/.212f*480)-1,x1=Mathf.CeilToInt(16+(maxX+.106f)/.212f*480)+1;
+                int y0=Mathf.FloorToInt(1680+(minY-.235f)/.175f*352)-1,y1=Mathf.CeilToInt(1680+(maxY-.235f)/.175f*352)+1;
+                for(int y=Mathf.Max(1664,y0);y<=Mathf.Min(PaintHeight-1,y1);y++)for(int x=Mathf.Max(0,x0);x<=Mathf.Min(PaintWidth-1,x1);x++) {
+                    int covered=0;
+                    for(int sy=0;sy<2;sy++)for(int sx=0;sx<2;sx++) {
+                        float px=(x+(sx+.5f)*.5f-16)/480*.212f-.106f;
+                        float py=(y+(sy+.5f)*.5f-1680)/352*.175f+.235f;
+                        if(InsideArtwork(path,px,py))covered++;
+                    }
+                    int index=y*PaintWidth+x;pixels[index]=Color.Lerp(pixels[index],shape.Item2,covered*.25f);
+                }
+            }
+        }
+
         static float ApronGather(float x,float y) {
             float t=Mathf.InverseLerp(.374f,.207f,y);
             return Mathf.Cos(x/(.078f+.025f*t)*Mathf.PI*5+.4f*Mathf.Sin(t*5))*
@@ -2329,15 +2417,6 @@ namespace DesktopFish.Editor
             float drape=Mathf.Sin(Mathf.InverseLerp(.207f,.374f,y)*Mathf.PI);
             float z=rz*curve+.009f+.005f*drape+.002f*ApronGather(x,y);
             return V(x,y,z);
-        }
-        static void ApronOval(Author a,Vector3 c,Vector2 size,Color color,int bone,float lift,int sides,int rings) {
-            int start=a.body.p.Count;
-            for(int row=0;row<=rings;row++)for(int i=0;i<=sides;i++) {
-                float r=row/(float)rings,theta=-i/(float)sides*Mathf.PI*2;
-                Vector3 p=ApronSurface(c.x+Mathf.Cos(theta)*size.x*r,c.y+Mathf.Sin(theta)*size.y*r);
-                a.body.Add(p+Vector3.forward*lift,color,bone);
-            }
-            Grid(a.body,start,rings,sides);
         }
         static void ApronStroke(Author a,Vector3[] path,float radius,Color color,int bone) {
             int start=a.body.p.Count;const int cols=2;

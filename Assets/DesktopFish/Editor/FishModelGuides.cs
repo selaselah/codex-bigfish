@@ -534,6 +534,42 @@ namespace DesktopFish.Editor {
             float u=across*2;int index=Mathf.Min(1,(int)u);return Vector3.Lerp(points[index],points[index+1],u-index);
         }
 
+        // Sparse visible artwork/edge probes, projected onto the local reference
+        // surface with alpha rejection and registered to the rebuilt review space.
+        public static readonly Vector3[] ApronDetailAnchors={
+            new Vector3(0.054833f,0.329581f,0.207203f), // whale-head
+            new Vector3(0.018667f,0.358761f,0.191567f), // whale-crown
+            new Vector3(-0.007778f,0.341639f,0.211625f), // whale-shoulder
+            new Vector3(-0.005444f,0.315137f,0.236345f), // whale-flank
+            new Vector3(0.023333f,0.305506f,0.242747f), // whale-bottom
+            new Vector3(0.046667f,0.318413f,0.223655f), // belly-start
+            new Vector3(0.028000f,0.321875f,0.227914f), // belly-upper
+            new Vector3(0.007778f,0.308917f,0.241499f), // belly-end
+            new Vector3(0.031500f,0.306871f,0.240298f), // belly-bottom
+            new Vector3(-0.042778f,0.349542f,0.193369f), // tail-tip
+            new Vector3(-0.022556f,0.353638f,0.195803f), // tail-root
+            new Vector3(-0.029167f,0.333879f,0.217037f), // tail-turn
+            new Vector3(-0.040833f,0.300526f,0.243896f), // boat-left
+            new Vector3(-0.062611f,0.325198f,0.206052f), // boat-top
+            new Vector3(-0.066500f,0.309326f,0.217343f), // boat-right
+            new Vector3(-0.052889f,0.304630f,0.231796f), // boat-notch
+            new Vector3(-0.044333f,0.317809f,0.225852f), // spray-0
+            new Vector3(-0.035389f,0.315250f,0.232876f), // spray-1
+            new Vector3(0.011278f,0.370928f,0.177848f), // spout-0
+            new Vector3(0.000778f,0.367107f,0.183732f), // spout-1
+            new Vector3(0.073889f,0.357458f,0.146021f), // edge-left-upper
+            new Vector3(0.070389f,0.290712f,0.228509f), // edge-left-lower
+            new Vector3(0.000000f,0.268667f,0.274807f), // edge-bottom
+            new Vector3(-0.073889f,0.293027f,0.223311f), // edge-right-lower
+            new Vector3(-0.073889f,0.354574f,0.153866f), // edge-right-upper
+            new Vector3(0.046667f,0.347954f,0.193029f), // whale-upper-left
+            new Vector3(-0.000389f,0.352067f,0.200549f), // whale-upper-right
+            new Vector3(0.052889f,0.316995f,0.220553f), // whale-lower-left
+            new Vector3(0.041611f,0.308860f,0.235910f), // whale-lower-arc
+            new Vector3(0.033444f,0.331303f,0.218966f), // eye
+            new Vector3(0.050167f,0.317866f,0.221683f), // belly-left
+            new Vector3(0.034222f,0.307570f,0.239283f), // belly-lower
+        };
         static readonly Vector4[] ApronUpperDepth={
             new Vector4(.370000f,.180550f,0,0),
             new Vector4(.395000f,.138948f,0,0),
@@ -855,6 +891,7 @@ namespace DesktopFish.Editor {
             const float e=.00005f;
             for(int i=0;i<old.Length;i++) {
                 int region=regions[i];Vector3 p=old[i];mapped[i]=Point(p,region);if(region==0)continue;
+                if(region==5&&uv[i].y>1)uv[i]=FishRebuiltModel.ApronPaintUV(mapped[i]);
                 Vector3 x=(Point(p+Vector3.right*e,region)-Point(p-Vector3.right*e,region))/(2*e);
                 Vector3 y=(Point(p+Vector3.up*e,region)-Point(p-Vector3.up*e,region))/(2*e);
                 Vector3 z=(Point(p+Vector3.forward*e,region)-Point(p-Vector3.forward*e,region))/(2*e);
@@ -863,7 +900,7 @@ namespace DesktopFish.Editor {
                     Vector3 target=FishRearCrownGuides.Normal(mapped[i]);
                     if(Vector3.Dot(normals[i],target)<0)target=-target;
                     normals[i]=Vector3.Slerp(normals[i],target,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.72f,.76f,mapped[i].y))).normalized;
-                    uv[i]=new Vector2(Mathf.Clamp01(.5f+mapped[i].x/.82f),(1152+Mathf.Clamp01((1.03f-mapped[i].y)/.96f)*511)/1664f);
+                    uv[i]=new Vector2(Mathf.Clamp01(.5f+mapped[i].x/.82f),(1152+Mathf.Clamp01((1.03f-mapped[i].y)/.96f)*511)/FishRebuiltModel.PaintHeight);
                     colors[i]=Color.Lerp(colors[i],Color.white*.97f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.65f,.75f,mapped[i].y)));
                 }
             }
