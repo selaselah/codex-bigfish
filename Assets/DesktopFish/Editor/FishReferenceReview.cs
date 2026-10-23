@@ -513,6 +513,55 @@ namespace DesktopFish.Editor
             Debug.Log("Intrinsic front panels1/2/3 supports "+samples.Count);
         }
 
+        // Position-only radial cloth measurements; original chart data stays local.
+        public static void MeasureSkirtVolume95() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            const int slot=34;var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();var uv=baked.uv;var texture=GuideTexture(slot);
+            float low=used.Min(j=>points[j].y),high=used.Max(j=>points[j].y);int row=0;var samples=new System.Collections.Generic.List<Landmark>();
+            for(int candidate=0;candidate<16;candidate++) {
+                float y=Mathf.Lerp(low,high,.03f+.94f*candidate/15f);var supports=new System.Collections.Generic.List<Vector3>();
+                for(int col=0;col<48;col++) {
+                    float theta=col*Mathf.PI*2/48;var radial=new Vector3(Mathf.Sin(theta),0,Mathf.Cos(theta));
+                    var normal=new Vector3(radial.z,0,-radial.x);float radius=-1;Vector3 hit=Vector3.zero;
+                    for(int k=0;k<triangles.Length;k+=3) {
+                        var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
+                        for(int edge=0;edge<3;edge++) {
+                            int ai=triangles[k+edge],bi=triangles[k+(edge+1)%3];Vector3 a=points[ai],b=points[bi];
+                            if(!((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y)))continue;
+                            float t=(y-a.y)/(b.y-a.y);cuts.Add(Vector3.Lerp(a,b,t));tex.Add(Vector2.Lerp(uv[ai],uv[bi],t));
+                        }
+                        if(cuts.Count!=2)continue;float da=Vector3.Dot(cuts[0],normal),db=Vector3.Dot(cuts[1],normal);
+                        if(Mathf.Abs(da-db)<1e-10f)continue;float tAcross=da/(da-db);if(tAcross<0||tAcross>1)continue;
+                        Vector2 st=Vector2.Lerp(tex[0],tex[1],tAcross);if(texture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        Vector3 point=Vector3.Lerp(cuts[0],cuts[1],tAcross);float depth=Vector3.Dot(point,radial);
+                        if(depth>radius){radius=depth;hit=point;}
+                    }
+                    if(radius<=.005f)break;supports.Add(hit);
+                }
+                if(supports.Count!=48){Debug.Log("Skirt omitted open alpha section "+candidate+" y="+y);continue;}
+                for(int col=0;col<48;col++)samples.Add(new Landmark{name="row-"+row+"-column-"+col,position=supports[col]});row++;
+            }
+            if(row<6)throw new InvalidOperationException("Too few closed alpha-visible skirt sections "+row);
+            Directory.CreateDirectory("work/ref-skirt-volume-95");File.WriteAllText("work/ref-skirt-volume-95/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            Debug.Log("Skirt position-only sections "+row+"x48; full local bounds "+low+" "+high);
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub==slot?triangles:Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local skirt review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;
+            snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Skirt camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;
+            camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderBodyStudy(camera,"work/ref-skirt-volume-95/source-full",.8f,new Vector3(0,-.056f,0));
+            only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=FishRebuiltModel.DiagnosticAlpha(texture);material.SetFloat("_OutlineWidth",0);snapshot.GetComponent<Renderer>().sharedMaterials=Enumerable.Repeat(material,guideMaterials.Length).ToArray();
+            FishRebuiltModel.RenderBodyStudy(camera,"work/ref-skirt-volume-95/source-gray",.8f,new Vector3(0,-.056f,0),reviewMaterials:new[]{material});
+            UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);foreach(var tex in guideTextures.Values)UnityEngine.Object.DestroyImmediate(tex);guideTextures.Clear();
+        }
+
         public static void MeasureRearColorBands() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);

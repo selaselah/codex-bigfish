@@ -2327,6 +2327,17 @@ namespace DesktopFish.Editor
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(chestOnly);
                 RenderSurfaceStudy(snapshots,camera,center,front,target,frame);
+                var skirtOnly=UnityEngine.Object.Instantiate(completeBody);var skirtTriangles=new List<int>();var clothColors=completeBody.colors;var clothWeights=skins[0].sharedMesh.boneWeights;int clothHips=Array.FindIndex(skins[0].bones,b=>b.name=="J_Bip_C_Hips");
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    int id=bodyTriangles[k+j];Vector2 q=st[id];Vector3 p=completeBody.vertices[id];Color c=clothColors[id];
+                    return clothWeights[id].boneIndex0==clothHips&&q.x>.98f&&q.y>.55f&&q.y<.57f&&p.y>.13f&&p.y<.43f&&c.b>c.r*1.3f&&c.g<.4f;
+                }))skirtTriangles.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                skirtOnly.triangles=skirtTriangles.ToArray();skirtOnly.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),skirtOnly.vertexCount).ToArray();bodySnapshot.sharedMesh=skirtOnly;
+                var clothRenderer=bodySnapshot.GetComponent<Renderer>();var clothMaterials=clothRenderer.sharedMaterials;var clothMaterial=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));clothMaterial.mainTexture=Texture2D.whiteTexture;clothMaterial.SetFloat("_OutlineWidth",0);clothRenderer.sharedMaterial=clothMaterial;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBodyStudy(camera,"work/rebuilt-skirt-clay",1,Vector3.zero,reviewMaterials:new[]{clothMaterial});
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                clothRenderer.sharedMaterials=clothMaterials;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(clothMaterial);UnityEngine.Object.DestroyImmediate(skirtOnly);
             }
             if(includeCurls) {
                 var bind=skins[0].sharedMesh.vertices;var st=completeBody.uv;int[] parents=Enumerable.Range(0,bind.Length).ToArray();
@@ -2895,9 +2906,11 @@ namespace DesktopFish.Editor
 
         static void BuildDress(Author a, int hips, int chest)
         {
-            int dressStart=a.body.p.Count;
-            // Four height intervals and 48 angular samples retain the broad drape.
-            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,4,48);
+            int dressStart=a.body.p.Count,clothFaceStart=a.body.tri.Count;
+            // One additional height interval follows the measured middle drape;
+            // the angular count stays identical at the existing hem attachment.
+            Lathe(a,hips,.173f,.375f,t=>Mathf.Lerp(.223f,.113f,t),t=>Mathf.Lerp(.137f,.077f,t),Navy,5,48);
+            int clothVertexEnd=a.body.p.Count,clothFaceEnd=a.body.tri.Count;
             Lathe(a,hips,.365f,.384f,t=>.116f,t=>.079f,Navy*.82f,1,24);
             GuidedBelt(a,hips);
             GuidedBib(a,chest);
@@ -2971,12 +2984,62 @@ namespace DesktopFish.Editor
             // Shape the whole hip-bound garment together, including embroidery,
             // apron artwork and both lace layers. Keep the waist attachment fixed
             // while giving the hem a deeper, longer bell silhouette.
+            var goldProbes=new Dictionary<int,Vector3>();
             for(int i=dressStart;i<a.body.p.Count;i++)
                 if(a.body.weights[i].boneIndex0==hips) {
                     Vector3 p=DressVolume(a.body.p[i]);
-                    a.body.p[i]=a.body.regions[i]==5?p:CalibrateLowerHem(p);
+                    if(a.body.regions[i]==5){a.body.p[i]=p;continue;}
+                    p=CalibrateLowerHem(p);Vector3 q=FinalBodyPoint(p);Color color=a.body.colors[i];
+                    if(q.y>.215f&&q.y<.390f&&color.r>color.b*1.15f&&color.g>color.b*1.15f)goldProbes[i]=q;
+                    a.body.p[i]=CalibrateSkirtMiddle(p);
                 }
+            ProjectSkirtArtwork(a,dressStart,clothVertexEnd,clothFaceStart,clothFaceEnd,goldProbes);
             GuidedHem(a,hips);
+        }
+
+        static void ProjectSkirtArtwork(Author a,int firstVertex,int lastVertex,int firstFace,int lastFace,Dictionary<int,Vector3> probes) {
+            var cloth=Enumerable.Range(firstVertex,lastVertex-firstVertex).ToDictionary(i=>i,i=>FinalBodyPoint(a.body.p[i]));
+            foreach(var entry in probes) {
+                Vector3 q=entry.Value,radial=new Vector3(q.x,0,q.z).normalized,normal=new Vector3(radial.z,0,-radial.x);
+                float radius=float.NegativeInfinity;
+                for(int k=firstFace;k<lastFace;k+=3) {
+                    var points=new[]{cloth[a.body.tri[k]],cloth[a.body.tri[k+1]],cloth[a.body.tri[k+2]]};var cuts=new List<Vector3>();
+                    for(int edge=0;edge<3;edge++) {
+                        Vector3 p0=points[edge],p1=points[(edge+1)%3];
+                        if(!((p0.y<=q.y&&p1.y>q.y)||(p1.y<=q.y&&p0.y>q.y)))continue;
+                        cuts.Add(Vector3.Lerp(p0,p1,(q.y-p0.y)/(p1.y-p0.y)));
+                    }
+                    if(cuts.Count!=2)continue;
+                    float da=Vector3.Dot(cuts[0],normal),db=Vector3.Dot(cuts[1],normal);
+                    if(Mathf.Abs(da-db)<1e-10f)continue;float t=da/(da-db);if(t<0||t>1)continue;
+                    radius=Mathf.Max(radius,Vector3.Dot(Vector3.Lerp(cuts[0],cuts[1],t),radial));
+                }
+                if(float.IsNegativeInfinity(radius))throw new InvalidOperationException("Skirt artwork misses radial cloth "+q);
+                // Preserve the authored surface glyph and its complete path;
+                // its lift is measured from the actual new triangle surface.
+                q=radial*(radius+.003f)+Vector3.up*q.y;a.body.p[entry.Key]=AuthorPoint(q);
+            }
+        }
+
+        static Vector3 CalibrateSkirtMiddle(Vector3 p) {
+            Vector3 q=FinalBodyPoint(p);
+            float weight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.215f,.255f,q.y))*
+                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.355f,.390f,q.y)));
+            if(weight<=0)return p;
+            float theta=Mathf.Atan2(q.x,q.z),radius=new Vector2(q.x,q.z).magnitude;
+            if(radius<.01f)return p;
+            // Decorations keep their own radial lift relative to the old
+            // calibrated cloth, so the gold moves with the physical surface.
+            float lo=.173f,hi=.375f;
+            for(int i=0;i<24;i++) {
+                float mid=(lo+hi)*.5f;
+                float y=FinalBodyPoint(CalibrateLowerHem(DressVolume(SkirtSurface(theta,mid)))).y;
+                if(y<q.y)lo=mid;else hi=mid;
+            }
+            Vector3 old=FinalBodyPoint(CalibrateLowerHem(DressVolume(SkirtSurface(theta,(lo+hi)*.5f))));
+            float delta=FishSkirtVolumeGuides.Radius(q.y,theta)-new Vector2(old.x,old.z).magnitude;
+            float scale=(radius+weight*delta)/radius;q.x*=scale;q.z*=scale;
+            return AuthorPoint(q);
         }
 
         static Vector3 FinalBodyPoint(Vector3 p) {
