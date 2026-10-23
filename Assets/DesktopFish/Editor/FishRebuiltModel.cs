@@ -1192,9 +1192,9 @@ namespace DesktopFish.Editor
                     for(int row=0;row<current.Length;row++) {
                         float v=pole?.5f:row/(float)rows;Vector2 xy=EyeInputPoint(Vector3.Lerp(lower,upper,v));
                         Vector3 surface=EyeProportionPoint(FacePoint(xy.x,xy.y,0)),point=surface;point.z-=.008f;
-                        float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(surface.x)-.126f)/.048f,2)
-                            -Mathf.Pow((surface.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,surface.z));
-                        current[row]=body.Add(point,Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f),bone);
+                        // The same XY color field as the cutout head, in an
+                        // opaque chart so closed eyes retain their skin backing.
+                        current[row]=body.Add(point,Color.white,bone,OpaqueSkinUV(FishModelGuides.Point(FitPoint(point),1),sign));
                     }
                     if(previous!=null) {
                         if(previous.Length==1)for(int row=0;row<rows;row++)body.Face(previous[0],current[row],current[row+1]);
@@ -1732,7 +1732,7 @@ namespace DesktopFish.Editor
             uv.y>=784f/PaintHeight&&uv.y<=1080f/PaintHeight;
         static void PaintFrontSkin(Color[] pixels) {
             // Fresh planar alpha apertures, generated from sparse opening
-            // controls. RGB stays white so existing skin/blush colors survive.
+            // controls. Independent RGB bands use the same field as the sockets.
             for(int y=784;y<1080;y++)for(int x=648;x<752;x++) {
                 Vector3 p=V(-.24f+.48f*(x-652)/96f,.54f+.40f*(y-792)/280f,0);
                 int sign=p.x<0?-1:1;float alpha=1;
@@ -1743,8 +1743,25 @@ namespace DesktopFish.Editor
                         FishEyeWhiteGuides.Point(sign,FishEyeWhiteGuides.Columns(sign)-1,false).x-p.x);
                     alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.0024f,d));
                 }
-                pixels[y*PaintWidth+x]=new Color(1,1,1,alpha);
+                // Color uses pixel centers; alpha retains the existing mask.
+                Vector3 colorPoint=V(-.24f+.48f*(x+.5f-652)/96f,.54f+.40f*(y+.5f-792)/280f,0);
+                Color color=SkinPaintColor(colorPoint);color.a=alpha;pixels[y*PaintWidth+x]=color;
             }
+            // Two audited empty, opaque cheek/eye charts avoid the head mask
+            // on closed-eye sockets. Existing atlas dimensions stay unchanged.
+            foreach(int sign in new[]{-1,1}) {
+                int origin=sign<0?1696:1856;
+                for(int y=origin;y<origin+128;y++)for(int x=512;x<568;x++) {
+                    Vector3 p=V(sign*.24f*(x+.5f-516)/48f,.58f+(y+.5f-origin-8)/700f,0);
+                    pixels[y*PaintWidth+x]=SkinPaintColor(p);
+                }
+            }
+        }
+        static Color SkinPaintColor(Vector3 registered)=>Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),FishSkinColorGuides.Blush(registered));
+        static Vector2 OpaqueSkinUV(Vector3 registered,int sign) {
+            float u=Mathf.Clamp01(Mathf.Abs(registered.x)/.24f),v=Mathf.Clamp01((registered.y-.58f)/.16f);
+            int origin=sign<0?1696:1856;
+            return new Vector2((516+48*u)/PaintWidth,(origin+8+112*v-128)/1024f);
         }
         // A 320px authored tile reuses a verified empty part of the apron
         // field, with a wide gutter from all existing UV charts/white swatches.
@@ -1927,9 +1944,7 @@ namespace DesktopFish.Editor
                 // collapsed fan faces after the jaw stretches forward.
                 if(i>=20*33)p=V(0,.773f-.187f,0);
                 p=ShapeHeadPoint(p);
-                float blush=Mathf.Exp(-Mathf.Pow((Mathf.Abs(p.x)-.126f)/.048f,2)
-                    -Mathf.Pow((p.y-.655f)/.029f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.06f,.12f,p.z));
-                a.body.colors[i]=Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),blush*.88f);
+                a.body.colors[i]=Color.white;
                 a.body.p[i]=p;
                 // Front uses planar XY; the existing rear seam collapses to
                 // the same tile's opaque edge. Guarded charts retain this UV map.

@@ -258,6 +258,7 @@ blended_vertices = 0
 checked_normals = 0
 exported_normals = 0
 checked_morph_deltas = 0
+checked_vertex_colors = 0
 for mesh in document['meshes']:
     source = next(item for item in data['meshes'] if item['name'] == mesh['name'])
     normals_by_position = {}
@@ -303,8 +304,27 @@ for mesh in document['meshes']:
         view = document['bufferViews'][accessor['bufferView']]
         offset = view.get('byteOffset', 0) + accessor.get('byteOffset', 0)
         kind = {5121: 'B', 5123: 'H', 5126: 'f'}[accessor['componentType']]
-        rgba = struct.unpack_from('<' + kind * 4, binary, offset)
-        assert len(set(rgba[:3])) > 1, f"Unexpected neutral vertex color in {mesh['name']}"
+        # White is valid for skin whose color now comes from paint. Verify
+        # every exported RGBA value against the source, including UV seams.
+        color_size = struct.calcsize('<' + kind * 4)
+        color_stride = view.get('byteStride', color_size)
+        divisor = {5121: 255, 5123: 65535, 5126: 1}[accessor['componentType']]
+        if divisor != 1:
+            assert accessor.get('normalized', False), 'Integer GLB colors must be normalized'
+        tolerance = 1.5 / divisor if divisor != 1 else .00003
+        uvs = float_vectors(attributes['TEXCOORD_0'])
+        def linear_color(color):
+            rgb = [color[k] for k in ('r', 'g', 'b')]
+            return tuple(c / 12.92 if c <= .04045 else ((c + .055) / 1.055) ** 2.4 for c in rgb) + (color['a'],)
+        for vertex, (position, uv) in enumerate(zip(positions, uvs)):
+            rgba = tuple(c / divisor for c in struct.unpack_from('<' + kind * 4, binary,
+                         offset + vertex * color_stride))
+            candidates = indices_by_position[tuple(round(c, 6) for c in position)]
+            assert any(abs(uv[0] - source['uv'][i]['x']) < 2e-6 and
+                       abs(uv[1] - (1 - source['uv'][i]['y'])) < 2e-6 and
+                       max(abs(a - b) for a, b in zip(rgba, linear_color(source['colors'][i]))) < tolerance
+                       for i in candidates), 'Authored GLB vertex color changed'
+            checked_vertex_colors += 1
         weights = document['accessors'][attributes['WEIGHTS_0']]
         weight_view = document['bufferViews'][weights['bufferView']]
         weight_offset = weight_view.get('byteOffset', 0) + weights.get('byteOffset', 0)
@@ -324,4 +344,4 @@ assert checked_normals > .99 * exported_normals
 assert checked_morph_deltas > 0, "Facial morph targets must survive the GLB export"
 print(f'Saved and validated Blender/GLB: {exported_triangles} triangles, MASK alpha, packed paint, UVs, vertex colors, rig, '
       f'{blended_vertices} blended vertices, {checked_normals}/{exported_normals} shading normals, '
-      f'{checked_morph_deltas} expression deltas and neutral expressions.')
+      f'{checked_morph_deltas} expression deltas, {checked_vertex_colors} verified RGBA vertex colors and neutral expressions.')

@@ -39,7 +39,11 @@ Shader "DesktopFish/Rebuilt Toon"
                 o.uv=v.uv;
                 // Classify the authored warm skin before color-space conversion.
                 // Ivory cloth stays softly lit, while skin keeps more roundness.
-                o.skin=smoothstep(.025,.050,v.color.r-v.color.g);
+                float2 pixel=v.uv*float2(1024,2048);
+                bool headSkin=pixel.x>=648&&pixel.x<=752&&pixel.y>=784&&pixel.y<=1080;
+                bool socketSkin=pixel.x>=512&&pixel.x<=568&&
+                    ((pixel.y>=1696&&pixel.y<=1824)||(pixel.y>=1856&&pixel.y<=1984));
+                o.skin=max(smoothstep(.025,.050,v.color.r-v.color.g),(headSkin||socketSkin)?1.0:0.0);
                 #ifndef UNITY_COLORSPACE_GAMMA
                 o.color.rgb=GammaToLinearSpace(o.color.rgb);
                 #endif

@@ -594,6 +594,26 @@ namespace DesktopFish.Editor
             Debug.Log("Intrinsic chest backing supports "+samples.Count);
         }
 
+        public static void MeasureSkinColor99() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;guideMaterials=skin.sharedMaterials;guideTextures.Clear();new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();var uv=baked.uv;var texture=GuideTexture(3);var triangles=baked.GetTriangles(3);var samples=new System.Collections.Generic.List<Landmark>();var diagnostic=new System.Collections.Generic.List<string>();
+            for(int level=0;level<3;level++)for(int row=0;row<=30;row++)foreach(int side in new[]{-1,1}) {
+                float height=.555f+row*.005f,y=(height-.07f)/1.25f,threshold=.08f+.04f*level;
+                var hits=VisibleSection(points,uv,triangles,Vector3.up,y,3,(p,st)=>{
+                    Vector3 q=p*1.25f+Vector3.up*.07f;Color c=texture.GetPixelBilinear(st.x,st.y);
+                    return q.x*side>.055f&&q.x*side<.178f&&q.z>.10f&&c.r>.5f&&c.r-c.g>threshold&&c.g-c.b>.005f;
+                },maxStep:.0001f);
+                if(hits.Count<3)continue;Vector3 left=hits.OrderBy(q=>q.x*side).First(),right=hits.OrderByDescending(q=>q.x*side).First();
+                diagnostic.Add(level+","+side+","+height+","+hits.Count+","+(left.x*side*1.25f)+","+(right.x*side*1.25f));
+                if(left.x*side*1.25f<=.0552f||right.x*side*1.25f>=.1778f)continue;
+                samples.Add(new Landmark{name="level-"+level+"-side-"+side+"-row-"+row+"-inner",position=left});samples.Add(new Landmark{name="level-"+level+"-side-"+side+"-row-"+row+"-outer",position=right});
+            }
+            Directory.CreateDirectory("work/ref-skin-paint-99");File.WriteAllText("work/ref-skin-paint-99/source-boundaries.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));File.WriteAllLines("work/ref-skin-paint-99/local-diagnostic.csv",diagnostic);
+            foreach(var tex in guideTextures.Values)UnityEngine.Object.DestroyImmediate(tex);guideTextures.Clear();Debug.Log("Cheek color boundary position supports "+samples.Count);
+        }
+
         public static void MeasureChestLocks98() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
