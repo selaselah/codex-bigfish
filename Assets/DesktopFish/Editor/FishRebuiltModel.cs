@@ -691,11 +691,57 @@ namespace DesktopFish.Editor
                 body.region=old;
             }
 
+            public void GuidedCheekFringe(int sign,int head) {
+                int old=body.region;body.region=0;const int columns=3;int rows=FishCheekFringeGuides.Rows;
+                Func<int,float,Vector3> finalPoint=(row,col)=>{Vector3 p=FishCheekFringeGuides.Point(row,col);if(row==rows-1){p=Vector3.zero;for(int c=0;c<8;c++)p+=FishCheekFringeGuides.Point(row,c)/8;}p.x*=sign;return p;};
+                Func<Vector3,Vector2> paint=final=>{
+                    Vector3 p=final;p.x*=sign;float t=Mathf.InverseLerp(FishModelGuides.FrontPanel(4,1,0,.5f).y,FishModelGuides.FrontPanel(4,1,1,.5f).y,p.y);
+                    Vector3 a=FishModelGuides.FrontPanel(4,1,t,0),b=FishModelGuides.FrontPanel(4,1,t,1);float u=Mathf.InverseLerp(a.x,b.x,p.x);
+                    float phase=Mathf.Lerp(t,Mathf.InverseLerp(.979167f,.604742f,p.y),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.910f,.930f,p.y)));return FrontPaintUV(4,u,phase);
+                };
+                var centers=new Vector3[rows];for(int row=0;row<rows;row++)for(int col=0;col<8;col++)centers[row]+=AuthorPoint(finalPoint(row,col))/8;
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int temp=b;b=c;c=temp;}body.Face(a,b,c);
+                };
+                // Independent front/return sheets meet at shared positions.
+                // Their normals come from the real wrap, without the old root Z field.
+                for(int sheet=0;sheet<2;sheet++) {
+                    var grid=new int[rows][];
+                    for(int row=0;row<rows;row++) {
+                        grid[row]=new int[columns+1];
+                        if(row==rows-1){Vector3 p=finalPoint(row,4);int pole=body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));for(int col=0;col<=columns;col++)grid[row][col]=pole;}
+                        else for(int col=0;col<=columns;col++){Vector3 p=finalPoint(row,sheet==0?col*4f/3:8-col*4f/3);grid[row][col]=body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));}
+                    }
+                    // One physical sheet keeps consistent oriented connectivity.
+                    // A radial normal test on each tiny terminal triangle can
+                    // flip its winding where the centerline bends back upward.
+                    int sample=grid[rows/2][1],next=grid[rows/2+1][1],across=grid[rows/2][2];Vector3 radial=(body.p[sample]+body.p[next]+body.p[across])/3-(centers[rows/2]+centers[rows/2+1])*.5f;
+                    bool flip=Vector3.Dot(Vector3.Cross(body.p[next]-body.p[sample],body.p[across]-body.p[sample]),radial)<0;
+                    Action<int,int,int> sheetFace=(i,j,k)=>{if(i==j||j==k||k==i)return;if(flip){int temp=j;j=k;k=temp;}body.Face(i,j,k);};
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<columns;col++) {
+                        int a=grid[row][col],b=grid[row+1][col],c=grid[row][col+1],d=grid[row+1][col+1];Vector3 center=(centers[row]+centers[row+1])*.5f;
+                        Func<int,int,int,Vector3> n=(i,j,k)=>Vector3.Cross(body.p[j]-body.p[i],body.p[k]-body.p[i]).normalized;
+                        if(Vector3.Dot(n(a,b,c),n(c,b,d))>=Vector3.Dot(n(a,b,d),n(a,d,c))){sheetFace(a,b,c);sheetFace(c,b,d);}
+                        else {sheetFace(a,b,d);sheetFace(a,d,c);}
+                    }
+                }
+                // The root has finite section area. The terminal source chart
+                // closes into an almost collinear sliver: use one physical pole,
+                // rather than cap it with numerically unstable tiny triangles.
+                foreach(int row in new[]{0}) {
+                    int cap=body.Add(centers[row],Color.white*.98f,head,paint(finalPoint(row,4))),edge=body.p.Count;
+                    for(int col=0;col<6;col++){Vector3 p=finalPoint(row,col*4f/3);body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));}
+                    Vector3 outward=row==0?centers[0]-centers[1]:centers[rows-1]-centers[rows-2];for(int col=0;col<6;col++)face(cap,edge+col,edge+(col+1)%6,outward);
+                }
+                body.region=old;
+            }
+
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
                 if(panel==0){GuidedIntrinsicFront(sign,head);return;}
                 if(panel>=1&&panel<=3){GuidedInnerFrontal(panel,sign,head);return;}
                 if(panel>=7&&panel<=14){GuidedCentralFringe(panel,sign,head);return;}
                 if(panel==5||panel==6||panel>=15){GuidedOuterFringe(panel,sign,head);return;}
+                if(panel==4){GuidedCheekFringe(sign,head);return;}
                 bool cheekReturn=panel==4;
                 int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
                 var stations=Enumerable.Range(0,rows+1).Select(row=>panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows)
@@ -2401,7 +2447,7 @@ namespace DesktopFish.Editor
                 RenderHeadStudy(camera,"work/rebuilt-central-fringe-gray",1,Vector3.zero);
                 renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(centralMaterial);UnityEngine.Object.DestroyImmediate(central);
 
-                foreach(var panels in new[]{new[]{5,6},new[]{15,16}}) {
+                foreach(var panels in new[]{new[]{5,6},new[]{15,16},new[]{4}}) {
                 var remaining=UnityEngine.Object.Instantiate(completeBody);var remainingFaces=new List<int>();
                 for(int k=0;k<bodyTriangles.Length;k+=3) {
                     int panel=-1;bool keep=true;
@@ -2413,7 +2459,17 @@ namespace DesktopFish.Editor
                         }
                         if(match<0||panel>=0&&match!=panel){keep=false;break;}panel=match;
                     }
-                    if(keep&&Enumerable.Range(0,3).Average(j=>completeBody.vertices[bodyTriangles[k+j]].x)>=0)remainingFaces.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                    if(keep&&(panels[0]==4||Enumerable.Range(0,3).Average(j=>completeBody.vertices[bodyTriangles[k+j]].x)>=0))remainingFaces.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                }
+                if(panels[0]==4) {
+                    // Select the complete positive cheek card, including its
+                    // real crown attachment crossing X=0. A per-facet X test
+                    // would incorrectly substitute the other card's root.
+                    var cheekParents=Enumerable.Range(0,completeBody.vertexCount).ToArray();Func<int,int> cheekFind=null;cheekFind=i=>cheekParents[i]==i?i:cheekParents[i]=cheekFind(cheekParents[i]);
+                    for(int k=0;k<remainingFaces.Count;k+=3){cheekParents[cheekFind(remainingFaces[k+1])]=cheekFind(remainingFaces[k]);cheekParents[cheekFind(remainingFaces[k+2])]=cheekFind(remainingFaces[k]);}
+                    foreach(var weld in remainingFaces.Distinct().GroupBy(i=>Vector3Int.RoundToInt(completeBody.vertices[i]*1000000))){int first=weld.First();foreach(int i in weld)cheekParents[cheekFind(i)]=cheekFind(first);}
+                    var cheekIds=new HashSet<int>(remainingFaces.Distinct().GroupBy(cheekFind).Where(g=>g.Average(i=>completeBody.vertices[i].x)>0).SelectMany(g=>g));
+                    remainingFaces=remainingFaces.Where((i,k)=>cheekIds.Contains(remainingFaces[k-k%3])).ToList();
                 }
                 remaining.triangles=remainingFaces.ToArray();remaining.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),remaining.vertexCount).ToArray();
                 bodySnapshot.sharedMesh=remaining;var remainingMaterial=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));remainingMaterial.mainTexture=Texture2D.whiteTexture;remainingMaterial.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=remainingMaterial;
