@@ -1698,14 +1698,7 @@ namespace DesktopFish.Editor
                 else if(tile==1) {
                     pixels[y*size+x]=FishApronRuffleGuides.Paint(u,r);
                 } else if(tile==2) {
-                    // Broad fabric lobes, a narrow lavender stitched edge and
-                    // shallow pleat creases are authored inside the alpha strip.
-                    float phase=Mathf.Repeat(u*scallops[tile],1),crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
-                    float shade=.99f-.11f*crease*Mathf.Sin(r*Mathf.PI*.8f);
-                    Color cloth=new Color(shade,shade,1,alpha);
-                    float border=1-Mathf.SmoothStep(0,1,Mathf.Abs(r-edge+.013f)/.021f);
-                    Color tint=Color.Lerp(cloth,new Color(.65f,.71f,.86f,alpha),border*.72f);
-                    tint.a=alpha;pixels[y*size+x]=tint;
+                    pixels[y*size+x]=FishHemSurfaceGuides.PaintPixel(x-512,y);
                 } else pixels[y*size+x]=new Color(fold,fold,fold,alpha);
             }
             // A continuous rear field decouples the broad cyan masses from the
@@ -3366,8 +3359,8 @@ namespace DesktopFish.Editor
             return AuthorPoint(q+(FishModelGuides.HemEdge(t,false)-oldEdge)*weight);
         }
         static void GuidedHem(Author a,int bone) {
-            // Five strips repeat only this atlas tile. Eight scallops per tile
-            // leave enough texels for a rounded alpha silhouette and stitched rim.
+            // Retain five strips, 160 angular intervals and three cross intervals.
+            // Independent cloth charts replace the repeated uniform cutout.
             const int panels=5,sides=32,rows=3;
             var attachment=Enumerable.Range(0,49).Select(i=>FinalBodyPoint(CalibrateLowerHem(
                 DressVolume(SkirtSurface(i*Mathf.PI*2/48,.173f))))).ToArray();
@@ -3387,15 +3380,10 @@ namespace DesktopFish.Editor
                 int start=a.body.p.Count,first=a.body.tri.Count;starts.Add(start);
                 for(int j=0;j<=rows;j++)for(int i=0;i<=sides;i++) {
                     float u=i/(float)sides,t=(panel+u)/panels,r=j/(float)rows,angle=t*Mathf.PI*2;
-                    Vector3 inner=join(t),outer=FishModelGuides.HemEdge(t,true);
-                    Vector3 radial=V(Mathf.Sin(angle),0,Mathf.Cos(angle));
+                    Vector3 inner=join(t),radial=V(Mathf.Sin(angle),0,Mathf.Cos(angle));
                     inner-=radial*.005f;inner.y+=.003f;
-                    float fold=-Mathf.Cos(t*Mathf.PI*80);
-                    Vector3 p=Vector3.Lerp(inner,outer,r);
-                    p+=radial*((.008f+.006f*fold)*Mathf.Sin(r*Mathf.PI)*r-.003f*fold*r*r);
-                    p.y-=.0020f*fold*r;
-                    Color cloth=Color.Lerp(Hex("D3D9E9"),White,.60f+.40f*(fold+1)*.5f);cloth.a=1;
-                    a.body.Add(AuthorPoint(p),cloth,bone,LaceUV(2,u,r));
+                    Vector3 p=FishHemSurfaceGuides.Point(t,r,inner);
+                    a.body.Add(AuthorPoint(p),FishHemSurfaceGuides.Cloth(t,r),bone,FishHemSurfaceGuides.UV(panel,u,r));
                 }
                 Grid(a.body,start,rows,sides);ReverseFaces(a.body,first);
             }

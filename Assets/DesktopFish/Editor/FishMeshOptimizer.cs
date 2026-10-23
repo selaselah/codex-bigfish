@@ -102,12 +102,24 @@ namespace DesktopFish.Editor
                 }
                 writer.Write(locked);writer.Write(1);writer.Write(indices.Length);foreach(int i in indices)writer.Write(i);
             }
+            // Preserve the actual author/render UVs above. The packed cloth charts
+            // use a separate, broader parameter metric, so packing cannot relax
+            // UV error or perturb unrelated collapse choices. The .003 guard stays.
+            string reductionInput=Path.GetFullPath("work/rebuilt-reduce-metric.bin");
+            byte[] metricBytes=File.ReadAllBytes(input);
+            using(var writer=new BinaryWriter(new MemoryStream(metricBytes))) {
+                for(int i=0;i<uv.Length;i++) {
+                    Vector2 metric=FishHemSurfaceGuides.ConservativeReductionUV(uv[i]);
+                    writer.BaseStream.Position=12+i*32+24;writer.Write(metric.x);writer.Write(metric.y);
+                }
+            }
+            File.WriteAllBytes(reductionInput,metricBytes);
             string binary=Path.GetFullPath("Tools/bin/meshopt-reduce");
             string[] sources={"Tools/meshopt-reduce.cpp","Tools/meshoptimizer/simplifier.cpp","Tools/meshoptimizer/allocator.cpp","Tools/meshoptimizer/meshoptimizer.h"};
             if(!File.Exists(binary)||sources.Any(f=>File.GetLastWriteTimeUtc(f)>File.GetLastWriteTimeUtc(binary)))
                 RunProcess("/bin/zsh","\""+Path.GetFullPath("Tools/BuildOptimizer.command")+"\"");
             float ratio=targetTriangles/(indices.Length/3f);
-            RunProcess(binary,"\""+input+"\" \""+output+"\" "+ratio.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+" 0.0030");
+            RunProcess(binary,"\""+reductionInput+"\" \""+output+"\" "+ratio.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+" 0.0030");
             int[] result;float error;
             using(var reader=new BinaryReader(File.OpenRead(output))) {
                 if(reader.ReadInt32()!=0x46495348||reader.ReadInt32()!=1)throw new InvalidOperationException("Invalid rebuilt reducer output");
@@ -118,7 +130,7 @@ namespace DesktopFish.Editor
             }
             var mesh=Extract(source,new List<int>{0},new[]{result});mesh.name=source.name;
             Debug.Log($"Rebuilt reduction: {indices.Length/3} -> {result.Length/3}; error={error}; locked={locked.Count(x=>x!=0)}");
-            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries; guard new opposed shading facets"},true));
+            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries; guard new opposed shading facets; conservative original cloth UV metric under atlas contraction"},true));
             UnityEngine.Object.DestroyImmediate(source);return mesh;
         }
 
