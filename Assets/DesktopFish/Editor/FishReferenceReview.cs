@@ -312,6 +312,70 @@ namespace DesktopFish.Editor
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
         }
 
+        public static void MeasureFrontalIntrinsic() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            int slot=10;var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();var parents=Enumerable.Range(0,points.Length).ToArray();
+            Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int i=0;i<triangles.Length;i+=3){parents[root(triangles[i+1])]=root(triangles[i]);parents[root(triangles[i+2])]=root(triangles[i]);}
+            foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))){int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);}
+            var group=used.GroupBy(root).OrderByDescending(g=>g.Count()).First().ToArray();var ids=new System.Collections.Generic.HashSet<int>(group);
+            var selected=new System.Collections.Generic.List<int>();for(int i=0;i<triangles.Length;i+=3)if(ids.Contains(triangles[i]))selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+            // The source chart is used only to choose sparse curvilinear
+            // measurement stations. Its UVs/indices/pixels never leave this reader.
+            var uv=baked.uv;var chartTexture=GuideTexture(slot);
+            Func<float,System.Collections.Generic.List<Tuple<Vector3,float>>> slice=level=>{
+                var result=new System.Collections.Generic.List<Tuple<Vector3,float>>();
+                for(int k=0;k<selected.Count;k+=3) {
+                    var cuts=new System.Collections.Generic.List<Tuple<Vector3,Vector2>>();
+                    for(int edge=0;edge<3;edge++) {
+                        int ai=selected[k+edge],bi=selected[k+(edge+1)%3];float da=uv[ai].y-level,db=uv[bi].y-level;
+                        if(!((da<=0&&db>0)||(db<=0&&da>0)))continue;
+                        float t=da/(da-db);cuts.Add(Tuple.Create(Vector3.Lerp(points[ai],points[bi],t),Vector2.Lerp(uv[ai],uv[bi],t)));
+                    }
+                    if(cuts.Count!=2)continue;
+                    int steps=Mathf.Max(24,Mathf.CeilToInt(Vector3.Distance(cuts[0].Item1,cuts[1].Item1)/.00005f));
+                    for(int j=0;j<=steps;j++) {
+                        float t=j/(float)steps;Vector2 st=Vector2.Lerp(cuts[0].Item2,cuts[1].Item2,t);
+                        if(chartTexture.GetPixelBilinear(st.x,st.y).a<.5f)continue;
+                        result.Add(Tuple.Create(Vector3.Lerp(cuts[0].Item1,cuts[1].Item1,t),st.x));
+                    }
+                }
+                return result;
+            };
+            float lo=group.Min(i=>uv[i].y),hi=group.Max(i=>uv[i].y),span=hi-lo;
+            // Keep a tiny interior offset at geometric chart boundaries;
+            // step inward when the outer station itself is transparent.
+            float low=lo+span*.000001f,high=hi-span*.000001f;
+            while(slice(low).Count<2&&low<hi)low+=span*.001f;
+            while(slice(high).Count<2&&high>lo)high-=span*.001f;
+            if(low>=high)throw new InvalidOperationException("No visible intrinsic chart interval");
+            bool reverse=slice(low).Average(q=>q.Item1.y)<slice(high).Average(q=>q.Item1.y);
+            float[] phases={0,.004f,.016f,.03f,.05f,.075f,.10f,.14f,.20f,.28f,.38f,.48f,.58f,.68f,.78f,.86f,.92f,.96f,.985f,1};
+            var samples=new System.Collections.Generic.List<Landmark>();
+            for(int row=0;row<phases.Length;row++) {
+                var cuts=slice(Mathf.Lerp(reverse?high:low,reverse?low:high,phases[row]));
+                if(cuts.Count<2)throw new InvalidOperationException("Missing intrinsic chart section: "+row);
+                float left=cuts.Min(q=>q.Item2),right=cuts.Max(q=>q.Item2);
+                for(int col=0;col<=6;col++) {
+                    float u=Mathf.Lerp(left,right,col/6f),near=cuts.Min(q=>Mathf.Abs(q.Item2-u));
+                    Vector3 point=cuts.Where(q=>Mathf.Abs(q.Item2-u)<=near+.000008f).OrderByDescending(q=>q.Item1.z).First().Item1;
+                    samples.Add(new Landmark{name="row-"+row+"-column-"+col,position=point});
+                }
+            }
+            Debug.Log("Local chart station bounds "+lo+" "+hi+"; direction "+reverse+". Only positions are exported.");
+            Directory.CreateDirectory("work/ref-frontal-intrinsic-88");File.WriteAllText("work/ref-frontal-intrinsic-88/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Intrinsic front panel0 supports "+samples.Count);
+        }
+
         public static void MeasureFrontEnvelope() {
             AssetDatabase.Refresh();
             var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");

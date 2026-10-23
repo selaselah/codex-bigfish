@@ -523,7 +523,49 @@ namespace DesktopFish.Editor
                 }
                 body.region=oldRegion;
             }
+            public void GuidedIntrinsicFront(int sign,int head) {
+                int old=body.region;body.region=0;const int columns=3;int rows=FishFrontalIntrinsicGuides.Rows;
+                Func<int,int,Vector3> finalPoint=(row,col)=>{
+                    Vector3 p=FishFrontalIntrinsicGuides.Point(row,col);
+                    if(row==rows-1)p=FishFrontalIntrinsicGuides.Point(row,3);
+                    p.x*=sign;return p;
+                };
+                Func<Vector3,Vector2> paint=final=>{
+                    Vector3 p=final;p.x*=sign;
+                    float t=Mathf.InverseLerp(.975132f,.604742f,p.y);
+                    Vector3 a=FishModelGuides.FrontPanel(0,1,t,0),b=FishModelGuides.FrontPanel(0,1,t,1);
+                    float u=Mathf.InverseLerp(a.x,b.x,p.x);
+                    float phase=Mathf.Lerp(t,Mathf.InverseLerp(.979167f,.604742f,p.y),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.910f,.930f,p.y)));
+                    return FrontPaintUV(0,u,phase);
+                };
+                var centers=new Vector3[rows];for(int row=0;row<rows;row++)for(int col=0;col<6;col++)centers[row]+=AuthorPoint(finalPoint(row,col))/6;
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;
+                    if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}
+                    body.Face(a,b,c);
+                };
+                // Separate broad front/return normals at the two thin lips.
+                // Their positions meet; no copied source edge connectivity.
+                for(int sheet=0;sheet<2;sheet++) {
+                    int start=body.p.Count;
+                    for(int row=0;row<rows;row++)for(int col=0;col<=columns;col++) {
+                        Vector3 p=finalPoint(row,sheet==0?col:6-col);
+                        body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));
+                    }
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<columns;col++) {
+                        int a=start+row*4+col,b=a+4,c=a+1,d=b+1;Vector3 center=(centers[row]+centers[row+1])*.5f;
+                        face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-center);
+                        face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-center);
+                    }
+                }
+                int cap=body.p.Count;body.Add(centers[0],Color.white*.98f,head,FrontPaintUV(0,.5f,0));
+                int edgeStart=body.p.Count;for(int col=0;col<6;col++){Vector3 p=finalPoint(0,col);body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));}
+                for(int col=0;col<6;col++)face(cap,edgeStart+col,edgeStart+(col+1)%6,centers[0]-centers[1]);
+                body.region=old;
+            }
+
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
+                if(panel==0){GuidedIntrinsicFront(sign,head);return;}
                 bool cheekReturn=panel==4;
                 int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
                 var stations=Enumerable.Range(0,rows+1).Select(row=>panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows)
