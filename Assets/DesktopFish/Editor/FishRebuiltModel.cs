@@ -2582,6 +2582,9 @@ namespace DesktopFish.Editor
                 isolated.triangles=selected.ToArray();bodySnapshot.sharedMesh=isolated;
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
                 RenderHeadStudy(camera,"work/rebuilt-fin-isolated",1,Vector3.zero);
+                isolated.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),isolated.vertexCount).ToArray();var finRenderer=bodySnapshot.GetComponent<Renderer>();var finOriginal=finRenderer.sharedMaterials;
+                var finClay=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));finClay.mainTexture=DiagnosticAlpha(finOriginal[0].mainTexture);finClay.SetFloat("_OutlineWidth",0);finRenderer.sharedMaterial=finClay;
+                RenderHeadStudy(camera,"work/rebuilt-fin-gray",1,Vector3.zero);finRenderer.sharedMaterials=finOriginal;UnityEngine.Object.DestroyImmediate(finClay.mainTexture);UnityEngine.Object.DestroyImmediate(finClay);
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(isolated);
             }
@@ -3834,39 +3837,40 @@ namespace DesktopFish.Editor
             a.GuidedTail(tail);
         }
         static void HeadFin(Author a,int sign,int bone) {
-            // Separate open outer and inner shells retain the pale lining seen
-            // through the lower front opening, instead of painting a solid oval.
+            // New open arcs follow the physical rolled lip, including its
+            // alpha-visible closing return near the tip. Author a coherent hidden
+            // attachment at the previous root plane instead of joining the two
+            // disconnected partial source sections into an artificial flat wall.
             foreach(bool inner in new[]{false,true}) {
-                // Spend transverse samples on the visible rolled lip. The final
-                // index-only reduction still enforces the complete 20k budget.
-                int rows=FishModelGuides.FinRows(sign,inner),cols=inner?8:12;
-                int start=a.body.p.Count,triangles=a.body.tri.Count;
-                for(int row=0;row<=rows;row++)for(int col=0;col<=cols;col++) {
-                    float t=row/(float)rows,v=col/(float)cols;
-                    Vector3 p=FishModelGuides.FinShell(sign,inner,t,row==rows?0:v);
-                    // A narrow painted fold follows the front lip, not the whole oval.
-                    float sheen=Mathf.Exp(-Mathf.Pow((t-.53f)/.36f,2)-Mathf.Pow((v-.20f)/.13f,2));
-                    // The lining is lavender cloth with a pale lower return,
-                    // not a white center band across the entire open shell.
-                    Color color=inner?Color.Lerp(Hex("6976AC"),Hex("CED6EA"),.80f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.95f,v))):
-                        Color.Lerp(Hex("333F88"),Hex("B7BFEB"),sheen*.90f);
-                    Vector3 author=AuthorPoint(p);
-                    int vertex=a.body.Add(author,color,bone,LaceUV(3,t/3,Mathf.Max(0,(v-.95f)/.05f)));
-                    // Evaluate the smooth guide tangent before polygon reduction.
-                    // The collapsed tip keeps its mesh-derived normal.
-                    if(row<rows) {
-                        Vector3 along=FishModelGuides.FinShell(sign,inner,Mathf.Min(1,t+.001f),v)-FishModelGuides.FinShell(sign,inner,Mathf.Max(0,t-.001f),v);
-                        Vector3 across=FishModelGuides.FinShell(sign,inner,t,Mathf.Min(1,v+.001f))-FishModelGuides.FinShell(sign,inner,t,Mathf.Max(0,v-.001f));
-                        Vector3 normal=Vector3.Cross(across.normalized,along.normalized).normalized;
-                        if((sign>0)!=inner)normal=-normal;
-                        if(normal.sqrMagnitude>.5f) {
-                            float derivative;FitHeight(author.y,out derivative);normal.y*=derivative;
-                            a.body.normalBlends[vertex]=new Vector4(normal.x,normal.y,normal.z,.90f);
-                        }
+                int shell=(sign>0?0:2)+(inner?1:0),cols=inner?6:8;
+                float[] stations={0,.035f,.09f,.16f,.25f,.36f,.48f,.60f,.71f,.81f,.89f,.95f,.985f};
+                int tri=a.body.tri.Count;var rings=new List<int[]>();
+                Vector3 firstCenter=Vector3.zero,rootCenter=Vector3.zero;
+                for(int col=0;col<=cols;col++){firstCenter+=FishFinArcGuides.Point(shell,0,col/(float)cols)/(cols+1);rootCenter+=FishModelGuides.FinShell(sign,inner,0,col/(float)cols)/(cols+1);}
+                rootCenter=new Vector3(rootCenter.x,Mathf.Lerp(firstCenter.y,rootCenter.y,.20f),firstCenter.z);
+                Action<int,int,int,int> quad=(aa,bb,cc,dd)=>{
+                    Func<int,int,int,Vector3> normal=(i,j,k)=>Vector3.Cross(a.body.p[j]-a.body.p[i],a.body.p[k]-a.body.p[i]).normalized;
+                    if(Vector3.Dot(normal(aa,bb,cc),normal(bb,dd,cc))>=Vector3.Dot(normal(aa,bb,dd),normal(aa,dd,cc))){a.body.Face(aa,bb,cc);a.body.Face(bb,dd,cc);}
+                    else {a.body.Face(aa,bb,dd);a.body.Face(aa,dd,cc);}
+                };
+                for(int row=-1;row<stations.Length;row++) {
+                    var ring=new int[cols+1];float t=row<0?0:stations[row];
+                    for(int col=0;col<=cols;col++) {
+                        float v=col/(float)cols;Vector3 p=row<0?rootCenter+(FishFinArcGuides.Point(shell,0,v)-firstCenter)*.65f:FishFinArcGuides.Point(shell,t,v);
+                        // Keep own lip shading anchored by spatial correspondence
+                        // to the former own guide, without copying source paint.
+                        float oldT=0,oldV=0,closest=float.MaxValue;
+                        for(int it=0;it<=24;it++)for(int iv=0;iv<=64;iv++){float ot=it/24f,ov=iv/64f;float delta=(FishModelGuides.FinShell(sign,inner,ot,ov)-p).sqrMagnitude;if(delta<closest){closest=delta;oldT=ot;oldV=ov;}}
+                        float sheen=Mathf.Exp(-Mathf.Pow((oldT-.53f)/.36f,2)-Mathf.Pow((oldV-.20f)/.13f,2));
+                        Color color=inner?Color.Lerp(Hex("6976AC"),Hex("CED6EA"),.80f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.95f,oldV))):Color.Lerp(Hex("333F88"),Hex("B7BFEB"),sheen*.90f);
+                        ring[col]=a.body.Add(AuthorPoint(p),color,bone,LaceUV(3,oldT/3,Mathf.Max(0,(v-.95f)/.05f)));
                     }
+                    if(rings.Count>0)for(int col=0;col<cols;col++){var before=rings[rings.Count-1];quad(before[col],before[col+1],ring[col],ring[col+1]);}
+                    rings.Add(ring);
                 }
-                Grid(a.body,start,rows,cols);
-                if((sign>0)!=inner)ReverseFaces(a.body,triangles);
+                int tip=a.body.Add(AuthorPoint(FishFinArcGuides.Point(shell,1,.5f)),inner?Hex("6976AC"):Hex("333F88"),bone,LaceUV(3,1f/3,0));
+                var last=rings[rings.Count-1];for(int col=0;col<cols;col++)a.body.Face(last[col],last[col+1],tip);
+                if((sign>0)!=inner)ReverseFaces(a.body,tri);
             }
         }
         static void FinBlade(Author a,Vector3[] leading,Vector3[] trailing,int bone,

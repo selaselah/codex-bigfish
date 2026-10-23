@@ -513,6 +513,87 @@ namespace DesktopFish.Editor
             Debug.Log("Intrinsic front panels1/2/3 supports "+samples.Count);
         }
 
+        // Open cross-section arcs keep the true rolled-lip correspondence at
+        // partial roots. Connectivity is used locally for traversal only; only
+        // sparse alpha-visible positions leave this measurement method.
+        public static void MeasureFinShell103() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();var uv=baked.uv;
+            var samples=new System.Collections.Generic.List<Landmark>();var diagnostics=new System.Collections.Generic.List<string>();
+            foreach(int slot in new[]{22,23,24,25}) {
+                int sign=slot<24?1:-1;var triangles=baked.GetTriangles(slot);var texture=GuideTexture(slot);
+                float rawHigh=triangles.Distinct().Max(i=>points[i].x*sign),low=(slot%2==0?.15001f:.16001f),last=low,missing=rawHigh+.001f;
+                for(float x=low;x<=rawHigh+.001f;x+=.001f){if(VisibleSection(points,uv,triangles,Vector3.right,x*sign,slot,maxStep:.00005f).Count>0)last=x;else if(x>last){missing=x;break;}}
+                for(int n=0;n<18;n++){float x=(last+missing)*.5f;if(VisibleSection(points,uv,triangles,Vector3.right,x*sign,slot,maxStep:.00005f).Count>0)last=x;else missing=x;}
+                float high=last;var tipSection=VisibleSection(points,uv,triangles,Vector3.right,(high-.000001f)*sign,slot,maxStep:.00002f);Vector3 visibleTip=Vector3.zero;foreach(var q in tipSection)visibleTip+=q/tipSection.Count;
+                var used=triangles.Distinct().ToArray();Debug.Log("Fin chart "+slot+" u="+used.Min(i=>uv[i].x)+".."+used.Max(i=>uv[i].x)+" v="+used.Min(i=>uv[i].y)+".."+used.Max(i=>uv[i].y));
+                Vector3[] previousSection=null;Func<float,Vector3[]> section=x=>{
+                    var pp=new System.Collections.Generic.List<Vector3>();var st=new System.Collections.Generic.List<Vector2>();
+                    var lookup=new System.Collections.Generic.Dictionary<Vector3Int,int>();var links=new System.Collections.Generic.List<System.Collections.Generic.HashSet<int>>();
+                    Func<Vector3,Vector2,int> node=(p,t)=>{var key=Vector3Int.RoundToInt(p*1000000);if(lookup.TryGetValue(key,out int id))return id;id=pp.FindIndex(q=>(q-p).sqrMagnitude<.000002f*.000002f);if(id>=0)return id;id=pp.Count;lookup[key]=id;pp.Add(p);st.Add(t);links.Add(new System.Collections.Generic.HashSet<int>());return id;};
+                    for(int k=0;k<triangles.Length;k+=3) {
+                        var cuts=new System.Collections.Generic.List<int>();
+                        for(int j=0;j<3;j++){int ai=triangles[k+j],bi=triangles[k+(j+1)%3];float da=points[ai].x*sign-x,db=points[bi].x*sign-x;
+                            if((da<=0&&db>0)||(db<=0&&da>0)){float t=da/(da-db);cuts.Add(node(Vector3.Lerp(points[ai],points[bi],t),Vector2.Lerp(uv[ai],uv[bi],t)));}}
+                        if(cuts.Count==2&&cuts[0]!=cuts[1]){links[cuts[0]].Add(cuts[1]);links[cuts[1]].Add(cuts[0]);}
+                    }
+                    if(links.Any(q=>q.Count>2))throw new InvalidOperationException("Branched fin section "+slot+" "+x);
+                    var used=new System.Collections.Generic.HashSet<int>();var chains=new System.Collections.Generic.List<int[]>();
+                    foreach(int seed in Enumerable.Range(0,pp.Count).Where(i=>links[i].Count==1)) {
+                        if(used.Contains(seed))continue;var chain=new System.Collections.Generic.List<int>();int prev=-1,cur=seed;
+                        while(cur>=0){chain.Add(cur);used.Add(cur);int next=links[cur].Where(i=>i!=prev).DefaultIfEmpty(-1).First();prev=cur;cur=next;if(cur>=0&&used.Contains(cur))throw new InvalidOperationException("Closed fin arc");}chains.Add(chain.ToArray());
+                    }
+                    if(chains.Count==0) {
+                        int seed=Enumerable.Range(0,pp.Count).OrderBy(i=>previousSection==null?-pp[i].z:(pp[i]-previousSection[0]).sqrMagnitude).First();
+                        foreach(int first in links[seed]){var chain=new System.Collections.Generic.List<int>{seed};int prev=seed,cur=first;while(cur!=seed){chain.Add(cur);int next=links[cur].Single(i=>i!=prev);prev=cur;cur=next;if(chain.Count>pp.Count+1)throw new InvalidOperationException("Invalid fin loop");}chain.Add(seed);chains.Add(chain.ToArray());}
+                        if(chains.Count!=2)throw new InvalidOperationException("Nonmanifold fin loop");
+                        chains=chains.OrderBy(c=>previousSection==null?-pp[c[1]].y:Vector3.Distance(pp[c[c.Length/2]],previousSection[4])+Vector3.Distance(pp[c[Mathf.Max(1,c.Length/4)]],previousSection[2])).Take(1).ToList();
+                    }
+                    Func<int[],float> length=c=>Enumerable.Range(1,c.Length-1).Sum(i=>Vector3.Distance(pp[c[i-1]],pp[c[i]]));
+                    var chosen=chains.OrderByDescending(length).First();if(chains.Count>1&&length(chains.OrderByDescending(length).Skip(1).First())>.001f)throw new InvalidOperationException("Ambiguous fin arc "+slot+" "+x+" lengths="+string.Join(",",chains.Select(c=>length(c)+"/"+pp[c[0]]+"->"+pp[c[c.Length-1]])));
+                    if(chosen[0]!=chosen[chosen.Length-1]&&pp[chosen[0]].z<pp[chosen[chosen.Length-1]].z)Array.Reverse(chosen);
+                    var dense=new System.Collections.Generic.List<Vector3>();var opaque=new System.Collections.Generic.List<bool>();
+                    for(int i=1;i<chosen.Length;i++){int a=chosen[i-1],b=chosen[i];int n=Mathf.Max(24,Mathf.CeilToInt(Vector3.Distance(pp[a],pp[b])/.00005f));for(int j=0;j<n;j++){float t=j/(float)n;var tex=Vector2.Lerp(st[a],st[b],t);opaque.Add(!texture||texture.GetPixelBilinear(tex.x,tex.y).a>=.5f);dense.Add(Vector3.Lerp(pp[a],pp[b],t));}}
+                    dense.Add(pp[chosen[chosen.Length-1]]);opaque.Add(!texture||texture.GetPixelBilinear(st[chosen[chosen.Length-1]].x,st[chosen[chosen.Length-1]].y).a>=.5f);
+                    bool closed=chosen[0]==chosen[chosen.Length-1];int count=dense.Count-(closed?1:0),bestStart=-1,bestCount=0;float bestLength=-1;
+                    // A closed geometric section can have an open alpha-visible
+                    // arc. Rotate at its transparent gap; filtering two runs and
+                    // concatenating across that gap would create a false chord.
+                    for(int start=0;start<count;start++) {
+                        if(!opaque[start]||(start>0&&opaque[start-1])||(closed&&start==0&&opaque[count-1]&&opaque.Take(count).Any(q=>!q)))continue;
+                        int run=1;float runLength=0;while(run<count&&(closed||start+run<count)&&opaque[(start+run)%count]){runLength+=Vector3.Distance(dense[(start+run-1)%count],dense[(start+run)%count]);run++;}
+                        if(runLength>bestLength){bestLength=runLength;bestStart=start;bestCount=run;}
+                    }
+                    if(bestStart<0)throw new InvalidOperationException("No connected visible fin arc "+slot+" "+x);
+                    var visible=Enumerable.Range(0,bestCount).Select(i=>dense[(bestStart+i)%count]).ToList();
+                    if(closed&&opaque.Take(count).All(q=>q))visible.Add(visible[0]);
+                    if(previousSection!=null&&Vector3.Distance(visible[0],previousSection[0])+Vector3.Distance(visible[visible.Count-1],previousSection[8])>Vector3.Distance(visible[visible.Count-1],previousSection[0])+Vector3.Distance(visible[0],previousSection[8]))visible.Reverse();
+                    if(visible.Count<2)throw new InvalidOperationException("No alpha-visible fin arc "+slot+" "+x);
+                    var arc=new float[visible.Count];for(int i=1;i<arc.Length;i++)arc[i]=arc[i-1]+Vector3.Distance(visible[i-1],visible[i]);
+                    float[] fractions={0,.06f,.16f,.30f,.50f,.70f,.84f,.94f,1};var output=new Vector3[9];
+                    for(int j=0;j<9;j++){float target=arc[arc.Length-1]*fractions[j];int hi=Array.FindIndex(arc,v=>v>=target);hi=Mathf.Max(1,hi);output[j]=Vector3.Lerp(visible[hi-1],visible[hi],Mathf.InverseLerp(arc[hi-1],arc[hi],target));}
+                    diagnostics.Add(slot+" x="+x+" arcs="+chains.Count+" closed="+(chosen[0]==chosen[chosen.Length-1])+" arc_length="+arc[arc.Length-1]+" lip_gap="+Vector3.Distance(output[0],output[8]));previousSection=output;return output;
+                };
+                float[] phases={0,.025f,.065f,.12f,.20f,.30f,.42f,.54f,.65f,.75f,.83f,.89f,.94f,.975f,.995f};
+                for(int row=0;row<phases.Length;row++){var cut=section(Mathf.Lerp(low,high-.00001f,phases[row]));for(int col=0;col<9;col++)samples.Add(new Landmark{name="slot-"+slot+"-row-"+row+"-column-"+col,position=cut[col]});}
+                samples.Add(new Landmark{name="slot-"+slot+"-tip",position=visibleTip});
+            }
+            Directory.CreateDirectory("work/ref-fin-shell-103");File.WriteAllText("work/ref-fin-shell-103/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));File.WriteAllLines("work/ref-fin-shell-103/source-diagnostics.txt",diagnostics);
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub>=22&&sub<=25?baked.GetTriangles(sub):Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local open fin review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Fin camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderHeadStudy(camera,"work/ref-fin-shell-103/source-full",.8f,new Vector3(0,-.056f,0));only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();
+            var clay=guideMaterials.ToArray();var created=new System.Collections.Generic.List<Material>();for(int slot=22;slot<=25;slot++){var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=FishRebuiltModel.DiagnosticAlpha(GuideTexture(slot));material.SetFloat("_OutlineWidth",0);clay[slot]=material;created.Add(material);}snapshot.GetComponent<Renderer>().sharedMaterials=clay;
+            FishRebuiltModel.RenderHeadStudy(camera,"work/ref-fin-shell-103/source-gray",.8f,new Vector3(0,-.056f,0));foreach(var material in created){UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);}
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();Debug.Log("Open fin103 sparse position supports "+samples.Count);
+        }
+
         public static void MeasureCentralFringe100() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
