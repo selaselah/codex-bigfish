@@ -1,5 +1,7 @@
 # Rebuilt BigFish — editable model
 
+当前交付数据、实际验证和仍需修正的默认站姿问题见 [当前模型审阅](CURRENT-REVIEW.md)。当前模型尚未达到整体视觉复现完成；下文包含历次迭代记录，应以该审阅和当前三角面数为准。
+
 `BigFish.blend` is the editable Blender model; `BigFish.glb` contains the portable rigged mesh. Unity uses `Assets/DesktopFish/Rebuilt/BigFish.prefab` and its two mesh assets. The Blender file opens in the generated idle pose. The GLB exports the bind/rest rig with neutral facial morph weights and no animation clips; Unity drives the gestures procedurally in `FishMotion.cs`.
 
 This version authors mesh positions, topology, vertex colors, bones and six facial morphs in `Assets/DesktopFish/Editor/FishRebuiltModel.cs`. The generator does not read the previous 3D model, textures or skeleton. Sparse measurements from the local Ref review calibrate the new geometry through `FishModelGuides.cs`: visible head sections, headband edges, bow/shoe bounds and apron/strap anchors. The character appearance is also informed by the existing 2D pet and previous 3D screenshots; this is geometry provenance, not a claim of original character design.
