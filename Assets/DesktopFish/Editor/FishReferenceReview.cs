@@ -432,6 +432,56 @@ namespace DesktopFish.Editor
             Debug.Log("Intrinsic front panel0 supports "+samples.Count);
         }
 
+        public static void MeasureRearEnvelopeDense() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            int slot=15;var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();var parents=Enumerable.Range(0,points.Length).ToArray();
+            Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int i=0;i<triangles.Length;i+=3){parents[root(triangles[i+1])]=root(triangles[i]);parents[root(triangles[i+2])]=root(triangles[i]);}
+            foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))){int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);}
+            var groups=used.GroupBy(root).OrderByDescending(g=>g.Count()).ToArray();
+            var chosen=new System.Collections.Generic.HashSet<int>(new[]{0,1,2,3,4,5,6,7,9,10,13}.SelectMany(c=>groups[c]));
+            var selected=new System.Collections.Generic.List<int>();for(int k=0;k<triangles.Length;k+=3)if(chosen.Contains(triangles[k]))selected.AddRange(new[]{triangles[k],triangles[k+1],triangles[k+2]});
+            var faces=new System.Collections.Generic.Dictionary<int,int[]>{{15,selected.ToArray()},{16,baked.GetTriangles(16)}};
+            var uv=baked.uv;var samples=new System.Collections.Generic.List<Landmark>();int row=0;
+            foreach(float height in new[]{.7325f,.72f,.7075f,.695f,.6825f,.67f,.66f,.6475f,.6325f,.62f,.6075f,.595f,.5825f,.57f,.5575f,.545f,.5325f,.52f,.5075f,.495f,.480f,.465f,.45f,.425f,.405f}) {
+                float y=(height-.07f)/1.25f;var visible=new System.Collections.Generic.List<Vector3>();
+                foreach(var e in faces)visible.AddRange(VisibleSection(points,uv,e.Value,Vector3.up,y,e.Key,maxStep:.00008f));
+                float lo=visible.Min(q=>q.x)+.000001f,hi=visible.Max(q=>q.x)-.000001f;
+                for(int col=0;col<=40;col++) {
+                    float x=Mathf.Lerp(lo,hi,col/40f),z=float.PositiveInfinity;
+                    foreach(var entry in faces) {
+                        var tex=GuideTexture(entry.Key);var tri=entry.Value;
+                        for(int k=0;k<tri.Length;k+=3) {
+                            var cuts=new System.Collections.Generic.List<Vector3>();var st=new System.Collections.Generic.List<Vector2>();
+                            for(int edge=0;edge<3;edge++) {
+                                int ai=tri[k+edge],bi=tri[k+(edge+1)%3];Vector3 p=points[ai],q=points[bi];
+                                if(!((p.y<=y&&q.y>y)||(q.y<=y&&p.y>y)))continue;
+                                float t=(y-p.y)/(q.y-p.y);cuts.Add(Vector3.Lerp(p,q,t));st.Add(Vector2.Lerp(uv[ai],uv[bi],t));
+                            }
+                            if(cuts.Count!=2||Mathf.Abs(cuts[1].x-cuts[0].x)<1e-9f)continue;
+                            float tAcross=(x-cuts[0].x)/(cuts[1].x-cuts[0].x);if(tAcross<-.00001f||tAcross>1.00001f)continue;
+                            Vector2 texturePoint=Vector2.Lerp(st[0],st[1],tAcross);if(tex.GetPixelBilinear(texturePoint.x,texturePoint.y).a<.5f)continue;
+                            z=Mathf.Min(z,Mathf.Lerp(cuts[0].z,cuts[1].z,tAcross));
+                        }
+                    }
+                    if(float.IsInfinity(z))throw new InvalidOperationException("Missing dense envelope hit "+height+" / "+col);
+                    samples.Add(new Landmark{name="row-"+row+"-column-"+col,position=new Vector3(x,y,z)});
+                }
+                row++;
+            }
+            Directory.CreateDirectory("work/ref-rear-envelope-91");File.WriteAllText("work/ref-rear-envelope-91/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Dense rear envelope: "+samples.Count+" position-only supports, alpha0.5, max section step0.00008");
+        }
+
         public static void MeasureFoldedIntrinsic() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
