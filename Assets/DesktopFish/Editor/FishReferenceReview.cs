@@ -141,6 +141,55 @@ namespace DesktopFish.Editor
             Debug.Log("Sparse rest sleeves measured; reference unchanged.");
         }
 
+        public static void MeasureTuft() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);
+            var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            foreach(var bone in model.GetComponentsInChildren<Transform>(true)) {
+                if(bone.name=="J_Bip_L_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,62);
+                if(bone.name=="J_Bip_R_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,-62);
+            }
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var triangles=baked.GetTriangles(14);var used=triangles.Distinct().ToArray();
+            var pivot=new Vector3(.02f,.745f,0);
+            float lo=used.Min(i=>Mathf.Atan2(points[i].x-pivot.x,points[i].y-pivot.y));
+            float hi=used.Max(i=>Mathf.Atan2(points[i].x-pivot.x,points[i].y-pivot.y));
+            var samples=new System.Collections.Generic.List<Landmark>();
+            for(int station=0;station<=40;station++) {
+                float angle=Mathf.Lerp(hi-.00002f,lo+.00002f,station/40f);
+                var ray=new Vector3(Mathf.Sin(angle),Mathf.Cos(angle),0);var normal=new Vector3(ray.y,-ray.x,0);
+                var cuts=VisibleSection(points,baked.uv,triangles,normal,Vector3.Dot(pivot,normal),14,(q,st)=>Vector3.Dot(q-pivot,ray)>0,maxStep:.000025f);
+                if(cuts.Count==0)continue;
+                float inner=cuts.Min(q=>Vector3.Dot(q-pivot,ray)),outer=cuts.Max(q=>Vector3.Dot(q-pivot,ray));
+                for(int column=0;column<5;column++) {
+                    float radial=Mathf.Lerp(inner,outer,column/4f),distance=cuts.Min(q=>Mathf.Abs(Vector3.Dot(q-pivot,ray)-radial));
+                    var near=cuts.Where(q=>Mathf.Abs(Vector3.Dot(q-pivot,ray)-radial)<=distance+.000025f).ToArray();
+                    foreach(int side in new[]{1,-1}) {
+                        var point=near.OrderByDescending(q=>q.z*side).First();
+                        point=pivot+ray*radial+Vector3.forward*point.z;
+                        samples.Add(new Landmark{name="station-"+station+"-column-"+column+"-side-"+side,position=point});
+                    }
+                }
+            }
+            Directory.CreateDirectory("work/ref-tuft-83");File.WriteAllText("work/ref-tuft-83/source-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            Debug.Log("Tuft polar angles "+lo+" "+hi+"; supports "+samples.Count+"; bounds "+baked.bounds);
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub==14?triangles:Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local tuft review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;
+            snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Tuft camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;
+            camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");
+            RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderHeadStudy(camera,"work/ref-tuft-83/source",.8f,new Vector3(0,-.056f,0));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+        }
+
         public static void MeasureHeadband() {
             AssetDatabase.Refresh();
             var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");

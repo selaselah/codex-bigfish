@@ -468,6 +468,28 @@ namespace DesktopFish.Editor
                     }
                 }
             }
+            public void GuidedCrownTuft(int head) {
+                int oldRegion=body.region;body.region=0;
+                int rows=FishCrownTuftGuides.Rows,cols=FishCrownTuftGuides.Columns;
+                var indices=new int[rows,cols];var centers=new Vector3[rows];
+                for(int row=0;row<rows;row++) {
+                    for(int col=0;col<cols;col++)centers[row]+=AuthorPoint(FishCrownTuftGuides.Point(row,col))/cols;
+                    for(int col=0;col<cols;col++)indices[row,col]=(row==0||row==rows-1)&&col>0?indices[row,0]:
+                        body.Add(AuthorPoint(FishCrownTuftGuides.Point(row,col)),Hair,head);
+                }
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;
+                    if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}
+                    body.tri.AddRange(new[]{a,b,c});
+                };
+                for(int row=0;row<rows-1;row++)for(int col=0;col<cols;col++) {
+                    int next=(col+1)%cols,a=indices[row,col],b=indices[row+1,col],c=indices[row,next],d=indices[row+1,next];
+                    var middle=(centers[row]+centers[row+1])*.5f;
+                    face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-middle);
+                    face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-middle);
+                }
+                body.region=oldRegion;
+            }
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
                 bool cheekReturn=panel==4;
                 int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
@@ -2581,14 +2603,9 @@ namespace DesktopFish.Editor
                 a.GuidedFrontPanel(16,sign,head,1);
             }
             for(int panel=8;panel<15;panel++)a.GuidedFrontPanel(panel,1,head,panel%3);
-            // A gently rearward arch keeps the crown tuft curved in side view.
-            // Its rounded section narrows in both axes into one closed tip.
-            int tuftStart=a.body.p.Count;
-            Func<float,float> tuftProfile=t=>t>=1?0:Mathf.Pow(Mathf.Sin(Mathf.PI*Mathf.Lerp(.21f,1,t)),.75f);
-            a.Sweep(a.body,Curve(new[]{V(-.025f,.974f,-.02f),V(-.025f,1.11f,-.025f),
-                V(.10f,1.10f,-.090f),V(.12f,1.03f,-.095f)},24),
-                t=>.013f*tuftProfile(t),t=>.0075f*tuftProfile(t),t=>Hair,head,8);
-            for(int row=0;row<24;row++)a.body.smoothNormalPairs.Add(new Vector2Int(tuftStart+row*9,tuftStart+row*9+8));
+            // Source-measured sparse support sections reconstruct the whole
+            // hooked silhouette with independent topology and shared end poles.
+            a.GuidedCrownTuft(head);
             File.WriteAllLines("work/rear-attachment.csv",new[]{"kind,panel,x,y,z"}.Concat(a.rearAttachmentReport));
         }
 
