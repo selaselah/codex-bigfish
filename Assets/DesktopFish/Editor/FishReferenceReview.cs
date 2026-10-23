@@ -432,6 +432,63 @@ namespace DesktopFish.Editor
             Debug.Log("Intrinsic front panel0 supports "+samples.Count);
         }
 
+        public static void MeasureRearColorBands() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var pointsUV=baked.uv;var samples=new System.Collections.Generic.List<Landmark>();
+            var diagnostic=new System.Collections.Generic.List<string>();
+            for(int column=0;column<=120;column++) {
+                float finalX=Mathf.Lerp(-.36f,.36f,column/120f),x=finalX/1.25f;
+                var segments=new System.Collections.Generic.List<Tuple<Vector3,Vector3,Vector2,Vector2,int>>();
+                foreach(int slot in new[]{15,16}) {
+                    var tri=baked.GetTriangles(slot);
+                    for(int k=0;k<tri.Length;k+=3) {
+                        var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
+                        for(int edge=0;edge<3;edge++) {
+                            int ai=tri[k+edge],bi=tri[k+(edge+1)%3];Vector3 u=points[ai],v=points[bi];
+                            if(!((u.x<=x&&v.x>x)||(v.x<=x&&u.x>x)))continue;
+                            float t=(x-u.x)/(v.x-u.x);cuts.Add(Vector3.Lerp(u,v,t));tex.Add(Vector2.Lerp(pointsUV[ai],pointsUV[bi],t));
+                        }
+                        if(cuts.Count==2&&Mathf.Abs(cuts[1].y-cuts[0].y)>1e-9f)segments.Add(Tuple.Create(cuts[0],cuts[1],tex[0],tex[1],slot));
+                    }
+                }
+                var hits=new System.Collections.Generic.List<Tuple<Vector3,Color>>();
+                for(int row=0;row<=320;row++) {
+                    float finalY=.18f+row*.002f,y=(finalY-.07f)/1.25f,z=float.PositiveInfinity;Vector3 hit=Vector3.zero;Color color=Color.clear;
+                    foreach(var seg in segments) {
+                        float t=(y-seg.Item1.y)/(seg.Item2.y-seg.Item1.y);if(t<0||t>1)continue;
+                        Vector3 point=Vector3.Lerp(seg.Item1,seg.Item2,t);if(point.z>=z)continue;
+                        Vector2 st=Vector2.Lerp(seg.Item3,seg.Item4,t);Color c=GuideTexture(seg.Item5).GetPixelBilinear(st.x,st.y);if(c.a<.5f)continue;
+                        z=point.z;hit=point;color=c;
+                    }
+                    if(color.a>=.5f)hits.Add(Tuple.Create(hit,color));
+                }
+                for(int level=0;level<3;level++) {
+                    float ratio=new[]{.56f,.64f,.72f}[level],minimum=new[]{.16f,.22f,.30f}[level];
+                    var selected=hits.Where(q=>q.Item2.g>q.Item2.b*ratio&&q.Item2.g>minimum).Select(q=>q.Item1).OrderBy(q=>q.y).ToArray();if(selected.Length==0)continue;
+                    var runs=new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
+                    foreach(var q in selected){if(runs.Count==0||q.y-runs.Last().Last().y>.0017f)runs.Add(new System.Collections.Generic.List<Vector3>());runs.Last().Add(q);}
+                    Vector3 top=selected.Last(),mass=runs.OrderByDescending(q=>q.Count).First().Last();
+                    samples.Add(new Landmark{name="level-"+level+"-edge-"+column,position=top});
+                    samples.Add(new Landmark{name="level-"+level+"-mass-"+column,position=mass});
+                }
+                if(column%20==0)foreach(float height in new[]{.3f,.4f,.5f,.6f,.7f,.8f}) {
+                    var nearby=hits.OrderBy(q=>Mathf.Abs(q.Item1.y*1.25f+.07f-height)).FirstOrDefault();
+                    if(nearby!=null)diagnostic.Add(finalX+","+height+","+(nearby.Item2.g/Mathf.Max(.00001f,nearby.Item2.b))+","+nearby.Item2.g);
+                }
+            }
+            Directory.CreateDirectory("work/ref-rear-paint-92");File.WriteAllText("work/ref-rear-paint-92/source-bands.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));File.WriteAllLines("work/ref-rear-paint-92/local-color-diagnostic.csv",diagnostic);
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Rear color positional supports: "+samples.Count+" (no UV/texels exported)");
+        }
+
         public static void MeasureRearEnvelopeDense() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);

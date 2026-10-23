@@ -1631,18 +1631,16 @@ namespace DesktopFish.Editor
         static readonly float[] RearBlueWidths={.0035f,.0028f,.0045f,.0025f,.0040f,.0030f,.0050f,.0028f,.0032f,.0025f,.0044f,.0032f,.0046f,.0027f,.0038f,.0030f,.0040f,.0025f};
         static Color RearPaintColor(float x,float y,Vector2[] spans) {
             float crest=FishRearPaintGuides.Height(x);
-            float mass=(FishRearPaintGuides.Height(x,true)*4+
-                2*FishRearPaintGuides.Height(x-.012f,true)+2*FishRearPaintGuides.Height(x+.012f,true)+
-                FishRearPaintGuides.Height(x-.026f,true)+FishRearPaintGuides.Height(x+.026f,true))/10;
-            float cyan=Mathf.SmoothStep(0,1,Mathf.InverseLerp(mass+.014f,mass-.083f,y));
-            // Sparse higher tongues are painted on top of the broad gradient;
-            // their contrast fades into it, rather than cutting a hard band.
-            float tongue=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.002f,crest-.015f,y));
-            cyan=Mathf.Max(cyan,tongue*.72f);
-            // Independent broad painted volume follows the measured lock
-            // widths. This reads at pet size without extra overlay geometry.
+            float low=FishRearColorBandGuides.Broad(x,0),middle=FishRearColorBandGuides.Broad(x,1);
+            float wide=Mathf.SmoothStep(0,1,Mathf.InverseLerp(low+.065f,middle-.070f,y));
+            float fine=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.004f,crest-.019f,y));
+            // A broad, continuous transition carries the volume. Thin measured
+            // tongues modulate it without jumping directly to a solid cyan edge.
+            float cyan=wide*.45f+fine*.55f;
             float crown=Mathf.Exp(-Mathf.Pow((y-.755f)/.185f,2));
-            Color blue=Color.Lerp(Hex("24438C"),Hex("4A78C6"),crown*.85f);
+            Color blue=Color.Lerp(Hex("2949A4"),Hex("3D6CC9"),crown*.85f);
+            float lowerGlow=Mathf.Exp(-Mathf.Pow((y-(low+.085f))/.115f,2));
+            blue=Color.Lerp(blue,Hex("3869C0"),lowerGlow*.75f);
             float volume=0,seam=0;
             for(int panel=0;panel<spans.Length;panel++) {
                 float width=spans[panel].y-spans[panel].x;
@@ -1659,7 +1657,9 @@ namespace DesktopFish.Editor
             }
             float volumeGate=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.23f,.48f,y));
             blue*=1-(1-volume)*(.085f+.055f*crown)*volumeGate;
-            Color color=Color.Lerp(blue,Hex("64B6F4"),cyan*.96f);
+            Color color=Color.Lerp(blue,Hex("60BBFF"),cyan*.96f);
+            float pool=Mathf.SmoothStep(0,1,Mathf.InverseLerp(FishRearColorBandGuides.Broad(x,2)+.022f,FishRearColorBandGuides.Broad(x,2)-.038f,y));
+            color=Color.Lerp(color,Hex("80D5FF"),pool*cyan*.16f);
             color*=1-(1-volume)*cyan*.085f;
             for(int i=0;i<RearBlueCenters.Length;i++) {
                 float foot=.193f+.023f*Mathf.Sin(i*2.17f),top=FishRearPaintGuides.Height(RearBlueCenters[i])+.020f;
