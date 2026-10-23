@@ -3487,6 +3487,12 @@ namespace DesktopFish.Editor
                     int index=y*PaintWidth+x;pixels[index]=Color.Lerp(pixels[index],shape.Item2,covered*.25f);
                 }
             }
+            // Preserve every original own motif texel, including its AA edge.
+            for(int y=1680;y<PaintHeight;y++)for(int x=16;x<496;x++) {
+                int index=y*PaintWidth+x;if(pixels[index]!=Color.white)continue;
+                float px=(x+.5f-16)/480*.212f-.106f,py=(y+.5f-1680)/352*.175f+.235f;
+                pixels[index]=FishApronSheetGuides.Paint(px,py);
+            }
         }
 
         static float ApronGather(float x,float y) {
