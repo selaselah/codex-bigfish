@@ -1782,23 +1782,24 @@ namespace DesktopFish.Editor
         static void PaintIris(Color[] pixels) {
             for(int y=1696;y<2016;y++)for(int x=576;x<896;x++) {
                 float u=(x+.5f-736)/145f,v=(y+.5f-1856)/145f,r=Mathf.Sqrt(u*u+v*v);
-                float arc=v+.34f*u*u;
-                Color color=Color.Lerp(Hex("263762"),Hex("344D85"),Mathf.Clamp01((1-v)*.55f));
-                float blue=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.04f,.02f,arc));
-                color=Color.Lerp(color,Hex("4B9ED7"),blue);
-                float cyan=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.56f,-.50f,arc));
-                color=Color.Lerp(color,Hex("8FE0F3"),cyan);
-                float pool=PaintEllipse(u,v,0,-1.02f,.70f,.37f);
-                color=Color.Lerp(color,Hex("EEFFFF"),pool);
-                color=Color.Lerp(color,Hex("24345F"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.94f,.995f,r))*.75f);
+                Color color=Color.Lerp(Hex("1D285A"),Hex("304785"),Mathf.Clamp01((1-v)*.55f));
+                float blueEdge=FishIrisPaintGuides.Boundary(0,u);
+                float blue=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(blueEdge-.025f,blueEdge+.025f,v));
+                color=Color.Lerp(color,Hex("4AA9FF"),blue);
+                float cyanEdge=FishIrisPaintGuides.Boundary(1,u);
+                float cyan=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(cyanEdge-.04f,cyanEdge+.04f,v));
+                color=Color.Lerp(color,Hex("8AE5FF"),cyan);
+                float poolEdge=FishIrisPaintGuides.Boundary(2,u);
+                float pool=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(poolEdge-.045f,poolEdge+.045f,v));
+                color=Color.Lerp(color,Hex("E8FFFF"),pool);
+                color=Color.Lerp(color,Hex("17214D"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.94f,.995f,r))*.95f);
                 float reflected=PaintEllipse(u,v,-.48f,.62f,.28f,.19f);
-                color=Color.Lerp(color,Hex("7189B6"),reflected*.30f);
+                color=Color.Lerp(color,Hex("7189B6"),reflected*.18f);
                 float pupil=PaintEllipse(u,v,0,-.02f,.245f,.33f);
-                color=Color.Lerp(color,Hex("25365F"),pupil);
-                float main=PaintEllipse(u,v,.30f,.57f,.225f,.225f);
-                float small=PaintEllipse(u,v,-.14f,.63f,.080f,.080f);
-                float lower=PaintEllipse(u,v,-.69f,-.68f,.055f,.055f);
-                color=Color.Lerp(color,Color.white,Mathf.Max(main,Mathf.Max(small,lower)));
+                color=Color.Lerp(color,Hex("1D2B61"),pupil);
+                float glint=0;
+                foreach(Vector4 g in FishIrisPaintGuides.Glints)glint=Mathf.Max(glint,PaintEllipse(u,v,g.x,g.y,g.z,g.w));
+                color=Color.Lerp(color,Color.white,glint);
                 color.a=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.997f,1.005f,r));
                 pixels[y*PaintWidth+x]=color;
             }

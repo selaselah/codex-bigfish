@@ -312,6 +312,62 @@ namespace DesktopFish.Editor
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
         }
 
+        public static void MeasureIrisPaint() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            foreach(int sign in new[]{-1,1}) {
+                for(int col=0;col<9;col++) {
+                    float x=sign*(.050f+col*.0045f);
+                    foreach(string kind in new[]{"blue","cyan","pool"}) {
+                        var texture=GuideTexture(1);
+                        var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(1),Vector3.right,x,1,(q,st)=>{
+                            Color c=texture.GetPixelBilinear(st.x,st.y);
+                            bool color=kind=="blue"?c.g>.40f&&c.b>.62f:kind=="cyan"?c.g>.72f&&c.b>.82f:c.r>.72f&&c.g>.88f&&c.b>.88f;
+                            return q.y>.435f&&q.y<.53f&&q.z>.065f&&color;
+                        },maxStep:.00004f);
+                        if(cuts.Count==0)continue;
+                        samples.Add(new Landmark{name="iris-"+sign+"-"+kind+"-"+col,position=cuts.OrderByDescending(q=>q.y).First()});
+                    }
+                }
+            }
+            // Inspect separate glint geometry locally; only sparse visible extrema leave.
+            int slot=2;var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
+            var parents=Enumerable.Range(0,points.Length).ToArray();Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int k=0;k<triangles.Length;k+=3){parents[root(triangles[k+1])]=root(triangles[k]);parents[root(triangles[k+2])]=root(triangles[k]);}
+            foreach(var group in used.GroupBy(root)) {
+                var ids=new System.Collections.Generic.HashSet<int>(group);var selected=new System.Collections.Generic.List<int>();
+                for(int k=0;k<triangles.Length;k+=3)if(ids.Contains(triangles[k]))selected.AddRange(new[]{triangles[k],triangles[k+1],triangles[k+2]});
+                float low=group.Min(i=>points[i].y),high=group.Max(i=>points[i].y);var visible=new System.Collections.Generic.List<Vector3>();
+                if(high<.43f||low>.54f)continue;
+                for(int row=0;row<201;row++)visible.AddRange(VisibleSection(points,baked.uv,selected.ToArray(),Vector3.up,Mathf.Lerp(low+.000001f,high-.000001f,row/200f),slot,(q,st)=>q.z>.065f&&Mathf.Abs(q.x)>.035f&&Mathf.Abs(q.x)<.115f,maxStep:.00004f));
+                if(visible.Count==0)continue;
+                const float cell=.002f;
+                var bins=visible.GroupBy(q=>new Vector3Int(Mathf.FloorToInt(q.x/cell),Mathf.FloorToInt(q.y/cell),0)).ToDictionary(g=>g.Key,g=>g.ToArray());var keys=bins.Keys.ToArray();
+                var labels=Enumerable.Range(0,keys.Length).ToArray();Func<int,int> label=null;label=i=>labels[i]==i?i:labels[i]=label(labels[i]);
+                var lookup=keys.Select((key,index)=>new{key,index}).ToDictionary(q=>q.key,q=>q.index);
+                for(int i=0;i<keys.Length;i++)for(int dx=-1;dx<=1;dx++)for(int dy=-1;dy<=1;dy++)for(int dz=-1;dz<=1;dz++) {
+                    int j;if(!lookup.TryGetValue(keys[i]+new Vector3Int(dx,dy,dz),out j)||j<=i)continue;
+                    if(bins[keys[i]].Any(q=>bins[keys[j]].Any(v=>new Vector2(q.x-v.x,q.y-v.y).sqrMagnitude<.0019f*.0019f)))labels[label(j)]=label(i);
+                }
+                foreach(var island in Enumerable.Range(0,keys.Length).GroupBy(label)) {
+                    var patch=island.SelectMany(i=>bins[keys[i]]).ToArray();int id=samples.Count;
+                    Vector3 center=new Vector3((patch.Min(q=>q.x)+patch.Max(q=>q.x))/2,(patch.Min(q=>q.y)+patch.Max(q=>q.y))/2,patch.Average(q=>q.z));
+                    samples.Add(new Landmark{name="glint-"+id+"-center",position=center});
+                    for(int ray=0;ray<8;ray++){var d=new Vector3(Mathf.Cos(ray*Mathf.PI/4),Mathf.Sin(ray*Mathf.PI/4),0);samples.Add(new Landmark{name="glint-"+id+"-edge-"+ray,position=patch.OrderByDescending(q=>Vector3.Dot(q-center,d)).First()});}
+                }
+            }
+            Directory.CreateDirectory("work/ref-iris-paint-89");File.WriteAllText("work/ref-iris-paint-89/source-paint-landmarks.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();Debug.Log("Iris color-boundary/glint positional landmarks "+samples.Count);
+        }
+
         public static void MeasureFrontalIntrinsic() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
