@@ -826,6 +826,7 @@ namespace DesktopFish.Editor
                 body.region=old;
             }
             public void GuidedSideLock(int panel,int bone,bool fork=false) {
+                if(!fork){GuidedLateralShells(panel,bone);return;}
                 int head=ids["J_Bip_C_Head"],start=body.p.Count,firstFace=body.tri.Count,oldRegion=body.region;body.region=0;
                 int columns=fork?4:8,sign=fork?(panel==0?1:-1):(panel==0?-1:1);
                 Func<float,float,Vector3> raw=(height,u)=>{
@@ -892,6 +893,36 @@ namespace DesktopFish.Editor
                     else {body.Face(roots[upper].Value,start+columns+2+lowerIndex,start+columns+1+lowerIndex);lowerIndex++;}
                 }
                 Grid(body,start+columns+1,ys.Length-2,columns);if(orientation<0)ReverseFaces(body,firstFace);body.region=oldRegion;
+            }
+            public void GuidedLateralShells(int side,int bone) {
+                int head=ids["J_Bip_C_Head"],oldRegion=body.region;body.region=0;
+                for(int part=0;part<2;part++) {
+                    int panel=side*2+part,rows=FishLateralShellGuides.Rows,cols=3;
+                    var centers=new Vector3[rows];
+                    for(int row=0;row<rows;row++)for(int col=0;col<6;col++)centers[row]+=AuthorPoint(FishLateralShellGuides.Point(panel,row,col))/6;
+                    Func<Vector3,int> add=p=>body.Add(AuthorPoint(p),Color.white*.98f,bone,RearPaintFinalUV(p),head,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,p.y)));
+                    var outer=new int[rows][];var inner=new int[rows][];
+                    for(int row=0;row<rows;row++) {
+                        outer[row]=new int[cols+1];inner[row]=new int[cols+1];
+                        if(row==0||row==rows-1) {
+                            Vector3 pole=Vector3.zero;for(int col=0;col<6;col++)pole+=FishLateralShellGuides.Point(panel,row,col)/6;
+                            int a=add(pole),b=add(pole);for(int col=0;col<=cols;col++){outer[row][col]=a;inner[row][col]=b;}continue;
+                        }
+                        for(int col=0;col<=cols;col++)outer[row][col]=add(FishLateralShellGuides.Point(panel,row,col));
+                        for(int col=0;col<=cols;col++)inner[row][col]=add(FishLateralShellGuides.Point(panel,row,6-col));
+                    }
+                    foreach(var grid in new[]{outer,inner}) {
+                        int mid=rows/2;Vector3 sample=(body.p[grid[mid][1]]+body.p[grid[mid+1][1]]+body.p[grid[mid][2]])/3;
+                        bool flip=Vector3.Dot(Vector3.Cross(body.p[grid[mid+1][1]]-body.p[grid[mid][1]],body.p[grid[mid][2]]-body.p[grid[mid][1]]),sample-(centers[mid]+centers[mid+1])*.5f)<0;
+                        Action<int,int,int> face=(i,j,k)=>{if(i==j||j==k||k==i)return;if(flip){int t=j;j=k;k=t;}body.Face(i,j,k);};
+                        Func<int,int,int,Vector3> n=(i,j,k)=>Vector3.Cross(body.p[j]-body.p[i],body.p[k]-body.p[i]).normalized;
+                        for(int row=0;row<rows-1;row++)for(int col=0;col<cols;col++) {
+                            int a=grid[row][col],b=grid[row+1][col],c=grid[row][col+1],d=grid[row+1][col+1];
+                            if(Vector3.Dot(n(a,b,c),n(c,b,d))>=Vector3.Dot(n(a,b,d),n(a,d,c))){face(a,b,c);face(c,b,d);}else{face(a,b,d);face(a,d,c);}
+                        }
+                    }
+                }
+                body.region=oldRegion;
             }
             public void GuidedRearCurtain(int head) {
                 int oldRegion=body.region;body.region=0;
@@ -2402,6 +2433,23 @@ namespace DesktopFish.Editor
                         if(Mathf.Abs(uv[i].x-Mathf.Clamp01(.5f+p.x/.82f))>.00001f||Mathf.Abs(uv[i].y-(LegacyPaintHeight+t*(RearPaintHeight-1))/PaintHeight)>.00001f)rear=false;
                     }
                     if(!rear)continue;rearFaces.Add(k);parents[root(bodyTriangles[k+1])]=root(bodyTriangles[k]);parents[root(bodyTriangles[k+2])]=root(bodyTriangles[k]);
+                }
+                var lateralPoints=new List<Vector3>();
+                for(int panel=0;panel<4;panel++)for(int row=0;row<FishLateralShellGuides.Rows;row++) {
+                    if(row==0||row==FishLateralShellGuides.Rows-1){Vector3 pole=Vector3.zero;for(int col=0;col<6;col++)pole+=FishLateralShellGuides.Point(panel,row,col)/6;lateralPoints.Add(pole);}
+                    else for(int col=0;col<6;col++)lateralPoints.Add(FishLateralShellGuides.Point(panel,row,col));
+                }
+                var lateralMask=bind.Select(p=>lateralPoints.Any(q=>(p-q).sqrMagnitude<1e-10f)).ToArray();
+                var completeLateral=rearFaces.Where(k=>lateralMask[bodyTriangles[k]]&&lateralMask[bodyTriangles[k+1]]&&lateralMask[bodyTriangles[k+2]]).SelectMany(k=>new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]}).ToArray();
+                if(completeLateral.Length>0) {
+                    var lateral=UnityEngine.Object.Instantiate(completeBody);lateral.triangles=completeLateral;bodySnapshot.sharedMesh=lateral;
+                    foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                    RenderBodyStudy(camera,"work/rebuilt-lateral-complete",1,Vector3.zero);
+                    lateral.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),lateral.vertexCount).ToArray();
+                    var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
+                    var gray=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));gray.mainTexture=Texture2D.whiteTexture;gray.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=gray;
+                    RenderBodyStudy(camera,"work/rebuilt-lateral-gray",1,Vector3.zero,reviewMaterials:new[]{gray});
+                    renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(gray);UnityEngine.Object.DestroyImmediate(lateral);
                 }
                 var posteriorPoints=new List<Vector3>();
                 for(int panel=0;panel<5;panel++)for(int row=0;row<FishPosteriorIntrinsicGuides.Rows;row++) {
