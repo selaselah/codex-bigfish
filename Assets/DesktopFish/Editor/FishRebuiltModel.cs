@@ -1727,10 +1727,25 @@ namespace DesktopFish.Editor
             PaintSideLace(pixels);
             PaintFrontPanels(pixels,geometry);
             PaintFrontSkin(pixels);
+            PaintFinShells(pixels);
             PaintHeadBows(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
+        }
+        static void PaintFinShells(Color[] pixels) {
+            for(int shell=0;shell<4;shell++)for(int py=0;py<FishFinPaintGuides.Height;py++)for(int px=0;px<FishFinPaintGuides.Width;px++) {
+                float t=Mathf.Clamp01((px+.5f-4)/120),v=Mathf.Clamp01((py+.5f-4)/56);Color color=FishFinPaintGuides.Paint(shell,t,v);color.a=1;
+                if(v>.95f) {
+                    Vector3 p=FishFinArcGuides.Point(shell,t,v);float oldT=0,closest=float.PositiveInfinity;int sign=shell<2?1:-1;bool inner=shell%2==1;
+                    for(int it=0;it<=24;it++)for(int iv=0;iv<=64;iv++){float ot=it/24f,ov=iv/64f;float distance=(FishModelGuides.FinShell(sign,inner,ot,ov)-p).sqrMagnitude;if(distance<closest){closest=distance;oldT=ot;}}
+                    // Re-use only the independently painted old neutral lace's
+                    // alpha trim, never any reference texture pixels.
+                    float x=768+8+239*oldT/3,y=16+96*(v-.95f)/.05f;int x0=Mathf.FloorToInt(x),y0=Mathf.FloorToInt(y);float u=x-x0,w=y-y0;
+                    color.a=Mathf.Lerp(Mathf.Lerp(pixels[y0*PaintWidth+x0].a,pixels[y0*PaintWidth+x0+1].a,u),Mathf.Lerp(pixels[(y0+1)*PaintWidth+x0].a,pixels[(y0+1)*PaintWidth+x0+1].a,u),w);
+                }
+                var origin=FishFinPaintGuides.Origin(shell);pixels[(origin.y+py)*PaintWidth+origin.x+px]=color;
+            }
         }
         static float BowStroke(float u,float v,Vector2 a,Vector2 b,Vector2 c,float width) {
             float coverage=0;
@@ -2656,7 +2671,7 @@ namespace DesktopFish.Editor
             if(includeFins) {
                 var isolated=UnityEngine.Object.Instantiate(completeBody);var selected=new List<int>();var st=completeBody.uv;
                 for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
-                    int v=bodyTriangles[k+j];return st[v].x>=.75f&&st[v].y<.058f&&Mathf.Abs(completeBody.vertices[v].x)>.13f&&completeBody.vertices[v].y>.60f;
+                    int v=bodyTriangles[k+j];return ((st[v].x>=.75f&&st[v].y<.058f)||FishFinPaintGuides.ContainsUV(st[v]))&&Mathf.Abs(completeBody.vertices[v].x)>.13f&&completeBody.vertices[v].y>.60f;
                 }))selected.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
                 isolated.triangles=selected.ToArray();bodySnapshot.sharedMesh=isolated;
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
@@ -3897,18 +3912,14 @@ namespace DesktopFish.Editor
                     var ring=new int[cols+1];float t=row<0?0:stations[row];
                     for(int col=0;col<=cols;col++) {
                         float v=col/(float)cols;Vector3 p=row<0?rootCenter+(FishFinArcGuides.Point(shell,0,v)-firstCenter)*.65f:FishFinArcGuides.Point(shell,t,v);
-                        // Keep own lip shading anchored by spatial correspondence
-                        // to the former own guide, without copying source paint.
-                        float oldT=0,oldV=0,closest=float.MaxValue;
-                        for(int it=0;it<=24;it++)for(int iv=0;iv<=64;iv++){float ot=it/24f,ov=iv/64f;float delta=(FishModelGuides.FinShell(sign,inner,ot,ov)-p).sqrMagnitude;if(delta<closest){closest=delta;oldT=ot;oldV=ov;}}
-                        float sheen=Mathf.Exp(-Mathf.Pow((oldT-.53f)/.36f,2)-Mathf.Pow((oldV-.20f)/.13f,2));
-                        Color color=inner?Color.Lerp(Hex("6976AC"),Hex("CED6EA"),.80f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,.95f,oldV))):Color.Lerp(Hex("333F88"),Hex("B7BFEB"),sheen*.90f);
-                        ring[col]=a.body.Add(AuthorPoint(p),color,bone,LaceUV(3,oldT/3,Mathf.Max(0,(v-.95f)/.05f)));
+                        // New intrinsic own charts preserve the low-poly physical
+                        // shell while material boundaries have texture resolution.
+                        ring[col]=a.body.Add(AuthorPoint(p),Color.white,bone,FishFinPaintGuides.UV(shell,t,v));
                     }
                     if(rings.Count>0)for(int col=0;col<cols;col++){var before=rings[rings.Count-1];quad(before[col],before[col+1],ring[col],ring[col+1]);}
                     rings.Add(ring);
                 }
-                int tip=a.body.Add(AuthorPoint(FishFinArcGuides.Point(shell,1,.5f)),inner?Hex("6976AC"):Hex("333F88"),bone,LaceUV(3,1f/3,0));
+                int tip=a.body.Add(AuthorPoint(FishFinArcGuides.Point(shell,1,.5f)),Color.white,bone,FishFinPaintGuides.UV(shell,1,.5f));
                 var last=rings[rings.Count-1];for(int col=0;col<cols;col++)a.body.Face(last[col],last[col+1],tip);
                 if((sign>0)!=inner)ReverseFaces(a.body,tri);
             }
