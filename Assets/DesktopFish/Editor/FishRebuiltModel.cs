@@ -636,31 +636,32 @@ namespace DesktopFish.Editor
                 body.region=oldRegion;
             }
             public void GuidedChestPanel(int panel,int bone) {
-                int head=ids["J_Bip_C_Head"],start=body.p.Count,oldRegion=body.region;body.region=0;
-                const int sides=16;var ys=FishChestHairGuides.Stations(panel);
-                Func<float,float,Vector3> surface=(height,around)=>FishChestHairGuides.Surface(panel,height,around);
-                for(int row=0;row<ys.Length;row++)for(int col=0;col<=sides;col++) {
-                    float u=col/(float)sides,y=ys[row];Vector3 final=surface(y,u),author=AuthorPoint(final);
-                    float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
-                    float paintT=Mathf.InverseLerp(.82f,.405f,final.y),paintU=(1+Mathf.Cos(2*Mathf.PI*u))*.5f;
-                    int vertex=body.Add(author,Color.white*.98f,bone,new Vector2(.75f+(panel>=2?1:0)/12f+.004f+paintU*.075f,.02f+.94f*paintT),head,anchored);
-                    if(row==0) {
-                        float neighbor=ys[1];Vector3 center=Vector3.zero;
-                        for(int j=0;j<sides;j++)center+=AuthorPoint(surface(neighbor,j/(float)sides))/sides;
-                        Vector3 n=(author-center).normalized;
-                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
-                    // The final thin ring and pole use their actual mesh normals;
-                    // derivatives are unstable where a flat section closes.
-                    } else if(row<ys.Length-2) {
-                        Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
-                        Vector3 across=AuthorPoint(surface(y,u+.001f))-AuthorPoint(surface(y,u-.001f));
-                        Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
-                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
+                int old=body.region;body.region=0;int head=ids["J_Bip_C_Head"],rows=FishChestHairGuides.Rows;const int columns=3;
+                Func<int,int,Vector3> point=(row,col)=>row==rows-1?FishChestHairGuides.Point(panel,row,3):FishChestHairGuides.Point(panel,row,col);
+                Func<Vector3,float,int> add=(final,u)=>{
+                    Vector3 author=AuthorPoint(final);float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                    float t=Mathf.InverseLerp(.82f,.405f,final.y);
+                    return body.Add(author,Color.white*.98f,bone,new Vector2(.75f+(panel>=2?1:0)/12f+.004f+u*.075f,.02f+.94f*t),head,anchored);
+                };
+                var centers=new Vector3[rows];for(int row=0;row<rows;row++)for(int col=0;col<6;col++)centers[row]+=AuthorPoint(point(row,col))/6;
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;
+                    if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}body.Face(a,b,c);
+                };
+                // Real measured wrap with independent front/return faces and
+                // coincident thin lips; geometry-derived normals, not overrides.
+                for(int sheet=0;sheet<2;sheet++) {
+                    int start=body.p.Count;
+                    for(int row=0;row<rows;row++)for(int col=0;col<=columns;col++)add(point(row,sheet==0?col:6-col),col/(float)columns);
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<columns;col++) {
+                        int a=start+row*4+col,b=a+4,c=a+1,d=b+1;Vector3 center=(centers[row]+centers[row+1])*.5f;
+                        face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-center);face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-center);
                     }
                 }
-                Grid(body,start,ys.Length-1,sides);
-                for(int row=0;row<ys.Length;row++)body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
-                body.region=oldRegion;
+                Vector3 root=Vector3.zero;for(int col=0;col<6;col++)root+=point(0,col)/6;
+                int cap=add(root,.5f),edge=body.p.Count;for(int col=0;col<6;col++)add(point(0,col),col<=3?col/3f:(6-col)/3f);
+                for(int col=0;col<6;col++)face(cap,edge+col,edge+(col+1)%6,centers[0]-centers[1]);
+                body.region=old;
             }
             public void GuidedChestBacking(int panel,int bone) {
                 int old=body.region;body.region=0;int head=ids["J_Bip_C_Head"],rows=FishChestIntrinsicGuides.Rows;const int columns=3;
@@ -2351,6 +2352,17 @@ namespace DesktopFish.Editor
                 RenderBodyStudy(camera,"work/rebuilt-chest-backing-gray",1,Vector3.zero,reviewMaterials:new[]{backingMaterial});
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 clothRenderer.sharedMaterials=clothMaterials;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(backingMaterial.mainTexture);UnityEngine.Object.DestroyImmediate(backingMaterial);UnityEngine.Object.DestroyImmediate(backingOnly);
+                var lockOnly=UnityEngine.Object.Instantiate(completeBody);var lockFaces=new List<int>();
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x>=.75399f&&q.x<=.91234f&&q.y>=.0624f&&q.y<=.551f;
+                }))lockFaces.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                lockOnly.triangles=lockFaces.ToArray();bodySnapshot.sharedMesh=lockOnly;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBodyStudy(camera,"work/rebuilt-chest-locks",1,Vector3.zero);
+                lockOnly.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),lockOnly.vertexCount).ToArray();var lockMaterial=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));lockMaterial.mainTexture=DiagnosticAlpha(clothMaterials[0].mainTexture);lockMaterial.SetFloat("_OutlineWidth",0);clothRenderer.sharedMaterial=lockMaterial;
+                RenderBodyStudy(camera,"work/rebuilt-chest-locks-gray",1,Vector3.zero,reviewMaterials:new[]{lockMaterial});
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                clothRenderer.sharedMaterials=clothMaterials;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(lockMaterial.mainTexture);UnityEngine.Object.DestroyImmediate(lockMaterial);UnityEngine.Object.DestroyImmediate(lockOnly);
             }
             if(includeCurls) {
                 var bind=skins[0].sharedMesh.vertices;var st=completeBody.uv;int[] parents=Enumerable.Range(0,bind.Length).ToArray();
