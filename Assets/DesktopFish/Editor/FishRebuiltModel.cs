@@ -895,129 +895,35 @@ namespace DesktopFish.Editor
             }
             public void GuidedRearCurtain(int head) {
                 int oldRegion=body.region;body.region=0;
-                const int columns=40,perLock=8;const float join=.480f,release=.405f;
-                int middle=ids["J_Sec_Hair3_01"];
-                // One connected upper surface replaces five nearly coincident
-                // sheets. Preserve the lower measured locks as separate lobes.
-                float left=FishLowerRearGuides.Surface(0,join,0).x,right=FishLowerRearGuides.Surface(4,join,1).x;
-                var cuts=new float[6];cuts[0]=0;cuts[5]=1;
-                for(int panel=1;panel<5;panel++) {
-                    float center=(FishLowerRearGuides.Surface(panel-1,join,.5f).x+FishLowerRearGuides.Surface(panel,join,.5f).x)*.5f;
-                    cuts[panel]=Mathf.InverseLerp(left,right,center);
-                }
-                Func<float,Vector3> capAtX=x=>{
-                    Vector3 nearest=Vector3.zero;float best=float.PositiveInfinity;
-                    for(int edge=RearDomeColumns/4;edge<RearDomeColumns*3/4;edge++) {
-                        Vector3 a=FishRearCrownGuides.Surface(-5,edge*360f/RearDomeColumns),b=FishRearCrownGuides.Surface(-5,(edge+1)*360f/RearDomeColumns);
-                        Vector3 q=Vector3.Lerp(a,b,Mathf.Clamp01((x-a.x)/(b.x-a.x)));
-                        float error=Mathf.Abs(q.x-x);if(error<best){best=error;nearest=q;}
-                    }
-                    return nearest;
-                };
-                Func<float,float,float> xAt=(height,u)=>{
-                    float lo=FishRearHairGuides.Surface(0,height,0).x,hi=FishRearHairGuides.Surface(4,height,1).x;
-                    if(height<.51f) {
-                        float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.51f,join,height));
-                        lo=Mathf.Lerp(lo,FishLowerRearGuides.Surface(0,height,0).x,blend);
-                        hi=Mathf.Lerp(hi,FishLowerRearGuides.Surface(4,height,1).x,blend);
-                    }
-                    return Mathf.Lerp(lo,hi,u);
-                };
-                Func<float,float,Vector3> surface=(height,u)=>{
-                    float x=xAt(height,u);Vector3 border=capAtX(x);
-                    if(height>=border.y)return border;
-                    float z=FishRearEnvelopeGuides.Depth(x,Mathf.Max(join,height));
-                    // Stop the common sheet before the first open lobe gaps.
-                    // Its attachment tangent continues briefly into each lock.
-                    if(height<join)z+=(height-join)*(FishRearEnvelopeGuides.Depth(x,join+.0002f)-FishRearEnvelopeGuides.Depth(x,join))/.0002f;
-                    if(height>.66f) {
-                        Vector3 n=FishRearCrownGuides.Normal(border);
-                        float h=border.y-.66f,t=Mathf.Clamp01((height-.66f)/h),t2=t*t,t3=t2*t;
-                        float a=FishRearEnvelopeGuides.Depth(x,.66f),slope=(FishRearEnvelopeGuides.Depth(x,.6602f)-FishRearEnvelopeGuides.Depth(x,.6598f))/.0004f;
-                        z=(2*t3-3*t2+1)*a+(t3-2*t2+t)*h*slope+(-2*t3+3*t2)*border.z+(t3-t2)*h*(-n.y/n.z);
-                    }
-                    return V(x,height,z);
-                };
-                var parameters=new float[columns+1];
-                for(int col=0;col<=columns;col++) {int panel=Mathf.Min(4,col/perLock);parameters[col]=Mathf.Lerp(cuts[panel],cuts[panel+1],(col-panel*perLock)/(float)perLock);}
-                float[] ys={.745f,.7075f,.66f,.6325f,.6075f,.5825f,.5575f,.5325f,.5075f,join};
-                int start=body.p.Count;
-                Action<int,Vector3> rootNormal=(vertex,final)=>{
-                    Vector3 n=FishRearCrownGuides.Normal(final);float derivative;FitHeight(body.p[vertex].y,out derivative);n.y*=derivative;
-                    body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,1);
-                };
-                for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++) {
-                    float u=parameters[col],y=ys[row];Vector3 final=row==0?capAtX(xAt(.745f,u)):surface(y,u);
-                    float headWeight=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,final.y));
-                    int vertex=body.Add(AuthorPoint(final),Color.white*.97f,middle,RearPaintFinalUV(final),head,headWeight);
-                    if(row==0)rootNormal(vertex,final);
-                    else {
-                        Vector3 along=AuthorPoint(surface(y-.0003f,u))-AuthorPoint(surface(y+.0003f,u));
-                        Vector3 across=AuthorPoint(surface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(surface(y,Mathf.Max(0,u-.001f)));
-                        Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
-                        if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
-                    }
-                }
-                // Keep every actual dome corner along the top attachment.
-                var roots=Enumerable.Range(0,columns+1).Select(c=>new KeyValuePair<float,int>(parameters[c],start+c)).ToList();
-                for(int edge=RearDomeColumns/4+1;edge<RearDomeColumns*3/4;edge++) {
-                    Vector3 q=FishRearCrownGuides.Surface(-5,edge*360f/RearDomeColumns);
-                    float a=xAt(.745f,0),b=xAt(.745f,1);if(q.x<=a||q.x>=b)continue;
-                    float u=Mathf.InverseLerp(a,b,q.x);var near=roots.OrderBy(pair=>Mathf.Abs(pair.Key-u)).First();
-                    if(Mathf.Abs(near.Key-u)<.0001f) {body.p[near.Value]=AuthorPoint(q);body.uv[near.Value]=RearPaintFinalUV(q);rootNormal(near.Value,q);}
-                    else {
-                        int vertex=body.Add(AuthorPoint(q),Color.white*.97f,middle,RearPaintFinalUV(q),head,1);rootNormal(vertex,q);
-                        roots.Add(new KeyValuePair<float,int>(u,vertex));
-                    }
-                }
-                roots=roots.OrderBy(pair=>pair.Key).ToList();
-                foreach(var root in roots)rearAttachmentReport.Add(RearAttachmentLine("root",-1,FitPoint(body.p[root.Value])));
-                int upper=0,lower=0;
-                while(upper<roots.Count-1||lower<columns) {
-                    if(upper<roots.Count-1&&(lower==columns||roots[upper+1].Key<=parameters[lower+1])) {
-                        body.Face(roots[upper].Value,roots[upper+1].Value,start+columns+1+lower);upper++;
-                    } else {body.Face(roots[upper].Value,start+columns+2+lower,start+columns+1+lower);lower++;}
-                }
-                Grid(body,start+columns+1,ys.Length-2,columns);
-                int shared=start+(ys.Length-1)*(columns+1);
                 for(int panel=0;panel<5;panel++) {
-                    int bone=ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
-                    Func<float,float,Vector3> lowerSurface=(height,u)=>{
-                        Vector3 measured=FishLowerRearGuides.Surface(panel,height,u);
-                        if(height<=release)return measured;
-                        float mapped=Mathf.Lerp(cuts[panel],cuts[panel+1],u);
-                        Vector3 upper=surface(join,mapped),lower=FishLowerRearGuides.Surface(panel,release,u);
-                        Vector3 upperSlope=(surface(join+.0003f,mapped)-surface(join-.0003f,mapped))/.0006f;
-                        Vector3 lowerSlope=(FishLowerRearGuides.Surface(panel,release+.0003f,u)-FishLowerRearGuides.Surface(panel,release-.0003f,u))/.0006f;
-                        float h=join-release,t=Mathf.Clamp01((height-release)/h),t2=t*t,t3=t2*t;
-                        Vector3 p=(2*t3-3*t2+1)*lower+(t3-2*t2+t)*h*lowerSlope+
-                            (-2*t3+3*t2)*upper+(t3-t2)*h*upperSlope;
-                        p.y=height;return p;
+                    int middle=ids["J_Sec_Hair3_01"],bone=ids["J_Sec_Hair"+new[]{2,3,3,3,4}[panel]+"_01"];
+                    int rows=FishPosteriorIntrinsicGuides.Rows,cols=4;
+                    var centers=new Vector3[rows];
+                    for(int row=0;row<rows;row++)for(int col=0;col<8;col++)centers[row]+=AuthorPoint(FishPosteriorIntrinsicGuides.Point(panel,row,col))/8;
+                    Func<Vector3,int> add=p=>{
+                        if(p.y<=.480f){float share=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.405f,.480f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,bone,RearPaintFinalUV(p),middle,bone==middle?0:share);}
+                        float headShare=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,middle,RearPaintFinalUV(p),head,headShare);
                     };
-                    var rows=new[]{join,.45f,.425f,release,.400f}.Concat(FishLowerRearGuides.Stations(panel).Where(y=>y<=.38251f)).ToArray();
-                    int[] previous=Enumerable.Range(0,perLock+1).Select(c=>shared+panel*perLock+c).ToArray();
-                    for(int row=1;row<rows.Length;row++) {
-                        const int lowerColumns=8;var current=new int[lowerColumns+1];float y=rows[row];
-                        for(int col=0;col<=lowerColumns;col++) {
-                            float u=col/(float)lowerColumns;Vector3 final=lowerSurface(y,u);
-                            float rootShare=Mathf.SmoothStep(0,1,Mathf.InverseLerp(release,join,y));
-                            int vertex=body.Add(AuthorPoint(final),Color.white*.97f,bone,RearPaintFinalUV(final),middle,bone==middle?0:rootShare);current[col]=vertex;
-                            if(y>FishLowerRearGuides.Bottom(panel)+.002f) {
-                                Vector3 along=AuthorPoint(lowerSurface(y-.0003f,u))-AuthorPoint(lowerSurface(y+.0003f,u));
-                                Vector3 across=AuthorPoint(lowerSurface(y,Mathf.Min(1,u+.001f)))-AuthorPoint(lowerSurface(y,Mathf.Max(0,u-.001f)));
-                                Vector3 n=Vector3.Cross(across.normalized,along.normalized).normalized;
-                                if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
-                            }
+                    var back=new int[rows][];var front=new int[rows][];
+                    for(int row=0;row<rows;row++) {
+                        back[row]=new int[cols+1];front[row]=new int[cols+1];
+                        // Source chart ends are near-collinear, not finite caps.
+                        // One shared indexed pole closes each physical end.
+                        if(row==0||row==rows-1){Vector3 center=Vector3.zero;for(int col=0;col<8;col++)center+=FishPosteriorIntrinsicGuides.Point(panel,row,col)/8;int rearPole=add(center),frontPole=add(center);for(int col=0;col<=cols;col++){back[row][col]=rearPole;front[row][col]=frontPole;}continue;}
+                        for(int col=0;col<=cols;col++)back[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,col));
+                        for(int col=0;col<=cols;col++)front[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,8-col));
+                    }
+                    foreach(bool rear in new[]{true,false}) {
+                        var grid=rear?back:front;int mid=rows/2;
+                        Vector3 sample=(body.p[grid[mid][1]]+body.p[grid[mid+1][1]]+body.p[grid[mid][2]])/3;
+                        bool flip=Vector3.Dot(Vector3.Cross(body.p[grid[mid+1][1]]-body.p[grid[mid][1]],body.p[grid[mid][2]]-body.p[grid[mid][1]]),sample-(centers[mid]+centers[mid+1])*.5f)<0;
+                        Action<int,int,int> face=(i,j,k)=>{if(i==j||j==k||k==i)return;if(flip){int t=j;j=k;k=t;}body.Face(i,j,k);};
+                        Func<int,int,int,Vector3> n=(i,j,k)=>Vector3.Cross(body.p[j]-body.p[i],body.p[k]-body.p[i]).normalized;
+                        for(int row=0;row<rows-1;row++)for(int col=0;col<cols;col++) {
+                            int a=grid[row][col],b=grid[row+1][col],c=grid[row][col+1],d=grid[row+1][col+1];
+                            if(Vector3.Dot(n(a,b,c),n(c,b,d))>=Vector3.Dot(n(a,b,d),n(a,d,c))){face(a,b,c);face(c,b,d);}else{face(a,b,d);face(a,d,c);}
+
                         }
-                        // Keep the actual eight-segment common root, then use the
-                        // nine measured transverse controls for each lower lobe.
-                        int rootSegment=0,lobeSegment=0,segments=previous.Length-1;
-                        while(rootSegment<segments||lobeSegment<lowerColumns) {
-                            if(rootSegment<segments&&(lobeSegment==lowerColumns||(rootSegment+1)/(float)segments<=(lobeSegment+1)/(float)lowerColumns)) {
-                                body.Face(previous[rootSegment],previous[rootSegment+1],current[lobeSegment]);rootSegment++;
-                            } else {body.Face(previous[rootSegment],current[lobeSegment+1],current[lobeSegment]);lobeSegment++;}
-                        }
-                        previous=current;
                     }
                 }
                 body.region=oldRegion;
@@ -2495,6 +2401,23 @@ namespace DesktopFish.Editor
                     }
                     if(!rear)continue;rearFaces.Add(k);parents[root(bodyTriangles[k+1])]=root(bodyTriangles[k]);parents[root(bodyTriangles[k+2])]=root(bodyTriangles[k]);
                 }
+                var posteriorPoints=new List<Vector3>();
+                for(int panel=0;panel<5;panel++)for(int row=0;row<FishPosteriorIntrinsicGuides.Rows;row++) {
+                    if(row==0||row==FishPosteriorIntrinsicGuides.Rows-1){Vector3 posteriorPole=Vector3.zero;for(int col=0;col<8;col++)posteriorPole+=FishPosteriorIntrinsicGuides.Point(panel,row,col)/8;posteriorPoints.Add(posteriorPole);}
+                    else for(int col=0;col<8;col++)posteriorPoints.Add(FishPosteriorIntrinsicGuides.Point(panel,row,col));
+                }
+                var posteriorMask=bind.Select(p=>posteriorPoints.Any(q=>(p-q).sqrMagnitude<1e-10f)).ToArray();
+                var completePosterior=rearFaces.Where(k=>posteriorMask[bodyTriangles[k]]&&posteriorMask[bodyTriangles[k+1]]&&posteriorMask[bodyTriangles[k+2]]).SelectMany(k=>new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]}).ToArray();
+                if(completePosterior.Length>0) {
+                    var posterior=UnityEngine.Object.Instantiate(completeBody);posterior.triangles=completePosterior;bodySnapshot.sharedMesh=posterior;
+                    foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                    RenderBodyStudy(camera,"work/rebuilt-posterior-complete",1,Vector3.zero);
+                    posterior.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),posterior.vertexCount).ToArray();
+                    var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;
+                    var gray=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));gray.mainTexture=Texture2D.whiteTexture;gray.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=gray;
+                    RenderBodyStudy(camera,"work/rebuilt-posterior-gray",1,Vector3.zero,reviewMaterials:new[]{gray});
+                    renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(gray);UnityEngine.Object.DestroyImmediate(posterior);
+                }
                 foreach(var group in rearFaces.GroupBy(k=>root(bodyTriangles[k]))) {
                     var indices=group.SelectMany(k=>new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]}).ToArray();
                     float top=indices.Max(i=>bind[i].y),bottom=indices.Min(i=>bind[i].y);
@@ -3003,10 +2926,9 @@ namespace DesktopFish.Editor
                 float theta=Mathf.Lerp(-1.12f,-Mathf.PI*2+1.12f,i/4f);
                 a.Bone("J_Sec_Hair"+(i+1)+"_01",head,V(Mathf.Sin(theta)*.16f,.90f,Mathf.Cos(theta)*.13f));
             }
-            // One connected measured envelope reaches the actual cap border.
-            // Shared lower-row indices branch into independently shaped tips;
-            // sparse side underlays and fork contours retain separate coverage.
-            // Two adjoining locks are split into a trunk and separate fork tips.
+            // Five complete posterior lofts preserve their physical returns.
+            // Hidden roots conform beneath the measured crown; the old common
+            // curtain/lower-lobe join is replaced, with side underlays retained.
             a.GuidedRearCurtain(head);
             for(int panel=5;panel<FishRearHairGuides.Count;panel++)a.GuidedRearPanel(panel,head);
             for(int panel=0;panel<FishRearForkGuides.Count;panel++) {
