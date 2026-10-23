@@ -159,7 +159,10 @@ namespace DesktopFish.Editor
             PlayerSettings.companyName = "LocalCompanions";
             PlayerSettings.productName = "BigFatBlueFish";
             PlayerSettings.bundleVersion = "0.1.0";
-            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, "local.desktop.bigfatbluefish");
+            // Distinct macOS identities let both builds run and be selected side by side.
+            // Keep company/product names so the existing state bridge still reaches both.
+            PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Standalone, UseRebuilt ?
+                "local.desktop.rebuiltbigfish" : "local.desktop.bigfatbluefish");
             PlayerSettings.defaultScreenWidth = FishCompanion.NativeWidth;
             PlayerSettings.defaultScreenHeight = FishCompanion.NativeHeight;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;

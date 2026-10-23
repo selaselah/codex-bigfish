@@ -17,6 +17,8 @@
 3. 执行 `./Build.command`，或选择 **Desktop Fish → Rebuilt Model → Build macOS App**。应用位于 `Builds/RebuiltBigFish.app`。
 4. 修改建模后，按照 `Modeling/RebuiltBigFish/README.md` 同步生成 Blender/GLB 文件。
 
+重建版使用独立的 macOS 应用标识 `local.desktop.rebuiltbigfish`，可与旧版同时运行；原有公司名、产品名和状态文件路径保留，现有状态联动接口继续共用。
+
 命令行可通过 `UNITY_EDITOR_PATH` 环境变量或本机 `.unity-editor-path` 文件指定 Unity 可执行文件。重建模型的构建不需要导入额外角色包。
 
 ## 本地状态接口
