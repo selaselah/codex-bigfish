@@ -1454,11 +1454,40 @@ namespace DesktopFish.Editor {
                 new Vector3(0.1799190f,0.7092600f,0.1224910f),
             },
         };
-        public static Vector3 Surface(int panel,int sign,float t,float across) {
+        static Vector3 AtHeight(int panel,int sign,float y,float across) {
+            float t=Mathf.InverseLerp(Rows[panel][0].y,Rows[panel][Rows[panel].Length-1].y,y);
             Vector3 p=FishModelGuides.FrontPanel(panel,sign,t,across);
             if(p.y<=.920f)return p;
             Vector3 root=FishModelGuides.SamplePanelAtHeight(Rows[panel],sign,p.y,across);
             return Vector3.Lerp(p,root,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.920f,.930f,p.y)));
+        }
+        static float Envelope(float x,float y) {
+            float depth=float.NegativeInfinity;
+            for(int panel=0;panel<17;panel++) {
+                if(y>Rows[panel][0].y||y<Rows[panel][Rows[panel].Length-1].y)continue;
+                foreach(int sign in panel>=8&&panel<=14?new[]{1}:new[]{-1,1}) {
+                    Vector3 a=AtHeight(panel,sign,y,0),b=AtHeight(panel,sign,y,1);
+                    if(x<Mathf.Min(a.x,b.x)-.000001f||x>Mathf.Max(a.x,b.x)+.000001f)continue;
+                    float u=Mathf.InverseLerp(a.x,b.x,x);
+                    depth=Mathf.Max(depth,AtHeight(panel,sign,y,u).z);
+                }
+            }
+            return depth;
+        }
+        public static Vector3 Surface(int panel,int sign,float t,float across) {
+            Vector3 p=FishModelGuides.FrontPanel(panel,sign,t,across);
+            if(p.y>.920f) {
+                Vector3 root=FishModelGuides.SamplePanelAtHeight(Rows[panel],sign,p.y,across);
+                p=Vector3.Lerp(p,root,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.920f,.930f,p.y)));
+            }
+            if(p.y>.900f) {
+                float old=Envelope(p.x,p.y);
+                if(!float.IsInfinity(old)) {
+                    float target=FishFrontEnvelopeGuides.Depth(p.x,p.y)+(p.z-old)*.03f-.00012f*panel-.00004f*(sign<0?1:0);
+                    p.z=Mathf.Lerp(p.z,target,(panel==1||panel==4?.20f:.40f)*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.900f,.930f,p.y)));
+                }
+            }
+            return p;
         }
     }
 }

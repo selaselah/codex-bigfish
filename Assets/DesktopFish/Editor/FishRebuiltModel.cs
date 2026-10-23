@@ -542,7 +542,8 @@ namespace DesktopFish.Editor
                     // A common crown pole prevents a tiny reversed root fan.
                     if(!cheekReturn&&row==0)p=FishFrontRootGuides.Surface(panel,sign,t,.5f);
                     float paintAcross=cheekReturn?across:sign<0?1-across:across;
-                    body.Add(AuthorPoint(p),Color.white*.98f,head,FrontPaintUV(panel,paintAcross,t));
+                    float paintT=Mathf.Lerp(t,Mathf.InverseLerp(.979167f,.604742f,p.y),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.910f,.930f,p.y)));
+                    body.Add(AuthorPoint(p),Color.white*.98f,head,FrontPaintUV(panel,paintAcross,paintT));
                 }
                 // Most front locks remain single two-sided sheets. The measured
                 // cheek return has real transverse depth, not a coplanar back copy.

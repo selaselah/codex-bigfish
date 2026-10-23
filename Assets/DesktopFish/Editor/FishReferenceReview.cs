@@ -312,6 +312,38 @@ namespace DesktopFish.Editor
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
         }
 
+        public static void MeasureFrontEnvelope() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            foreach(var bone in model.GetComponentsInChildren<Transform>(true)) {
+                if(bone.name=="J_Bip_L_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,62);
+                if(bone.name=="J_Bip_R_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,-62);
+            }
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();int station=0;
+            foreach(float height in Enumerable.Range(0,20).Select(i=>.880f+i*.005f).Concat(new[]{.978f,.979f}).OrderBy(y=>y)) {
+                float rawY=(height-.07f)/1.25f;var cuts=new System.Collections.Generic.List<Vector3>();
+                foreach(int slot in new[]{10,11})cuts.AddRange(VisibleSection(points,baked.uv,baked.GetTriangles(slot),Vector3.up,rawY,slot,(q,st)=>q.z>0,maxStep:.00008f));
+                if(cuts.Count<2)continue;float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
+                for(int col=0;col<=16;col++) {
+                    float x=Mathf.Lerp(lo,hi,col/16f),nearest=cuts.Min(q=>Mathf.Abs(q.x-x));
+                    Vector3 q=cuts.Where(q=>Mathf.Abs(q.x-x)<=nearest+.00006f).OrderByDescending(q=>q.z).First();q.x=x;q.y=rawY;
+                    samples.Add(new Landmark{name="row-"+station+"-column-"+col,position=q});
+                }
+                station++;
+            }
+            Directory.CreateDirectory("work/ref-front-surface-87");File.WriteAllText("work/ref-front-surface-87/source-envelope.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+            Debug.Log("Front visible envelope sparse positions: "+samples.Count);
+        }
+
         public static void MeasureHeadband() {
             AssetDatabase.Refresh();
             var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
