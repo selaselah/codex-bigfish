@@ -6,7 +6,6 @@ namespace DesktopFish.Editor {
         public const float PaddingWidth=.068f;
         static readonly float[] Stations={0.00000000f,0.01339286f,0.02232143f,0.02678571f,0.03125000f,0.04464286f,0.06696429f,0.09375000f,0.10714286f,0.12500000f,0.12946429f,0.15178571f,0.17857143f,0.18750000f,0.19642857f,0.20535714f,0.21428571f,0.21875000f,0.22321429f,0.23214286f,0.26339286f,0.28125000f,0.29017857f,0.29910714f,0.30803571f,0.33928571f,0.36160714f,0.37500000f,0.37946429f,0.39732143f,0.40625000f,0.41964286f,0.44642857f,0.46875000f,0.48214286f,0.50892857f,0.51339286f,0.51785714f,0.55357143f,0.58035714f,0.59375000f,0.61607143f,0.62946429f,0.64285714f,0.67857143f,0.69196429f,0.70089286f,0.70535714f,0.71428571f,0.72767857f,0.75446429f,0.77678571f,0.78571429f,0.79017857f,0.81250000f,0.81696429f,0.82589286f,0.84821429f,0.87053571f,0.88392857f,0.88839286f,0.90178571f,0.91517857f,0.92857143f,0.95089286f,0.96428571f,0.96875000f,0.99107143f,0.99553571f,1.00000000f};
         static readonly float[] TextureStations={0.00000000f,0.01449068f,0.02271986f,0.03670270f,0.04218750f,0.05554798f,0.07589808f,0.09966512f,0.11342636f,0.12948494f,0.13773020f,0.16037864f,0.18540241f,0.19401387f,0.20410139f,0.21230440f,0.22060765f,0.22811703f,0.23341415f,0.24237039f,0.27230117f,0.28991498f,0.29982521f,0.30824557f,0.31925299f,0.34922439f,0.37080956f,0.38422498f,0.39027967f,0.40684284f,0.41641743f,0.42925626f,0.45436551f,0.47547574f,0.49000566f,0.51431797f,0.52102551f,0.52544083f,0.55898053f,0.58414217f,0.59822642f,0.61874748f,0.63323152f,0.64651752f,0.68051205f,0.69373641f,0.70425177f,0.70839783f,0.71672978f,0.73114308f,0.75669036f,0.77828945f,0.78812563f,0.79514249f,0.81546076f,0.82153174f,0.83017987f,0.85069397f,0.87150256f,0.88606735f,0.89305226f,0.90467480f,0.91995554f,0.93181337f,0.95204985f,0.96570970f,0.97353979f,0.99245934f,0.99615512f,1.00000000f};
-        static readonly float[] Creases={0.11607143f,0.20535714f,0.29464286f,0.38839286f,0.50000000f,0.60267857f,0.70982143f,0.79910714f,0.89732143f};
         static readonly Vector3[] Points={
             new Vector3(-0.2150729f,0.7820951f,0.0369429f),
             new Vector3(-0.2182632f,0.7826454f,0.0366799f),
@@ -379,24 +378,18 @@ namespace DesktopFish.Editor {
             return new Vector3(inner.x+Mathf.Sin(angle)*PaddingWidth*radial,inner.y+Mathf.Cos(angle)*PaddingWidth*radial,z);
         }
         public static Color Paint(float u,float r) {
-            bool outside=u<0||u>1;u=SourceU(u);
+            float textureU=u;bool outside=u<0||u>1;u=SourceU(u);
             float edge=Edge(u),v=r/Mathf.Max(.001f,edge);
             float alpha=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(edge-.008f,edge+.008f,r));
             if(outside||r<0)alpha=0;
-            float crease=0,shadow=0;
-            foreach(float location in Creases) {
-                float bend=.012f*Mathf.Sin(location*19),center=location+bend*(1-Mathf.Clamp01(v));
-                float width=.0026f+.0015f*(1-Mathf.Clamp01(v));
-                crease=Mathf.Max(crease,Mathf.Exp(-Mathf.Pow((u-center)/width,2)));
-                float fanWidth=.005f+.015f*(1-Mathf.Clamp01(v));
-                float fanCenter=center+Mathf.Sign(bend)*.006f*(1-Mathf.Clamp01(v));
-                shadow=Mathf.Max(shadow,Mathf.Exp(-Mathf.Pow((u-fanCenter)/fanWidth,2)));
+            Color color=Color.clear;
+            // RGB area filtering keeps converging folds continuous in the existing tile.
+            // Alpha is the original center sample, exactly as before.
+            for(int yy=0;yy<4;yy++)for(int xx=0;xx<4;xx++) {
+                float su=SourceU(textureU+((xx+.5f)/4-.5f)/239f);
+                float sr=(r+((yy+.5f)/4-.5f)/96f)/Mathf.Max(.001f,Edge(su));
+                color+=FishHeadbandFoldPaintGuides.Paint(su,sr)/16;
             }
-            float cloth=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.14f,.30f,v));
-            float fold=(crease*.43f+shadow*.29f)*Mathf.Sin(Mathf.Clamp01(v)*Mathf.PI*.75f)*cloth;
-            var color=Color.Lerp(Color.white,new Color(.73f,.77f,.88f,1),fold);
-            float seam=Mathf.Exp(-Mathf.Pow((v-.14f)/.020f,2));
-            color=Color.Lerp(color,new Color(.50f,.57f,.74f,1),seam*.78f);
             color.a=alpha;return color;
         }
     }
