@@ -605,9 +605,51 @@ namespace DesktopFish.Editor
                 body.region=old;
             }
 
+            public void GuidedCentralFringe(int panel,int sign,int head) {
+                int old=body.region;body.region=0;const int columns=2;int rows=FishCentralFringeGuides.Rows;
+                Func<int,float,Vector3> finalPoint=(row,col)=>{
+                    Vector3 p=FishCentralFringeGuides.Point(panel-7,row,col);
+                    if(row==rows-1||row==0)p=FishCentralFringeGuides.Point(panel-7,row,3);
+                    p.x*=sign;return p;
+                };
+                Func<Vector3,Vector2> paint=final=>{
+                    Vector3 p=final;p.x*=sign;
+                    float t=Mathf.InverseLerp(FishModelGuides.FrontPanel(panel,1,0,.5f).y,FishModelGuides.FrontPanel(panel,1,1,.5f).y,p.y);
+                    Vector3 a=FishModelGuides.FrontPanel(panel,1,t,0),b=FishModelGuides.FrontPanel(panel,1,t,1);
+                    float u=Mathf.InverseLerp(a.x,b.x,p.x);
+                    float phase=Mathf.Lerp(t,Mathf.InverseLerp(.979167f,.604742f,p.y),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.910f,.930f,p.y)));
+                    return FrontPaintUV(panel,u,phase);
+                };
+                var centers=new Vector3[rows];for(int row=0;row<rows;row++)for(int col=0;col<6;col++)centers[row]+=AuthorPoint(finalPoint(row,col))/6;
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;
+                    if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}
+                    body.Face(a,b,c);
+                };
+                // Separate broad front/return normals at the two thin lips.
+                // Their positions meet; no copied source edge connectivity.
+                for(int sheet=0;sheet<2;sheet++) {
+                    int start=body.p.Count;
+                    for(int row=0;row<rows;row++)for(int col=0;col<=columns;col++) {
+                        Vector3 p=finalPoint(row,sheet==0?col*1.5f:6-col*1.5f);
+                        body.Add(AuthorPoint(p),Color.white*.98f,head,paint(p));
+                    }
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<columns;col++) {
+                        int a=start+row*3+col,b=a+3,c=a+1,d=b+1;Vector3 center=(centers[row]+centers[row+1])*.5f;
+                        face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-center);
+                        face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-center);
+                    }
+                }
+                // The measured root converges to a point. A common authored
+                // pole replaces its microscopic near-collinear chart ring;
+                // the first fan closes the loft without zero-area root caps.
+                body.region=old;
+            }
+
             public void GuidedFrontPanel(int panel,int sign,int head,int phase) {
                 if(panel==0){GuidedIntrinsicFront(sign,head);return;}
                 if(panel>=1&&panel<=3){GuidedInnerFrontal(panel,sign,head);return;}
+                if(panel>=7&&panel<=14){GuidedCentralFringe(panel,sign,head);return;}
                 bool cheekReturn=panel==4;
                 int rows=cheekReturn?10:panel==0?18:panel==7?18:panel>=8?14:12,cols=cheekReturn?8:4;
                 var stations=Enumerable.Range(0,rows+1).Select(row=>panel==0?(row==0?0f:row==1?.010f:row==2?.030f:row==3?.055f:(row-3)/15f):row/(float)rows)
@@ -2289,6 +2331,24 @@ namespace DesktopFish.Editor
                     RenderHeadStudy(camera,"work/rebuilt-front-"+(mode==0?"clay":"paint-flat"),1,Vector3.zero);UnityEngine.Object.DestroyImmediate(mat);
                 }
                 renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(only);
+                var central=UnityEngine.Object.Instantiate(completeBody);var centralFaces=new List<int>();
+                for(int k=0;k<bodyTriangles.Length;k+=3) {
+                    int panel=-1;bool keep=true;
+                    for(int j=0;j<3;j++) {
+                        int i=bodyTriangles[k+j];Vector2 q=st[i];int match=-1;
+                        for(int n=7;n<=14;n++) {
+                            float x=(n%6*128+16)/1024f,y=(n/6*320+16+128)/(float)PaintHeight;
+                            if(q.x>=x-.000001f&&q.x<=x+96/1024f+.000001f&&q.y>=y-.000001f&&q.y<=y+288/(float)PaintHeight+.000001f)match=n;
+                        }
+                        if(match<0||panel>=0&&match!=panel){keep=false;break;}panel=match;
+                    }
+                    if(keep&&!(panel==7&&Enumerable.Range(0,3).Average(j=>completeBody.vertices[bodyTriangles[k+j]].x)<0))centralFaces.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                }
+                central.triangles=centralFaces.ToArray();central.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),central.vertexCount).ToArray();
+                bodySnapshot.sharedMesh=central;var centralMaterial=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));centralMaterial.mainTexture=Texture2D.whiteTexture;centralMaterial.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=centralMaterial;
+                RenderHeadStudy(camera,"work/rebuilt-central-fringe-gray",1,Vector3.zero);
+                renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(centralMaterial);UnityEngine.Object.DestroyImmediate(central);
+
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             }
             if(includeRearLayers) {
