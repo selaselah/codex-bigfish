@@ -1574,7 +1574,7 @@ namespace DesktopFish.Editor
         static void PaintFrontPanels(Color[] pixels) {
             for(int y=128;y<LegacyPaintHeight;y++)for(int x=0;x<768;x++)pixels[y*PaintWidth+x]=Hex("2C457F");
             for(int panel=0;panel<17;panel++) {
-                int ox=panel%6*128,oy=128+panel/6*320;var islands=FishFrontPaintGuides.Islands(panel);
+                int ox=panel%6*128,oy=128+panel/6*320;
                 for(int py=0;py<320;py++) {
                     float t=Mathf.Clamp01((py+.5f-16)/288);var row=new Vector3[5];
                     for(int col=0;col<5;col++)row[col]=FishModelGuides.FrontPanel(panel,1,t,col/4f);
@@ -1583,23 +1583,12 @@ namespace DesktopFish.Editor
                         Vector3 p=Vector3.Lerp(row[j],row[j+1],f-j);
                         float mass=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI)),.8f);
                         Color color=Color.Lerp(Hex("1A388B"),Hex("365FAC"),mass*.70f);
-                        float ends=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.70f,1,t));
-                        color=Color.Lerp(color,Hex("8A8ABB"),ends*.78f);
+                        bool fringe=panel>=8&&panel<=14;
+                        float ends=Mathf.SmoothStep(0,1,Mathf.InverseLerp(fringe?.57f:.70f,fringe?.98f:1,t));
+                        color=Color.Lerp(color,fringe?Hex("ACA4D0"):Hex("8A8ABB"),ends*(fringe?.86f:.78f));
                         float filament=Mathf.Sin(u*21+t*2.3f+panel*.41f)*.0035f;
                         color*=1-Mathf.Pow(Mathf.Abs(u*2-1),3)*.075f+filament;
-                        float glint=0;
-                        foreach(var island in islands) {
-                            Vector2 center=new Vector2(island[0].x,island[0].y);
-                            Vector2 axis=new Vector2(island[6].x-island[5].x,island[6].y-island[5].y);
-                            Vector2 cross=new Vector2(island[8].x-island[7].x,island[8].y-island[7].y);
-                            float rx=Mathf.Max(.0003f,axis.magnitude*.425f),ry=Mathf.Max(.0003f,cross.magnitude*.40f);
-                            axis.Normalize();cross.Normalize();Vector2 d=new Vector2(p.x,p.y)-center;
-                            float a=Vector2.Dot(d,axis)/rx,b=Vector2.Dot(d,cross)/ry;
-                            float radius=Mathf.Sqrt(a*a+b*b),angle=Mathf.Atan2(b,a);
-                            float contour=.96f+.035f*Mathf.Sin(angle*3+panel*.7f);
-                            float brush=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(contour-.10f,contour+.025f,radius));
-                            glint=Mathf.Max(glint,brush*(.85f+.15f*Mathf.Clamp01(.5f+b*.5f)));
-                        }
+                        float glint=FishFrontPaintGuides.Coverage(panel,new Vector2(p.x,p.y));
                         color=Color.Lerp(color,Hex("7FA8E8"),glint*.72f);
                         float stroke=PaintBrush(u,t,.20f+(panel%3)*.10f,.79f,.021f,.025f);
                         stroke=Mathf.Max(stroke,PaintBrush(u,t,.72f-(panel%2)*.08f,.84f,.016f,-.02f));

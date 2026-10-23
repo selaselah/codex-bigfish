@@ -1596,6 +1596,7 @@ namespace DesktopFish.Editor
             int[] slots={10,10,10,10,10,10,10,11,11,11,11,11,11,11,11,11,11};
             int[] components={0,3,4,6,8,10,13,8,4,6,7,9,10,11,12,0,2};
             var samples=new System.Collections.Generic.List<Landmark>();
+            var contours=new System.Collections.Generic.List<Landmark>();
             var rootSamples=new System.Collections.Generic.List<Landmark>();
             foreach(int slot in new[]{10,11}) {
                 var triangles=baked.GetTriangles(slot);var used=triangles.Distinct().ToArray();
@@ -1652,6 +1653,18 @@ namespace DesktopFish.Editor
                         float a0=region.Min(p=>Vector3.Dot(p-center,axis)),a1=region.Max(p=>Vector3.Dot(p-center,axis));
                         float b0=region.Min(p=>Vector3.Dot(p-center,cross)),b1=region.Max(p=>Vector3.Dot(p-center,cross));
                         center+=axis*((a0+a1)*.5f)+cross*((b0+b1)*.5f);float ra=(a1-a0)*.5f,rb=(b1-b0)*.5f;
+                        // Sparse non-elliptical brush edges: paired supports along
+                        // the principal direction, retaining unequal lobes/notches.
+                        for(int station=0;station<=10;station++) {
+                            float along=Mathf.Lerp(-ra,ra,station/10f);
+                            float nearest=region.Min(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-along));
+                            var slice=region.Where(q=>Mathf.Abs(Vector3.Dot(q-center,axis)-along)<=nearest+Mathf.Max(.00018f,ra*.025f)).ToArray();
+                            foreach(int side in new[]{-1,1}) {
+                                var edge=side<0?slice.OrderBy(q=>Vector3.Dot(q-center,cross)).First():slice.OrderByDescending(q=>Vector3.Dot(q-center,cross)).First();
+                                Vector3 q=edge+axis*(along-Vector3.Dot(edge-center,axis));
+                                contours.Add(new Landmark{name="panel-"+panel+"-island-"+island+"-station-"+station+"-side-"+side,position=q});
+                            }
+                        }
                         // Box extrema plus projected PCA extent endpoints, only positions.
                         foreach(var q in new[]{center,new Vector3(x0,center.y,center.z),new Vector3(x1,center.y,center.z),new Vector3(center.x,y0,center.z),new Vector3(center.x,y1,center.z),center-axis*ra,center+axis*ra,center-cross*rb,center+cross*rb})
                             samples.Add(new Landmark{name="front-glint-"+panel+"-"+island,position=q});island++;
@@ -1660,6 +1673,7 @@ namespace DesktopFish.Editor
             }
             File.WriteAllText("work/reference-review/front-root-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=rootSamples.ToArray()},true));
             File.WriteAllText("work/reference-review/front-glint-guides.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText("work/reference-review/front-highlight-contours.json",JsonUtility.ToJson(new FaceSectionReport{samples=contours.ToArray()},true));
             var filter=snapshot.GetComponent<MeshFilter>();var renderer=snapshot.GetComponent<MeshRenderer>();var original=renderer.sharedMaterials;
             for(int mode=0;mode<2;mode++) {
                 var mesh=UnityEngine.Object.Instantiate(baked);
