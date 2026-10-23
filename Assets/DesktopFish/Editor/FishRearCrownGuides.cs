@@ -111,7 +111,7 @@ namespace DesktopFish.Editor {
         }
         public static Vector3 Normal(Vector3 p) {
             float elevation,angle;Angles(p,out elevation,out angle);
-            if(elevation>89)return new Vector3(0,(float)Coefficients[1],(float)Coefficients[3]).normalized;
+            if(elevation>89)return Vector3.Cross(Surface(88,0)-Surface(88,180),Surface(88,90)-Surface(88,270)).normalized;
             elevation=Mathf.Clamp(elevation,-10,89.5f);
             Vector3 along=Surface(elevation+.05f,angle)-Surface(elevation-.05f,angle);
             Vector3 across=Surface(elevation,angle+.5f)-Surface(elevation,angle-.5f);
@@ -127,8 +127,8 @@ namespace DesktopFish.Editor {
                 float horizontal=1/Mathf.Sqrt((float)(Coefficients[0]*Mathf.Sin(theta)*Mathf.Sin(theta)+Coefficients[2]*Mathf.Cos(theta)*Mathf.Cos(theta)));
                 radius=horizontal*(1-.10f*phi)/Mathf.Cos(phi);
             }
-            if(elevation>=89.999f)return new Vector3(0,.77f+radius,-.05f);
-            return new Vector3(0,.77f,-.05f)+ray*radius;
+            if(elevation>=89.999f)return FishCrownEnvelopeGuides.Surface(new Vector3(0,.77f+radius,-.05f),elevation,angle);
+            return FishCrownEnvelopeGuides.Surface(new Vector3(0,.77f,-.05f)+ray*radius,elevation,angle);
         }
     }
 }
