@@ -1691,13 +1691,7 @@ namespace DesktopFish.Editor
                 float fold=.94f+.06f*Mathf.Cos(u*scallops[tile]*Mathf.PI*2);
                 if(tile==0) pixels[y*size+x]=FishHeadbandGuides.Paint(u,r);
                 else if(tile==1) {
-                    float phase=Mathf.Repeat(u*scallops[tile],1);
-                    float crease=Mathf.Exp(-Mathf.Pow(Mathf.Min(phase,1-phase)/.10f,2));
-                    float shade=1-.10f*crease*Mathf.Sin(Mathf.Clamp01(r)*Mathf.PI*.8f);
-                    Color cloth=new Color(shade,shade,1,alpha);
-                    float border=1-Mathf.SmoothStep(0,1,Mathf.Abs(r-edge+.012f)/.018f);
-                    Color tint=Color.Lerp(cloth,new Color(.70f,.76f,.88f,alpha),border*.45f);
-                    tint.a=alpha;pixels[y*size+x]=tint;
+                    pixels[y*size+x]=FishApronRuffleGuides.Paint(u,r);
                 } else if(tile==2) {
                     // Broad fabric lobes, a narrow lavender stitched edge and
                     // shallow pleat creases are authored inside the alpha strip.

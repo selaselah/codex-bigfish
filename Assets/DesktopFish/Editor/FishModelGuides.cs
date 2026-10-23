@@ -828,6 +828,7 @@ namespace DesktopFish.Editor {
                     colors[i]=Color.Lerp(colors[i],Color.white*.97f,Mathf.SmoothStep(0,1,Mathf.InverseLerp(.65f,.75f,mapped[i].y)));
                 }
             }
+            FishApronRuffleGuides.Apply(mesh,regions,mapped,normals,uv);
             var shapes=new List<Tuple<string,float,Vector3[]>>();
             for(int s=0;s<mesh.blendShapeCount;s++) {
                 var delta=new Vector3[old.Length];mesh.GetBlendShapeFrameVertices(s,0,delta,null,null);
