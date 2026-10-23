@@ -1385,7 +1385,7 @@ namespace DesktopFish.Editor
 
             public GameObject Finish() {
                 Directory.CreateDirectory(Folder);
-                WriteHairPaint();
+                WriteHairPaint(body);
                 AssetDatabase.Refresh();
                 var textureImporter=(TextureImporter)AssetImporter.GetAtPath(Folder+"/HairPaint.png");
                 textureImporter.sRGBTexture=true;textureImporter.mipmapEnabled=true;
@@ -1573,7 +1573,7 @@ namespace DesktopFish.Editor
         // A small authored UV atlas supplies paint detail without adding hair geometry.
         // Three fringe strips and three narrower cyan-ended layouts prevent locks
         // repeating the same highlights. The upper-right swatch stays neutral white.
-        static void WriteHairPaint() {
+        static void WriteHairPaint(Geo geometry) {
             const int size=1024;
             const int laceHeight=128;
             var texture=new Texture2D(size,PaintHeight,TextureFormat.RGBA32,false);
@@ -1725,7 +1725,7 @@ namespace DesktopFish.Editor
             PaintIris(pixels);
             PaintBib(pixels);
             PaintSideLace(pixels);
-            PaintFrontPanels(pixels);
+            PaintFrontPanels(pixels,geometry);
             PaintFrontSkin(pixels);
             PaintHeadBows(pixels);
             texture.SetPixels(pixels);texture.Apply();
@@ -1883,7 +1883,10 @@ namespace DesktopFish.Editor
         static Vector2 FrontPaintUV(int panel,float u,float t) {
             return new Vector2((panel%6*128+16+96*u)/1024f,(panel/6*320+16+288*t)/1024f);
         }
-        static void PaintFrontPanels(Color[] pixels) {
+        static void PaintFrontPanels(Color[] pixels,Geo geometry) {
+            var positions=geometry.p.Select((p,i)=>geometry.regions[i]<3?FishModelGuides.Point(FitPoint(p),geometry.regions[i]):FitPoint(p)).ToArray();
+            var chart=geometry.uv.Select(st=>new Vector2(st.x*1024,128+st.y*1024)).ToArray();
+            var physical=FishFrontPaintRegistration.Raster(positions,chart,geometry.tri.ToArray());
             for(int y=128;y<LegacyPaintHeight;y++)for(int x=0;x<768;x++)pixels[y*PaintWidth+x]=Hex("2C457F");
             for(int panel=0;panel<17;panel++) {
                 int ox=panel%6*128,oy=128+panel/6*320;
@@ -1900,7 +1903,9 @@ namespace DesktopFish.Editor
                         color=Color.Lerp(color,fringe?Hex("ACA4D0"):Hex("8A8ABB"),ends*(fringe?.86f:.78f));
                         float filament=Mathf.Sin(u*21+t*2.3f+panel*.41f)*.0035f;
                         color*=1-Mathf.Pow(Mathf.Abs(u*2-1),3)*.075f+filament;
-                        float glint=FishFrontPaintGuides.Coverage(panel,new Vector2(p.x,p.y));
+                        Vector3 surface;
+                        if(physical.TryPoint(panel,px,py,out surface))p=surface;
+                        float glint=FishFrontReflectionCoreGuides.Coverage(panel,new Vector2(p.x,p.y));
                         color=Color.Lerp(color,Hex("7FA8E8"),glint*.72f);
                         float stroke=PaintBrush(u,t,.20f+(panel%3)*.10f,.79f,.021f,.025f);
                         stroke=Mathf.Max(stroke,PaintBrush(u,t,.72f-(panel%2)*.08f,.84f,.016f,-.02f));

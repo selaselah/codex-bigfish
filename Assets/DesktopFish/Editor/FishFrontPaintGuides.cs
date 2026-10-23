@@ -636,23 +636,26 @@ namespace DesktopFish.Editor {
             }
             return result;
         }
-        public static float Coverage(int panel,Vector2 point) {
-            float result=0;
-            for(int island=0;island<Panels[panel].Length;island++) {
-                var bounds=Bounds[panel][island];
-                if(point.x<bounds.x-.001f||point.x>bounds.y+.001f||point.y<bounds.z-.001f||point.y>bounds.w+.001f)continue;
-                var path=Paths[panel][island];float distance=float.MaxValue;bool inside=false;
-                for(int i=0;i<path.Length;i++) {
-                    Vector2 a=new Vector2(path[i].x,path[i].y),b=new Vector2(path[(i+1)%path.Length].x,path[(i+1)%path.Length].y);
-                    var edge=b-a;float t=Mathf.Clamp01(Vector2.Dot(point-a,edge)/Mathf.Max(1e-12f,edge.sqrMagnitude));
-                    distance=Mathf.Min(distance,Vector2.Distance(point,a+edge*t));
-                    if((a.y>point.y)!=(b.y>point.y))if(point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
-                }
-                float mask=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.00025f,.0010f,inside?-distance:distance));
-                float gradient=Mathf.Lerp(.88f,1,Mathf.InverseLerp(bounds.z,bounds.w,point.y));
-                result=Mathf.Max(result,mask*gradient);
+        internal static int BrushCount(int panel)=>Paths[panel].Length;
+        internal static float BrushDistance(int panel,int island,Vector2 point) {
+            var path=Paths[panel][island];float distance=float.MaxValue;bool inside=false;
+            for(int i=0;i<path.Length;i++) {
+                Vector2 a=new Vector2(path[i].x,path[i].y),b=new Vector2(path[(i+1)%path.Length].x,path[(i+1)%path.Length].y),edge=b-a;
+                float t=Mathf.Clamp01(Vector2.Dot(point-a,edge)/Mathf.Max(1e-12f,edge.sqrMagnitude));
+                distance=Mathf.Min(distance,Vector2.Distance(point,a+edge*t));
+                if((a.y>point.y)!=(b.y>point.y))if(point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
             }
-            return result;
+            return inside?-distance:distance;
+        }
+        internal static float BrushCoverage(int panel,int island,Vector2 point) {
+            var bounds=Bounds[panel][island];
+            if(point.x<bounds.x-.001f||point.x>bounds.y+.001f||point.y<bounds.z-.001f||point.y>bounds.w+.001f)return 0;
+            float distance=BrushDistance(panel,island,point);
+            float mask=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.00025f,.0010f,distance));
+            return mask*Mathf.Lerp(.88f,1,Mathf.InverseLerp(bounds.z,bounds.w,point.y));
+        }
+        public static float Coverage(int panel,Vector2 point) {
+            float result=0;for(int i=0;i<BrushCount(panel);i++)result=Mathf.Max(result,BrushCoverage(panel,i,point));return result;
         }
     }
 }
