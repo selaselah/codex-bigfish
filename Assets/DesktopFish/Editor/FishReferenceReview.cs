@@ -215,6 +215,54 @@ namespace DesktopFish.Editor
             foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
         }
 
+        public static void RenderLowerRearDelivery() {
+            MeasureLowerRear();
+            FishRebuiltModel.RenderIdleRearLayerStudy();
+            FishRebuiltModel.RenderIdleSurfaceStudy();
+        }
+
+        public static void MeasureLowerRear() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);
+            var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            foreach(var bone in model.GetComponentsInChildren<Transform>(true)) {
+                if(bone.name=="J_Bip_L_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,62);
+                if(bone.name=="J_Bip_R_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,-62);
+            }
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var triangles=baked.GetTriangles(15);var used=triangles.Distinct().ToArray();var parents=Enumerable.Range(0,points.Length).ToArray();
+            Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int i=0;i<triangles.Length;i+=3){parents[root(triangles[i+1])]=root(triangles[i]);parents[root(triangles[i+2])]=root(triangles[i]);}
+            foreach(var seam in used.GroupBy(i=>Vector3Int.RoundToInt(points[i]*100000))){int first=seam.First();foreach(int i in seam)parents[root(i)]=root(first);}
+            var groups=used.GroupBy(root).OrderByDescending(g=>g.Count()).ToArray();var all=new System.Collections.Generic.List<int>();
+            foreach(int component in new[]{3,7,10,6,2}) {
+                var members=new System.Collections.Generic.HashSet<int>(groups[component]);var selected=new System.Collections.Generic.List<int>();
+                for(int i=0;i<triangles.Length;i+=3)if(members.Contains(triangles[i]))selected.AddRange(new[]{triangles[i],triangles[i+1],triangles[i+2]});
+                ReviewLowerRearGuides(points,baked.uv,selected.ToArray(),component,9,"work/ref-lower-width-86/source-");all.AddRange(selected);
+            }
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub==15?all.ToArray():Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local lower rear review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;
+            snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Lower rear camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;
+            camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");
+            RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderBodyStudy(camera,"work/ref-lower-width-86/source-full",.8f,new Vector3(0,-.056f,0));
+            only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();
+            var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=FishRebuiltModel.DiagnosticAlpha(GuideTexture(15));material.SetFloat("_OutlineWidth",0);
+            snapshot.GetComponent<Renderer>().sharedMaterials=Enumerable.Repeat(material,guideMaterials.Length).ToArray();
+            FishRebuiltModel.RenderBodyStudy(camera,"work/ref-lower-width-86/source-gray",.8f,new Vector3(0,-.056f,0),reviewMaterials:new[]{material});
+            UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);
+
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+        }
+
         public static void MeasureTuft() {
             AssetDatabase.Refresh();
             var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
@@ -1319,7 +1367,7 @@ namespace DesktopFish.Editor
 
         // Rear-facing lower ribbons use a stable left-to-right projection.
         // A changing PCA section axis can rotate/reverse at the curled tip.
-        static void ReviewLowerRearGuides(Vector3[] points,Vector2[] uv,int[] triangles,int component) {
+        static void ReviewLowerRearGuides(Vector3[] points,Vector2[] uv,int[] triangles,int component,int columns=5,string prefix="work/reference-review/lower-rear-") {
             var used=triangles.Distinct().ToArray();float bottom=used.Min(i=>points[i].y);
             var samples=new System.Collections.Generic.List<Landmark>();
             System.Collections.Generic.List<Vector3> first=null;float tipY=bottom;
@@ -1329,11 +1377,13 @@ namespace DesktopFish.Editor
             }
             if(first==null||first.Count==0)throw new InvalidOperationException("No alpha-visible lower tip "+component);
             var texture=GuideTexture(15);
-            foreach(float y in new[]{.25f,.23f,.21f,.19f,.17f,.155f,.14f,.125f,.11f,.095f,.085f,tipY+.004f,tipY+.001f,tipY}.Where(y=>y>=tipY).Distinct().OrderByDescending(y=>y)) {
+            var heights=new[]{.25f,.23f,.21f,.19f,.17f,.155f,.14f,.125f,.11f,.095f,.085f,tipY+.004f,tipY+.001f,tipY}.AsEnumerable();
+            if(columns==9)heights=heights.Concat(new[]{.50f,.48f,.46f,.445f,.43f,.415f,.405f,.395f}.Select(y=>(y-.07f)/1.25f));
+            foreach(float y in heights.Where(y=>y>=tipY).Distinct().OrderByDescending(y=>y)) {
                 var cuts=VisibleSection(points,uv,triangles,Vector3.up,y,15,maxStep:.0002f);if(cuts.Count==0)continue;
                 float lo=cuts.Min(q=>q.x),hi=cuts.Max(q=>q.x);
-                for(int col=0;col<5;col++) {
-                    float x=Mathf.Lerp(lo+.0000001f,hi-.0000001f,col/4f),z=float.PositiveInfinity;
+                for(int col=0;col<columns;col++) {
+                    float x=Mathf.Lerp(lo+.0000001f,hi-.0000001f,col/(float)(columns-1)),z=float.PositiveInfinity;
                     for(int i=0;i<triangles.Length;i+=3) {
                         int ai=triangles[i],bi=triangles[i+1],ci=triangles[i+2];Vector3 a=points[ai],ab=points[bi]-a,ac=points[ci]-a;
                         float det=ab.x*ac.y-ab.y*ac.x;if(Mathf.Abs(det)<1e-12f)continue;
@@ -1346,7 +1396,8 @@ namespace DesktopFish.Editor
                     samples.Add(new Landmark{name="lower-"+component+"-col-"+col,position=new Vector3(x,y,z)});
                 }
             }
-            File.WriteAllText("work/reference-review/lower-rear-"+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            File.WriteAllText(prefix+component+".json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            if(columns!=5)return;
             var intervals=new System.Collections.Generic.List<Landmark>();
             for(int row=0;row<=246;row++) {
                 float registered=row<=60?.50f-row*.005f:.195f-(row-61)*.00025f;
