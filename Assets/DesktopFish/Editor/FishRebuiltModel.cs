@@ -1733,9 +1733,43 @@ namespace DesktopFish.Editor
             PaintSideLace(pixels);
             PaintFrontPanels(pixels);
             PaintFrontSkin(pixels);
+            PaintHeadBows(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
+        }
+        static float BowStroke(float u,float v,Vector2 a,Vector2 b,Vector2 c,float width) {
+            float coverage=0;
+            for(int i=1;i<24;i++) {
+                float t=i/24f;Vector2 q=(1-t)*(1-t)*a+2*(1-t)*t*b+t*t*c;float r=width*Mathf.Pow(Mathf.Sin(t*Mathf.PI),.65f);
+                float d=Vector2.Distance(new Vector2(u,v),q);coverage=Mathf.Max(coverage,1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(r*.65f,r*1.35f,d)));
+            }
+            return coverage;
+        }
+        static void PaintHeadBows(Color[] pixels) {
+            foreach(int sign in new[]{-1,1})for(int py=0;py<FishHeadBowGuides.TileHeight;py++)for(int px=0;px<FishHeadBowGuides.TileWidth;px++) {
+                float u=(px+.5f-4)/152,v=(py+.5f-4)/168;var edge=FishHeadBowGuides.Bounds(sign,u);
+                float distance=Mathf.Min(u*152,(1-u)*152,(v-edge.x)*168,(edge.y-v)*168);
+                float alpha=Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.5f,.5f,distance));
+                float across=Mathf.Abs(u-.5f)*2,vertical=Mathf.InverseLerp(edge.x,edge.y,v);
+                Color color=Color.Lerp(Hex("2788B5"),Hex("66BCDB"),.25f+.60f*vertical);
+                float rim=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.6f,2.2f,distance));
+                color=Color.Lerp(color,Hex("1B5A82"),rim*.84f);
+                float mirror=u<.5f?u:1-u;
+                float crease=BowStroke(mirror,v,new Vector2(.445f,.50f),new Vector2(.29f,.61f),new Vector2(.255f,.53f),.033f);
+                float pleat=BowStroke(mirror,v,new Vector2(.445f,.49f),new Vector2(.29f,.33f),new Vector2(.18f,.13f),.014f);
+                color=Color.Lerp(color,Hex("226C99"),Mathf.Max(crease*.87f,pleat*.52f));
+                float lower=Mathf.Exp(-Mathf.Pow((vertical-.065f)/.026f,2))*Mathf.SmoothStep(0,1,Mathf.InverseLerp(.15f,.65f,across));
+                color=Color.Lerp(color,Hex("1F709D"),lower*.70f);
+                float knot=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.052f,.075f,Mathf.Abs(u-.5f)));
+                Color clasp=Color.Lerp(Hex("257EAB"),Hex("6AC4E1"),.25f+.62f*vertical);
+                float seam=Mathf.Exp(-Mathf.Pow((Mathf.Abs(u-.5f)-.055f)/.010f,2));clasp=Color.Lerp(clasp,Hex("1E5C83"),seam*.62f);
+                color=Color.Lerp(color,clasp,knot);
+                float glow=BowStroke(mirror,v,new Vector2(.185f,.69f),new Vector2(.108f,.84f),new Vector2(.188f,.865f),.020f);
+                glow=Mathf.Max(glow,BowStroke(u,v,new Vector2(.476f,.56f),new Vector2(.477f,.61f),new Vector2(.505f,.605f),.009f)*knot);
+                color=Color.Lerp(color,Hex("B2E7F3"),glow*.78f);color.a=alpha;
+                pixels[(FishHeadBowGuides.TileY+py)*PaintWidth+FishHeadBowGuides.TileX(sign)+px]=color;
+            }
         }
         static Vector2 RearPaintUV(Vector3 p) {
             if(p.y<.585f)p.y=.585f-(.585f-p.y)*.88f;
@@ -2105,6 +2139,7 @@ namespace DesktopFish.Editor
         public static void RenderIdleCurlStudy() { RenderAngles(false,includeSurfaceStudy:true,includeCurls:true); }
         public static void RenderIdleRearLayerStudy() { RenderAngles(false,false,false,false,false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
+        public static void RenderIdleClipStudy() { RenderAngles(false,includeHeadBows:true); }
         public static void RenderIdleHandStudy() { RenderAngles(false,false,false,true); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
@@ -2265,7 +2300,7 @@ namespace DesktopFish.Editor
             RenderAngles(false,false,false,includeHands);Build();
         }
         public static void RenderAngles() { RenderAngles(true); }
-        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false,bool includeFins=false,bool includeCurls=false) {
+        static void RenderAngles(bool includeMotion,bool includeExpressions=false,bool includeSurfaceStudy=false,bool includeHandReview=false,bool includeLaceReview=false,bool includeFrontReview=false,bool includeRearLayers=false,bool includeFins=false,bool includeCurls=false,bool includeHeadBows=false) {
             FishBuild.UseRebuilt=true; FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var motion=new FishMotion(companion.model){randomActions=false};
@@ -2304,6 +2339,18 @@ namespace DesktopFish.Editor
             RenderFootStudy(camera,"work/rebuilt-foot",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-aligned",1,Vector3.zero);
             RenderBodyStudy(camera,"work/rebuilt-small",1,Vector3.zero,180,240);
+            if(includeHeadBows) {
+                var full=snapshots[0].sharedMesh;var uv=full.uv;var indices=full.triangles;var renderer=snapshots[0].GetComponent<Renderer>();var materials=renderer.sharedMaterials;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                foreach(int sign in new[]{-1,1}) {
+                    var only=UnityEngine.Object.Instantiate(full);only.triangles=Enumerable.Range(0,indices.Length/3).Where(k=>Enumerable.Range(0,3).All(c=>FishHeadBowGuides.InChart(uv[indices[k*3+c]],sign))).SelectMany(k=>new[]{indices[k*3],indices[k*3+1],indices[k*3+2]}).ToArray();snapshots[0].sharedMesh=only;
+                    RenderHeadBowStudy(camera,"work/rebuilt-head-bow-"+sign+"-full",FishHeadBowGuides.Center(sign));
+                    only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();var gray=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));gray.mainTexture=DiagnosticAlpha(materials[0].mainTexture);gray.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=gray;
+                    RenderHeadBowStudy(camera,"work/rebuilt-head-bow-"+sign+"-gray",FishHeadBowGuides.Center(sign));renderer.sharedMaterials=materials;snapshots[0].sharedMesh=full;UnityEngine.Object.DestroyImmediate(gray.mainTexture);UnityEngine.Object.DestroyImmediate(gray);UnityEngine.Object.DestroyImmediate(only);
+                }
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            }
+
             var defaultHand=companion.model.GetComponentsInChildren<Transform>().First(t=>t.name=="J_Bip_R_Hand");
             RenderDefaultHandStudy(camera,"work/rebuilt-hand-default",defaultHand.position+V(0,-.014f,.015f),1);
             // Inspect the skin separately from fringe occlusion. Head skin is
@@ -2844,6 +2891,12 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
         }
 
+        static void RenderHeadBowStudy(Camera camera,string prefix,Vector3 focus) {
+            var position=camera.transform.position;var rotation=camera.transform.rotation;float size=camera.orthographicSize,aspect=camera.aspect;var oldTarget=camera.targetTexture;
+            var target=new RenderTexture(512,512,24){antiAliasing=4};var frame=new Texture2D(512,512,TextureFormat.RGBA32,false);camera.targetTexture=target;camera.aspect=1;camera.orthographicSize=.080f;
+            foreach(int angle in new[]{0,35,90,180}) {camera.transform.position=focus+Quaternion.Euler(0,angle,0)*V(0,.035f,.40f);camera.transform.LookAt(focus);camera.Render();RenderTexture.active=target;frame.ReadPixels(new Rect(0,0,512,512),0,0);frame.Apply();File.WriteAllBytes(prefix+"-"+angle+".png",frame.EncodeToPNG());}
+            camera.targetTexture=oldTarget;RenderTexture.active=null;camera.transform.SetPositionAndRotation(position,rotation);camera.orthographicSize=size;camera.aspect=aspect;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);
+        }
         public static void RenderBodyStudy(Camera camera,string prefix,float scale,Vector3 offset,int width=720,int height=960,Material[] reviewMaterials=null) {
             // Use the same approximate crown/sole calibration as head studies.
             // Fixed framing prevents different auto-fit margins from hiding
@@ -3818,8 +3871,7 @@ namespace DesktopFish.Editor
             Grid(a.body,headbandStart,radialRows.Length-1,64);
             foreach(int s in new[]{-1,1}) {
                 HeadFin(a,s,head);
-                a.body.region=s>0?3:4;
-                Bow(a,V(s*.252f,.835f,.045f),head,.050f,Hex("47A7D3"),Quaternion.Euler(0,s*48,s*-8));a.body.region=0;
+                HeadBow(a,s,head);
             }
             ChestRibbon(a,chest);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
@@ -3903,39 +3955,16 @@ namespace DesktopFish.Editor
             foreach(var p in points)a.body.Add(p,color,bone);
             for(int i=1;i<points.Length-1;i++)a.body.Face(start,start+i,start+i+1);
         }
-        static void Bow(Author a,Vector3 center,int bone,float size,Color color,Quaternion? orientation=null) {
-            int first=a.body.p.Count;
-            foreach(int s in new[]{-1,1}) {
-                bool gathered=orientation.HasValue;
-                int rows=gathered?6:8,cols=4;
-                foreach(int surface in gathered?new[]{1,-1}:new[]{1}) {
-                    int start=a.body.p.Count,triangles=a.body.tri.Count;
-                    for(int i=0;i<=rows;i++)for(int j=0;j<=cols;j++) {
-                        float u=i/(float)rows,v=j/(float)cols*2-1;
-                        float height=size*(.08f+.38f*Mathf.Sin(u*Mathf.PI*.78f));
-                        float z=size*(.12f*Mathf.Sin(u*Mathf.PI)+.08f*(1-v*v));
-                        float x=s*size*u;
-                        Color shaded=Color.Lerp(color*.72f,color*1.17f,(v+1)*.5f);
-                        if(gathered) {
-                            float swell=Mathf.Sin(u*Mathf.PI)*(1-v*v);
-                            float fold=Mathf.Exp(-Mathf.Pow((Mathf.Abs(v)-.38f)/.18f,2));
-                            x*=1-.14f*Mathf.Pow(Mathf.Abs(v),3);
-                            z=size*swell*(surface>0?.25f:-.10f);
-                            z-=surface*size*.045f*fold*Mathf.Sin(u*Mathf.PI);
-                            shaded*=1-.15f*fold*Mathf.Sin(u*Mathf.PI);
-                        }
-                        shaded.a=1;
-                        a.body.Add(center+V(x,v*height,z),shaded,bone);
-                    }
-                    Grid(a.body,start,rows,cols);
-                    if(gathered&&((surface>0)==(s>0)))ReverseFaces(a.body,triangles);
-                }
-                Fan(a,new[]{center+V(s*size*.05f,-size*.08f,0),center+V(s*size*.62f,-size*.83f,.001f),
-                    center+V(s*size*.32f,-size*.72f,.003f),center+V(s*size*.12f,-size*.88f,.004f)},color,bone);
+        static void HeadBow(Author a,int sign,int bone) {
+            int start=a.body.p.Count,first=a.body.tri.Count,old=a.body.region;a.body.region=0;
+            for(int row=0;row<FishHeadBowGuides.Rows;row++)for(int col=0;col<=FishHeadBowGuides.Columns;col++) {
+                float u=FishHeadBowGuides.Station(row),v=col/(float)FishHeadBowGuides.Columns;
+                a.body.Add(AuthorPoint(FishHeadBowGuides.Point(sign,u,v)),Color.white,bone,FishHeadBowGuides.UV(sign,u,v));
             }
-            a.Sphere(a.body,center+V(0,0,.002f),V(size*.17f,size*.20f,size*.13f),color,bone,12,8);
-            if(orientation.HasValue)for(int i=first;i<a.body.p.Count;i++)
-                a.body.p[i]=center+orientation.Value*(a.body.p[i]-center);
+            Grid(a.body,start,FishHeadBowGuides.Rows-1,FishHeadBowGuides.Columns);
+            int i=a.body.tri[first],j=a.body.tri[first+1],k=a.body.tri[first+2];
+            if(Vector3.Dot(Vector3.Cross(a.body.p[j]-a.body.p[i],a.body.p[k]-a.body.p[i]),FishHeadBowGuides.Normal(sign))<0)ReverseFaces(a.body,first);
+            a.body.region=old;
         }
         static void GoldBow(Author a,Vector3 c,int bone,float size) {
             foreach(int s in new[]{-1,1}) {
