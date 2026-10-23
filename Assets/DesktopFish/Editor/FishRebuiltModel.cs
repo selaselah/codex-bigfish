@@ -917,7 +917,43 @@ namespace DesktopFish.Editor
                 }
                 Grid(body,start,stations.Length-1,cols);body.region=region;
             }
+            public void GuidedIntrinsicFold(int panel,int bone,int head) {
+                int old=body.region;body.region=0;
+                var stations=FishFoldedIntrinsicGuides.Stations(panel);int rows=stations.Length,cols=4;
+                Func<int,int,int,Vector3> raw=(side,row,col)=>FishFoldedIntrinsicGuides.Surface(panel,side,stations[row],col/(float)cols);
+                Func<int,int,int,Vector3> finalPoint=(side,row,col)=>{
+                    Vector3 p=raw(side,row,col);
+                    if(row==0||row==rows-1)p=(raw(0,row,cols/2)+raw(1,row,cols/2))*.5f;
+                    else if(col==0||col==cols)p=(raw(0,row,col)+raw(1,row,col))*.5f;
+                    float embed=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.84f,.94f,p.y));
+                    p.x*=1-.10f*embed;p.y-=.014f*embed;p.z-=.008f*embed;return p;
+                };
+                var centers=new Vector3[rows];
+                for(int row=0;row<rows;row++)for(int side=0;side<2;side++)for(int col=0;col<=cols;col++)centers[row]+=AuthorPoint(finalPoint(side,row,col))/(2*(cols+1));
+                for(int side=0;side<2;side++) {
+                    var ids=new int[rows,cols+1];
+                    for(int row=0;row<rows;row++)for(int col=0;col<=cols;col++) {
+                        Vector3 final=finalPoint(side,row,col),author=AuthorPoint(final);
+                        float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                        ids[row,col]=(row==0||row==rows-1)&&col>0?ids[row,0]:body.Add(author,Color.white*.97f,bone,RearPaintFinalUV(final),head,anchored);
+                    }
+                    double score=0;
+                    for(int row=1;row<rows-2;row++)for(int col=0;col<cols;col++) {
+                        Vector3 a=body.p[ids[row,col]],b=body.p[ids[row+1,col]],c=body.p[ids[row,col+1]];
+                        score+=Vector3.Dot(Vector3.Cross(b-a,c-a),(a+b+c)/3-(centers[row]+centers[row+1])*.5f);
+                    }
+                    Action<int,int,int> face=(a,b,c)=>{if(a==b||b==c||c==a)return;if(score<0)body.Face(a,c,b);else body.Face(a,b,c);};
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<cols;col++) {
+                        int a=ids[row,col],b=ids[row+1,col],c=ids[row,col+1],d=ids[row+1,col+1];Vector3 pa=body.p[a],pb=body.p[b],pc=body.p[c],pd=body.p[d];
+                        float first=Vector3.Dot(Vector3.Cross(pb-pa,pc-pa).normalized,Vector3.Cross(pb-pc,pd-pc).normalized);
+                        float second=Vector3.Dot(Vector3.Cross(pb-pa,pd-pa).normalized,Vector3.Cross(pd-pa,pc-pa).normalized);
+                        if(second>first+.0001f){face(a,b,d);face(a,d,c);}else{face(a,b,c);face(c,b,d);}
+                    }
+                }
+                body.region=old;
+            }
             public void GuidedSideCurl(int panel,int bone,int head) {
+                if(panel>=2){GuidedIntrinsicFold(panel-2,bone,head);return;}
                 int start=body.p.Count,region=body.region;body.region=0;int sides=FishSideCurlGuides.Sides(panel);
                 var ys=FishSideCurlGuides.Stations(panel);
                 // The measured upper tip belongs under a different scalp mass.
@@ -2272,6 +2308,26 @@ namespace DesktopFish.Editor
                     renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(isolated);
                 }
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            }
+            if(includeCurls) {
+                var bind=skins[0].sharedMesh.vertices;int[] parent=Enumerable.Range(0,bind.Length).ToArray();
+                Func<int,int> find=null;find=i=>parent[i]==i?i:parent[i]=find(parent[i]);
+                for(int k=0;k<bodyTriangles.Length;k+=3){parent[find(bodyTriangles[k+1])]=find(bodyTriangles[k]);parent[find(bodyTriangles[k+2])]=find(bodyTriangles[k]);}
+                var selected=new HashSet<int>();
+                foreach(var group in bodyTriangles.Distinct().GroupBy(find)) {
+                    float low=group.Min(i=>bind[i].y),high=group.Max(i=>bind[i].y);
+                    if(low>.245f&&low<.275f&&high>.90f)foreach(int i in group)selected.Add(i);
+                }
+                var only=UnityEngine.Object.Instantiate(completeBody);only.triangles=bodyTriangles.Where((v,k)=>selected.Contains(bodyTriangles[k-k%3])).ToArray();
+                var renderer=bodySnapshot.GetComponent<Renderer>();var original=renderer.sharedMaterials;bodySnapshot.sharedMesh=only;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBodyStudy(camera,"work/rebuilt-folded-intrinsic",1,Vector3.zero);
+                only.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),only.vertexCount).ToArray();
+                var material=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));material.mainTexture=DiagnosticAlpha(original[0].mainTexture);material.SetFloat("_OutlineWidth",0);renderer.sharedMaterial=material;
+                RenderBodyStudy(camera,"work/rebuilt-folded-intrinsic-gray",1,Vector3.zero,reviewMaterials:new[]{material});
+                renderer.sharedMaterials=original;bodySnapshot.sharedMesh=completeBody;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);UnityEngine.Object.DestroyImmediate(only);
             }
             if(includeFins) {
                 var isolated=UnityEngine.Object.Instantiate(completeBody);var selected=new List<int>();var st=completeBody.uv;
