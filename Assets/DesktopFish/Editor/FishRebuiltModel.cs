@@ -48,6 +48,7 @@ namespace DesktopFish.Editor
             public readonly List<Vector2> uv = new List<Vector2>();
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
             public readonly List<int> tri = new List<int>();
+            public readonly List<int> chestPaintCorners = new List<int>();
             public readonly Dictionary<int,Vector4> normalBlends = new Dictionary<int,Vector4>();
             public readonly List<Vector2Int> smoothNormalPairs = new List<Vector2Int>();
             public readonly Dictionary<int,List<int>> splitNormalCorners = new Dictionary<int,List<int>>();
@@ -770,6 +771,7 @@ namespace DesktopFish.Editor
                 body.region=oldRegion;
             }
             public void GuidedChestPanel(int panel,int bone) {
+                int paintFirst=body.tri.Count;
                 int old=body.region;body.region=0;int head=ids["J_Bip_C_Head"],rows=FishChestHairGuides.Rows;const int columns=3;
                 Func<int,int,Vector3> point=(row,col)=>row==rows-1?FishChestHairGuides.Point(panel,row,3):FishChestHairGuides.Point(panel,row,col);
                 Func<Vector3,float,int> add=(final,u)=>{
@@ -795,9 +797,11 @@ namespace DesktopFish.Editor
                 Vector3 root=Vector3.zero;for(int col=0;col<6;col++)root+=point(0,col)/6;
                 int cap=add(root,.5f),edge=body.p.Count;for(int col=0;col<6;col++)add(point(0,col),col<=3?col/3f:(6-col)/3f);
                 for(int col=0;col<6;col++)face(cap,edge+col,edge+(col+1)%6,centers[0]-centers[1]);
+                for(int k=paintFirst;k<body.tri.Count;k++)body.chestPaintCorners.Add(k);
                 body.region=old;
             }
             public void GuidedChestBacking(int panel,int bone) {
+                int paintFirst=body.tri.Count;
                 int old=body.region;body.region=0;int head=ids["J_Bip_C_Head"],rows=FishChestIntrinsicGuides.Rows;const int columns=3;
                 Func<int,int,Vector3> point=(row,col)=>row==rows-1?FishChestIntrinsicGuides.Point(panel,row,3):FishChestIntrinsicGuides.Point(panel,row,col);
                 Func<Vector3,float,int> add=(final,u)=>{
@@ -823,6 +827,7 @@ namespace DesktopFish.Editor
                 Vector3 root=Vector3.zero;for(int col=0;col<6;col++)root+=point(0,col)/6;
                 int cap=add(root,.5f),edge=body.p.Count;for(int col=0;col<6;col++)add(point(0,col),col<=3?col/3f:(6-col)/3f);
                 for(int col=0;col<6;col++)face(cap,edge+col,edge+(col+1)%6,centers[0]-centers[1]);
+                for(int k=paintFirst;k<body.tri.Count;k++)body.chestPaintCorners.Add(k);
                 body.region=old;
             }
             public void GuidedSideLock(int panel,int bone,bool fork=false) {
@@ -1727,6 +1732,7 @@ namespace DesktopFish.Editor
             PaintSideLace(pixels);
             PaintFrontPanels(pixels,geometry);
             PaintFrontSkin(pixels);
+            FishChestPaintGuides.Paint(pixels,geometry.p.Select(FitPoint).ToArray(),geometry.uv.ToArray(),geometry.chestPaintCorners.Select(k=>geometry.tri[k]).ToArray(),PaintWidth,LegacyPaintHeight);
             PaintFinShells(pixels);
             PaintHeadBows(pixels);
             texture.SetPixels(pixels);texture.Apply();
