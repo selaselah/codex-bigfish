@@ -663,30 +663,32 @@ namespace DesktopFish.Editor
                 body.region=oldRegion;
             }
             public void GuidedChestBacking(int panel,int bone) {
-                int head=ids["J_Bip_C_Head"],oldRegion=body.region;body.region=0;
-                const int columns=4;var ys=FishChestBackingGuides.Stations(panel);
-                Func<float,float,Vector3> surface=(height,around)=>FishChestBackingGuides.Surface(panel,height,around);
-                // Front and return share edge positions, UV and weights. They
-                // keep distinct normals at the thin folded lip, avoiding a
-                // front/back normal cancellation on the broad sheet.
-                for(int side=0;side<2;side++) {
+                int old=body.region;body.region=0;int head=ids["J_Bip_C_Head"],rows=FishChestIntrinsicGuides.Rows;const int columns=3;
+                Func<int,int,Vector3> point=(row,col)=>row==rows-1?FishChestIntrinsicGuides.Point(panel,row,3):FishChestIntrinsicGuides.Point(panel,row,col);
+                Func<Vector3,float,int> add=(final,u)=>{
+                    Vector3 author=AuthorPoint(final);float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
+                    float t=Mathf.InverseLerp(.82f,.405f,final.y);
+                    return body.Add(author,Color.white*.98f,bone,new Vector2(.75f+2f/12f+.004f+u*.075f,.02f+.94f*t),head,anchored);
+                };
+                var centers=new Vector3[rows];for(int row=0;row<rows;row++)for(int col=0;col<6;col++)centers[row]+=AuthorPoint(point(row,col))/6;
+                Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                    if(a==b||b==c||c==a)return;
+                    if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}body.Face(a,b,c);
+                };
+                // Real measured wrap with independent front/return faces and
+                // coincident thin lips; geometry-derived normals, not overrides.
+                for(int sheet=0;sheet<2;sheet++) {
                     int start=body.p.Count;
-                    for(int row=0;row<ys.Length;row++)for(int col=0;col<=columns;col++) {
-                        float u=side==0?col/8f:1-col/8f,y=ys[row];Vector3 final=surface(y,u),author=AuthorPoint(final);
-                        float anchored=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.88f,author.y));
-                        float paintT=Mathf.InverseLerp(.82f,.405f,final.y),paintU=col/4f;
-                        int vertex=body.Add(author,Color.white*.98f,bone,new Vector2(.75f+2f/12f+.004f+paintU*.075f,.02f+.94f*paintT),head,anchored);
-                        if(row>0&&row<ys.Length-2) {
-                            Vector3 along=AuthorPoint(surface(y-.0002f,u))-AuthorPoint(surface(y+.0002f,u));
-                            float lo=side==0?0:.5f,hi=side==0?.5f:1;
-                            Vector3 across=AuthorPoint(surface(y,Mathf.Clamp(u+.001f,lo,hi)))-AuthorPoint(surface(y,Mathf.Clamp(u-.001f,lo,hi)));
-                            Vector3 n=Vector3.Cross(along.normalized,across.normalized).normalized;
-                            if(n.sqrMagnitude>.5f)body.normalBlends[vertex]=new Vector4(n.x,n.y,n.z,.88f);
-                        }
+                    for(int row=0;row<rows;row++)for(int col=0;col<=columns;col++)add(point(row,sheet==0?col:6-col),col/(float)columns);
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<columns;col++) {
+                        int a=start+row*4+col,b=a+4,c=a+1,d=b+1;Vector3 center=(centers[row]+centers[row+1])*.5f;
+                        face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-center);face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-center);
                     }
-                    int first=body.tri.Count;Grid(body,start,ys.Length-1,columns);if(side==0)ReverseFaces(body,first);
                 }
-                body.region=oldRegion;
+                Vector3 root=Vector3.zero;for(int col=0;col<6;col++)root+=point(0,col)/6;
+                int cap=add(root,.5f),edge=body.p.Count;for(int col=0;col<6;col++)add(point(0,col),col<=3?col/3f:(6-col)/3f);
+                for(int col=0;col<6;col++)face(cap,edge+col,edge+(col+1)%6,centers[0]-centers[1]);
+                body.region=old;
             }
             public void GuidedSideLock(int panel,int bone,bool fork=false) {
                 int head=ids["J_Bip_C_Head"],start=body.p.Count,firstFace=body.tri.Count,oldRegion=body.region;body.region=0;
@@ -2338,6 +2340,17 @@ namespace DesktopFish.Editor
                 RenderBodyStudy(camera,"work/rebuilt-skirt-clay",1,Vector3.zero,reviewMaterials:new[]{clothMaterial});
                 foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
                 clothRenderer.sharedMaterials=clothMaterials;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(clothMaterial);UnityEngine.Object.DestroyImmediate(skirtOnly);
+                var backingOnly=UnityEngine.Object.Instantiate(completeBody);var backingFaces=new List<int>();
+                for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(j=>{
+                    Vector2 q=st[bodyTriangles[k+j]];return q.x>=.920665f&&q.x<=.995668f&&q.y>=.0624f&&q.y<=.551f;
+                }))backingFaces.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+                backingOnly.triangles=backingFaces.ToArray();bodySnapshot.sharedMesh=backingOnly;
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+                RenderBodyStudy(camera,"work/rebuilt-chest-backing",1,Vector3.zero);
+                backingOnly.colors=Enumerable.Repeat(new Color(.65f,.65f,.65f,1),backingOnly.vertexCount).ToArray();var backingMaterial=new Material(Shader.Find("DesktopFish/Rebuilt Toon"));backingMaterial.mainTexture=DiagnosticAlpha(clothMaterials[0].mainTexture);backingMaterial.SetFloat("_OutlineWidth",0);clothRenderer.sharedMaterial=backingMaterial;
+                RenderBodyStudy(camera,"work/rebuilt-chest-backing-gray",1,Vector3.zero,reviewMaterials:new[]{backingMaterial});
+                foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+                clothRenderer.sharedMaterials=clothMaterials;bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(backingMaterial.mainTexture);UnityEngine.Object.DestroyImmediate(backingMaterial);UnityEngine.Object.DestroyImmediate(backingOnly);
             }
             if(includeCurls) {
                 var bind=skins[0].sharedMesh.vertices;var st=completeBody.uv;int[] parents=Enumerable.Range(0,bind.Length).ToArray();
