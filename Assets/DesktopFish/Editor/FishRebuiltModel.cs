@@ -3817,14 +3817,13 @@ namespace DesktopFish.Editor
             const int sides=24;
             // Loft the visible opening into the wide toe and shallow outsole.
             int start=a.body.p.Count,triangles=a.body.tri.Count;
-            for(int row=0;row<=4;row++)for(int i=0;i<=sides;i++) {
-                float t=i/(float)sides;Vector3 p=FishModelGuides.FootRing(t,row);p.x*=sign;
-                float toe=Mathf.Pow(Mathf.Max(0,Mathf.Sin(t*Mathf.PI*2)),2);
-                Color color=Color.Lerp(Hex("293E71"),Hex("3F5A99"),toe*(row==1?.8f:.25f));
+            for(int row=0;row<=5;row++)for(int i=0;i<=sides;i++) {
+                float t=i/(float)sides;Vector3 p=FishShoeSurfaceGuides.Upper(t,row);p.x*=sign;
+                Color color=FishShoeSurfaceGuides.Color(t,row);
                 a.body.Add(AuthorPoint(p),color,foot);
             }
-            Grid(a.body,start,4,sides);if(sign<0)ReverseFaces(a.body,triangles);
-            for(int row=0;row<=4;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
+            Grid(a.body,start,5,sides);if(sign<0)ReverseFaces(a.body,triangles);
+            for(int row=0;row<=5;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*(sides+1),start+row*(sides+1)+sides));
             start=a.body.p.Count;triangles=a.body.tri.Count;
             for(int row=4;row<=5;row++)for(int i=0;i<=sides;i++) {
                 Vector3 p=FishModelGuides.FootRing(i/(float)sides,row);p.x*=sign;
@@ -3838,22 +3837,23 @@ namespace DesktopFish.Editor
             for(int i=0;i<sides;i++)a.body.Face(soleCenter,soleRing+i,soleRing+i+1);
             if(sign<0)ReverseFaces(a.body,capTriangles);
             // One broad painted-style highlight reads at desktop scale.
-            int shine=a.body.p.Count,shineTriangles=a.body.tri.Count;
+            int shine=a.body.p.Count;
             for(int i=-1;i<8;i++) {
-                float angle=i<0?0:i*Mathf.PI*2/8;
-                float t=.18f+(i<0?0:Mathf.Cos(angle)*.018f),r=.28f+(i<0?0:Mathf.Sin(angle)*.25f);
-                Vector3 p=Vector3.Lerp(FishModelGuides.FootRing(t,1),FishModelGuides.FootRing(t,2),r);p.y+=.0009f;p.z+=.0003f;p.x*=sign;
+                Vector3 p=FishShoeSurfaceGuides.GlintPoint(i);p.x*=sign;
                 a.body.Add(AuthorPoint(p),Hex("DBE6F5"),foot);
             }
-            for(int i=0;i<8;i++)a.body.Face(shine,shine+1+i,shine+1+(i+1)%8);
-            if(sign<0)ReverseFaces(a.body,shineTriangles);
+            for(int i=0;i<8;i++){int ia=shine,ib=shine+1+i,ic=shine+1+(i+1)%8;Vector3 n=Vector3.Cross(a.body.p[ib]-a.body.p[ia],a.body.p[ic]-a.body.p[ia]);if(n.y<0)a.body.Face(ia,ic,ib);else a.body.Face(ia,ib,ic);}
             start=a.body.p.Count;triangles=a.body.tri.Count;
-            for(int row=0;row<=4;row++)for(int i=0;i<=16;i++) {
-                Vector3 p=FishModelGuides.SockRing(i/16f,row);p.x*=sign;
+            for(int row=0;row<=5;row++)for(int i=0;i<=16;i++) {
+                Vector3 p;
+                if(row<=3)p=FishModelGuides.SockRing(i/16f,row);
+                else if(row==5)p=FishModelGuides.SockRing(i/16f,4);
+                else {p=FishShoeSurfaceGuides.Upper(i/16f,4);var center=V(.069f,p.y,.020f);p=center+(p-center)*.85f;}
+                p.x*=sign;
                 a.body.Add(AuthorPoint(p),White,knee);
             }
-            Grid(a.body,start,4,16);if(sign<0)ReverseFaces(a.body,triangles);
-            for(int row=0;row<=4;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*17,start+row*17+16));
+            Grid(a.body,start,5,16);if(sign<0)ReverseFaces(a.body,triangles);
+            for(int row=0;row<=5;row++)a.body.smoothNormalPairs.Add(new Vector2Int(start+row*17,start+row*17+16));
             // A small flared cuff uses the independently painted scallop tile.
             start=a.body.p.Count;triangles=a.body.tri.Count;
             for(int row=0;row<=2;row++)for(int i=0;i<=24;i++) {
@@ -3865,23 +3865,18 @@ namespace DesktopFish.Editor
             Grid(a.body,start,2,24);if(sign<0)ReverseFaces(a.body,triangles);
             start=a.body.p.Count;triangles=a.body.tri.Count;
             for(int row=0;row<=1;row++)for(int i=0;i<=12;i++) {
-                Vector3 p=FishModelGuides.FootStrap(i/12f);p.z+=(row-.5f)*.011f;p.y-=(row-.5f)*.006f;p.x*=sign;
+                Vector3 p=FishShoeSurfaceGuides.Strap(i/12f,row);p.y+=.0004f;p.x*=sign;
                 a.body.Add(AuthorPoint(p),Hex("354C82"),foot);
             }
             Grid(a.body,start,1,12);if(sign<0)ReverseFaces(a.body,triangles);
-            Vector3 c=FishModelGuides.FootStrap(.96f)+V(0,.002f,0);
-            Vector3 slope=FishModelGuides.FootStrap(1)-FishModelGuides.FootStrap(.84f);float rise=slope.y/slope.x;
-            // Wide gold frame, four sides and a single tongue remain legible
-            // at the pet's desktop size without a high-sided tube.
-            Vector3[] corners={V(-.008f,0,-.006f),V(.008f,0,-.006f),V(.008f,0,.006f),V(-.008f,0,.006f)};
+            // A rounded flat frame follows the measured physical buckle plane.
             start=a.body.p.Count;triangles=a.body.tri.Count;
-            foreach(float scale in new[]{1f,.69f})foreach(var q in corners) {
-                Vector3 p=c+q*scale;p.y+=(q.x*rise-q.z*.55f)*scale;p.x*=sign;a.body.Add(AuthorPoint(p),Gold,foot);
-            }
-            for(int i=0;i<4;i++){int next=(i+1)%4;a.body.Face(start+i,start+next,start+4+i);a.body.Face(start+next,start+4+next,start+4+i);}
-            if(sign>0)ReverseFaces(a.body,triangles);
-            Vector3 tongue=c+V(-.003f,.0006f,0);tongue.x*=sign;
-            a.Tube(a.body,new[]{AuthorPoint(tongue),AuthorPoint(tongue+V(sign*.008f,0,0))},.0008f,Gold,foot,4);
+            foreach(bool inner in new[]{false,true})for(int i=0;i<8;i++){Vector3 p=FishShoeSurfaceGuides.BucklePoint(i,inner);p.x*=sign;a.body.Add(AuthorPoint(p),Gold,foot);}
+            for(int i=0;i<8;i++){int next=(i+1)%8;a.body.Face(start+i,start+next,start+8+i);a.body.Face(start+next,start+8+next,start+8+i);}
+            if(sign<0)ReverseFaces(a.body,triangles);
+            Vector3 c=FishShoeSurfaceGuides.BuckleCenter+FishShoeSurfaceGuides.BuckleNormal*.0009f;
+            Vector3 tongue=c-FishShoeSurfaceGuides.BuckleY*(FishShoeSurfaceGuides.BuckleHalf.y*.75f),end=c+FishShoeSurfaceGuides.BuckleY*(FishShoeSurfaceGuides.BuckleHalf.y*.30f);tongue.x*=sign;end.x*=sign;
+            a.Tube(a.body,new[]{AuthorPoint(tongue),AuthorPoint(end)},.0008f,Gold,foot,4);
         }
 
         static void BuildAccessories(Author a,int head,int chest,int hips)
