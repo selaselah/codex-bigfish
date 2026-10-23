@@ -1232,6 +1232,55 @@ namespace DesktopFish.Editor
             UnityEngine.Object.DestroyImmediate(material.mainTexture);UnityEngine.Object.DestroyImmediate(material);foreach(var tex in guideTextures.Values)UnityEngine.Object.DestroyImmediate(tex);guideTextures.Clear();
         }
 
+        public static void MeasureRearGroups106() {
+            AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;guideMaterials=skin.sharedMaterials;guideTextures.Clear();new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();var uv=baked.uv;var samples=new System.Collections.Generic.List<Landmark>();
+            for(int row=0;row<=22;row++) {
+                float finalY=.17f+row*.018f,y=(finalY-.07f)/1.25f;
+                var segments=new System.Collections.Generic.List<Tuple<Vector3,Vector3,Vector2,Vector2,int>>();
+                foreach(int slot in new[]{15,16}) {
+                    var tri=baked.GetTriangles(slot);
+                    for(int k=0;k<tri.Length;k+=3) {
+                        var cuts=new System.Collections.Generic.List<Vector3>();var tex=new System.Collections.Generic.List<Vector2>();
+                        for(int e=0;e<3;e++) {
+                            int a=tri[k+e],b=tri[k+(e+1)%3];float da=points[a].y-y,db=points[b].y-y;if(!((da<=0&&db>0)||(db<=0&&da>0)))continue;
+                            float t=da/(da-db);cuts.Add(Vector3.Lerp(points[a],points[b],t));tex.Add(Vector2.Lerp(uv[a],uv[b],t));
+                        }
+                        if(cuts.Count==2&&Mathf.Abs(cuts[1].x-cuts[0].x)>1e-9f)segments.Add(Tuple.Create(cuts[0],cuts[1],tex[0],tex[1],slot));
+                    }
+                }
+                var hits=new Vector3[289];var colors=new Color[289];
+                for(int col=0;col<=288;col++) {
+                    float x=(-.36f+col*.0025f)/1.25f,z=float.PositiveInfinity;
+                    foreach(var seg in segments) {
+                        float t=(x-seg.Item1.x)/(seg.Item2.x-seg.Item1.x);if(t<0||t>1)continue;Vector3 p=Vector3.Lerp(seg.Item1,seg.Item2,t);if(p.z>=z)continue;
+                        Vector2 st=Vector2.Lerp(seg.Item3,seg.Item4,t);Color c=GuideTexture(seg.Item5).GetPixelBilinear(st.x,st.y);if(c.a<.5f)continue;
+                        hits[col]=p;colors[col]=c;z=p.z;
+                    }
+                }
+                for(int level=0;level<4;level++) {
+                    int run=0,first=-1;float ratio=new[]{.56f,.64f,.72f,.64f}[level],minimum=new[]{.16f,.22f,.30f,0}[level];
+                    for(int col=0;col<=289;col++) {
+                        bool inside=col<289&&colors[col].a>=.5f&&(level==3?colors[col].g<=colors[col].b*ratio:colors[col].g>colors[col].b*ratio&&colors[col].g>minimum);
+                        if(inside&&first<0)first=col;
+                        if(!inside&&first>=0) {
+                            if((level<3&&col-first>=3)||(level==3&&col-first>=2&&col-first<=14)) {
+                                samples.Add(new Landmark{name="level-"+level+"/row-"+row+"/run-"+run+"/left",position=hits[first]});
+                                samples.Add(new Landmark{name="level-"+level+"/row-"+row+"/run-"+run+"/right",position=hits[col-1]});run++;
+                            }
+                            first=-1;
+                        }
+                    }
+                }
+            }
+            File.WriteAllText("work/ref-rear-groups-106/source-runs.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));Debug.Log("Rear106 sparse positional run endpoints "+samples.Count);
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+        }
+
         public static void MeasureRearColorBands() {
             AssetDatabase.Refresh();var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);

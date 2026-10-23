@@ -1850,11 +1850,15 @@ namespace DesktopFish.Editor
                 float foot=.193f+.023f*Mathf.Sin(i*2.17f),top=FishRearPaintGuides.Height(RearBlueCenters[i])+.020f;
                 float along=Mathf.Clamp01((y-foot)/(top-foot));
                 float bend=.014f*Mathf.Sin(i*1.73f)*(1-along)+.009f*Mathf.Sin(i*2.31f)*Mathf.Sin(along*Mathf.PI);
+                bend+=FishRearBrushGroups106.ReturnOffset(RearBlueCenters[i],y);
                 float width=RearBlueWidths[i]*Mathf.Pow(along,.72f)+.0002f;
                 float brush=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.35f,1,Mathf.Abs(x-RearBlueCenters[i]-bend)/width));
                 float fade=Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.16f,along))*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.88f,1,along)));
                 color=Color.Lerp(color,Hex("345391"),brush*fade*cyan*.64f);
             }
+            // Coherent pointed returns retain negative blue gaps inside the
+            // cyan mass, without converting absent geometry into painted bands.
+            color=Color.Lerp(color,Hex("345391"),FishRearBrushGroups106.Coverage(x,y)*cyan*.42f);
             float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.62f,y))*
                 (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.965f,y)));
             color=Color.Lerp(color,Hex("172B60"),seam*upper*.40f);color.a=1;
