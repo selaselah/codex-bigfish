@@ -1405,7 +1405,7 @@ namespace DesktopFish.Editor
                 }
                 int totalTriangles=exports.Sum(m=>m.triangles.Length)/3;
                 if(totalTriangles>20000)throw new InvalidOperationException("Rebuilt model exceeds 20,000-triangle budget: "+totalTriangles);
-                root.AddComponent<FishRigProfile>();
+                root.AddComponent<FishRigProfile>().articulatedHandRig=true;
                 Directory.CreateDirectory("work");
                 File.WriteAllText("work/rebuilt-geometry.json",JsonUtility.ToJson(new ModelDump {
                     bones=bones.Select(b=>new BoneDump {name=b.name,parent=bones.IndexOf(b.parent),position=b.position}).ToArray(),
@@ -2036,6 +2036,7 @@ namespace DesktopFish.Editor
                 }
                 a.body.p[i]=p;
             }
+            RetargetArmsAndHands(a);a.Mark("articulated-hands");
             // Compress the body continuously below the neck. Head and facial morph
             // coordinates stay intact; garment, hair ends and joints share the map.
             Func<Vector3,Vector3> compact=p=>V(p.x,p.y<.585f?.585f-(.585f-p.y)*.88f:p.y,p.z);
@@ -2073,6 +2074,7 @@ namespace DesktopFish.Editor
         public static void RenderIdleCurlStudy() { RenderAngles(false,includeSurfaceStudy:true,includeCurls:true); }
         public static void RenderIdleRearLayerStudy() { RenderAngles(false,false,false,false,false,false,true); }
         public static void RenderIdleAndBuild() { RenderIdle(); Build(); }
+        public static void RenderIdleHandStudy() { RenderAngles(false,false,false,true); }
         public static void RenderIdleHandsAndBuild() { RenderAngles(false,false,false,true); Build(); }
         public static void RenderIdleFace() { RenderAngles(false,true); }
         public static void RenderIdleFaceAndBuild() { RenderIdleFace(); Build(); }
@@ -3634,96 +3636,53 @@ namespace DesktopFish.Editor
                     Grid(a.body,bandStart,1,bandSegments);
                     if(s<0)ReverseFaces(a.body,bandTriangles);
                 }
-                // One soft volume joins wrist and palm. Gradual skin weights
-                // avoid the seam between two independently turning spheres.
-                int palmStart=a.body.p.Count,palmTriangles=a.body.tri.Count;
-                const int palmRings=8,palmSides=10;
-                for(int row=0;row<=palmRings;row++)for(int j=0;j<=palmSides;j++) {
-                    float t=row/(float)palmRings,theta=j/(float)palmSides*Mathf.PI*2;
-                    // Keep the wrist and its skinning transition fixed while
-                    // shortening only the distal palm under the finger roots.
-                    float x=.319f+.062f*t-.006f*
-                        Mathf.SmoothStep(0,1,Mathf.InverseLerp(.55f,1,t));
-                    float cap=row==palmRings?0:
-                        Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.72f)/.28f),2)));
-                    // A broad, soft metacarpal volume tapers into the knuckle
-                    // roots instead of ending as a thick oval over the fingers.
-                    float distal=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.36f,.82f,t));
-                    float ry=.018f*(1+.08f*Mathf.Sin(t*Mathf.PI))*cap*(1-.32f*distal);
-                    float rz=(.019f+.007f*Mathf.Sin(t*Mathf.PI))*cap;
-                    float blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.326f,.350f,x));
-                    a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*ry,Mathf.Sin(theta)*rz),
-                        Skin,elbow,null,hand,blend);
-                }
-                Grid(a.body,palmStart,palmRings,palmSides);
-                if(s<0)ReverseFaces(a.body,palmTriangles);
-                for(int row=0;row<palmRings;row++) {
-                    int first=palmStart+row*(palmSides+1);
-                    a.body.smoothNormalPairs.Add(new Vector2Int(first,first+palmSides));
-                }
-                string[] names={"Index","Middle","Ring","Little"};
-                for(int f=0;f<4;f++) {
-                    // The index finger sits next to the thumb; the knuckle line
-                    // forms a shallow arc instead of three equal-length tips.
-                    float z=(1.5f-f)*.010f;
-                    float length=new[]{.027f,.030f,.028f,.022f}[f];
-                    float fingerRadius=new[]{.0073f,.0076f,.0072f,.0067f}[f];
+                // Keep old bone indices stable. Complete thumb chains are appended
+                // after the existing rig; connected surfaces are authored after retargeting.
+                foreach(string finger in new[]{"Index","Middle","Ring","Little"}) {
                     int previous=hand;
-                    var joints=new int[3];
-                    for(int joint=1;joint<=3;joint++) {
-                        int bone=a.Bone(prefix+names[f]+joint,previous,V(s*(.369f+(joint-1)*.007f),.49f,z));
-                        joints[joint-1]=bone;
-                        previous=bone;
-                    }
-                    // One continuous rounded finger replaces three overlapping balls.
-                    int start=a.body.p.Count;const int rings=7,sides=8;
-                    for(int row=0;row<=rings;row++)for(int j=0;j<=sides;j++) {
-                        float theta=j/(float)sides*Mathf.PI*2;
-                        // Five stem intervals and four angular cap intervals
-                        // produce a round fingertip without an elongated point.
-                        float capAngle=Mathf.Max(0,(row-4)/3f)*Mathf.PI*.5f;
-                        float x=row<=4?.366f+(length-fingerRadius)*(row/4f):
-                            .366f+length-fingerRadius+Mathf.Sin(capAngle)*fingerRadius;
-                        float radius=row<=4?fingerRadius*Mathf.Lerp(1.10f,1,row/4f):
-                            fingerRadius*Mathf.Max(0,Mathf.Cos(capAngle));
-                        int primary,secondary;float blend;
-                        if(x<.373f) {
-                            primary=hand;secondary=joints[0];
-                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.365f,.372f,x));
-                        } else if(x<.380f) {
-                            primary=joints[0];secondary=joints[1];
-                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.373f,.379f,x));
-                        } else {
-                            primary=joints[1];secondary=joints[2];
-                            blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.380f,.386f,x));
-                        }
-                        a.body.Add(V(s*x,.49f+Mathf.Cos(theta)*radius,z+Mathf.Sin(theta)*radius),
-                            Skin,primary,null,secondary,blend);
-                    }
-                    int fingerTriangles=a.body.tri.Count;
-                    Grid(a.body,start,rings,sides);
-                    if(s<0)ReverseFaces(a.body,fingerTriangles);
-                    for(int row=0;row<rings;row++) {
-                        int first=start+row*(sides+1);
-                        a.body.smoothNormalPairs.Add(new Vector2Int(first,first+sides));
-                    }
+                    for(int joint=1;joint<=3;joint++)
+                        previous=a.Bone(prefix+finger+joint,previous,V(s*(.369f+(joint-1)*.007f),.49f,0));
                 }
-                int thumb=a.Bone(prefix+"Thumb1",hand,V(s*.353f,.487f,.023f));
-                int thumbStart=a.body.p.Count;
-                var thumbPath=Curve(new[]{V(s*.348f,.490f,.014f),V(s*.353f,.486f,.024f),
-                    V(s*.365f,.484f,.031f),V(s*.374f,.484f,.031f)},12);
-                a.Sweep(a.body,thumbPath,
-                    t=>(.0118f-.002f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
-                    t=>(.0108f-.001f*t)*Mathf.Sqrt(Mathf.Max(0,1-Mathf.Pow(Mathf.Max(0,(t-.65f)/.35f),2))),
-                    t=>Skin,thumb,10);
-                for(int row=0;row<thumbPath.Length-1;row++)
-                    a.body.smoothNormalPairs.Add(new Vector2Int(thumbStart+row*11,thumbStart+row*11+10));
+                a.Bone(prefix+"Thumb1",hand,V(s*.353f,.487f,.023f));
                 int thigh=a.Bone(prefix+"UpperLeg",hips,V(s*.065f,.27f,0));
                 int knee=a.Bone(prefix+"LowerLeg",thigh,V(s*.065f,.16f,0));
                 int foot=a.Bone(prefix+"Foot",knee,V(s*.065f,.062f,0));
                 a.Sphere(a.body,V(s*.065f,.208f,0),V(.036f,.062f,.038f),Skin,thigh);
                 RebuiltFoot(a,s,knee,foot);
 
+            }
+        }
+
+        static void RetargetArmsAndHands(Author a) {
+            // Carry complete sleeve cross sections and their cuff embroidery onto
+            // the calibrated neutral arm chain. Preserve their original continuous
+            // weights and chest blend; evaluate with the matching arm solver frame.
+            for(int i=0;i<a.body.p.Count;i++) {
+                var w=a.body.weights[i];
+                Func<int,bool> arm=id=>id>=0&&(a.bones[id].name.EndsWith("UpperArm")||a.bones[id].name.EndsWith("LowerArm"));
+                float share=(arm(w.boneIndex0)?w.weight0:0)+(arm(w.boneIndex1)?w.weight1:0);
+                if(share<=0)continue;
+                Vector3 old=a.body.p[i];if(old.y<.585f)old.y=.585f-(.585f-old.y)*.88f;old=FitPoint(old);
+                string prefix="J_Bip_"+(old.x<0?"L":"R")+"_";float sign=old.x<0?-1:1,x=Mathf.Abs(old.x);
+                Func<string,Vector3> joint=name=>FishHandCorrespondenceGuides.JointPositions[Array.IndexOf(FishHandCorrespondenceGuides.JointNames,prefix+name)];
+                Vector3 center=x<.235f?Vector3.LerpUnclamped(joint("UpperArm"),joint("LowerArm"),(x-.13f)/.105f):
+                    Vector3.LerpUnclamped(joint("LowerArm"),joint("Hand"),(x-.235f)/.105f);
+                Vector3 mapped=center+(old-V(sign*x,.484033853f,0));
+                a.body.p[i]=AuthorPoint(Vector3.Lerp(old,mapped,share));
+            }
+            // The four extra thumb joints follow all original 51 IDs, preserving
+            // skin indices on the entire head, garments and retained hair.
+            foreach(string side in new[]{"L","R"}) {
+                string prefix="J_Bip_"+side+"_";int parent=a.ids[prefix+"Thumb1"];
+                foreach(int joint in new[]{2,3})parent=a.Bone(prefix+"Thumb"+joint,parent,Vector3.zero);
+            }
+            for(int i=0;i<FishHandCorrespondenceGuides.JointNames.Length;i++)
+                a.bones[a.ids[FishHandCorrespondenceGuides.JointNames[i]]].position=AuthorPoint(FishHandCorrespondenceGuides.JointPositions[i]);
+            foreach(int side in new[]{-1,1}) {
+                var surface=FishHandCorrespondenceGuides.Get(side);int start=a.body.p.Count;
+                for(int i=0;i<surface.points.Length;i++)a.body.Add(AuthorPoint(surface.points[i]),Skin,
+                    a.ids[surface.primary[i]],null,a.ids[surface.secondary[i]],1-surface.primaryWeight[i]);
+                foreach(int vertex in surface.triangles)a.body.tri.Add(start+vertex);
             }
         }
 

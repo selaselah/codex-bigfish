@@ -72,6 +72,16 @@ namespace DesktopFish.Editor
             // their carefully allocated silhouette and overlap.
             for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x<.75f&&uv[i].y>.12f*FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight&&
                 uv[i].y<(float)FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight)locked[i]=1;
+            // Limb topology changes can alter the global reducer's tie order.
+            // Keep the original head and opaque closed-eye skin charts intact,
+            // including every UV/alpha/RGBA sample retained before this pass.
+            for(int i=0;i<p.Length;i++) {
+                float u=uv[i].x*FishRebuiltModel.PaintWidth,v=uv[i].y*FishRebuiltModel.PaintHeight;
+                bool headSkin=u>=648-.0001f&&u<=752+.0001f&&v>=784-.0001f&&v<=1080+.0001f;
+                bool eyeBacking=u>=512-.0001f&&u<=568+.0001f&&
+                    ((v>=1696-.0001f&&v<=1824+.0001f)||(v>=1856-.0001f&&v<=1984+.0001f));
+                if(headSkin||eyeBacking)locked[i]=1;
+            }
             // A small alpha-edged cloth chart needs its nonuniform UV field
             // retained; reducing a white padded sheet alone loses the visible edge.
             for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x>=8f/1024&&uv[i].x<=248f/1024&&

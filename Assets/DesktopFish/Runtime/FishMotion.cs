@@ -13,7 +13,7 @@ namespace DesktopFish
         readonly Transform model;
         readonly Vector3 restPosition, restScale;
         readonly Vector3 waveWristOffset;
-        readonly bool rebuiltRig;
+        readonly bool rebuiltRig, articulatedHands;
         readonly Quaternion restRotation;
         readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
         readonly Dictionary<string, Quaternion> rest = new Dictionary<string, Quaternion>();
@@ -38,6 +38,7 @@ namespace DesktopFish
             restRotation = target.localRotation;
             var profile = target.GetComponent<FishRigProfile>();
             rebuiltRig = profile;
+            articulatedHands = profile && profile.articulatedHandRig;
             waveWristOffset = profile ? profile.waveWristOffset : new Vector3(.110f, .085f, .075f);
             foreach (Transform bone in target.GetComponentsInChildren<Transform>(true))
             {
@@ -46,6 +47,12 @@ namespace DesktopFish
                 rest.Add(bone.name, bone.localRotation);
                 worldRest.Add(bone.name, Quaternion.Inverse(target.rotation) * bone.rotation);
                 restPositions.Add(bone.name, bone.localPosition);
+            }
+            if (articulatedHands) {
+                // Keep bind frames neutral while evaluating the same arm start
+                // frame used by the registered reference default-pose solver.
+                rest["J_Bip_L_UpperArm"] *= Quaternion.Euler(0,0,62);
+                rest["J_Bip_R_UpperArm"] *= Quaternion.Euler(0,0,-62);
             }
             nextAction = Time.time + 8;
         }
@@ -210,7 +217,7 @@ namespace DesktopFish
                     PresentPalm("R", -35, weight);
                 }
             }
-            if (rebuiltRig) {
+            if (rebuiltRig && !articulatedHands) {
                 AlignForearmRoll("L", -1);
                 AlignForearmRoll("R", 1);
             }
@@ -302,7 +309,7 @@ namespace DesktopFish
                 string finger = FingerNames[i];
                 // Short, rounded fingers fan out when presenting the rebuilt
                 // palm, then close together again as the hand relaxes.
-                float spread = rebuiltRig ? sign * (1.5f - i) * 12 * (1 - weight) : 0;
+                float spread = rebuiltRig && !articulatedHands ? sign * (1.5f - i) * 12 * (1 - weight) : 0;
                 Rotate("J_Bip_" + side + "_" + finger + "1", new Vector3(0, spread, sign * 24 * weight));
                 Rotate("J_Bip_" + side + "_" + finger + "2", new Vector3(0, 0, sign * 34 * weight));
                 Rotate("J_Bip_" + side + "_" + finger + "3", new Vector3(0, 0, sign * 18 * weight));
@@ -319,7 +326,7 @@ namespace DesktopFish
             Quaternion palm = Quaternion.LookRotation(side == "R" ? Vector3.left : Vector3.right, Vector3.forward);
             // Let the rebuilt palm lean forward at rest instead of folding
             // almost 90 degrees across the short, rounded wrist.
-            if (rebuiltRig) palm = Quaternion.AngleAxis(-30, Vector3.right) * palm;
+            if (rebuiltRig && !articulatedHands) palm = Quaternion.AngleAxis(-30, Vector3.right) * palm;
             hand.rotation = Quaternion.Slerp(hand.rotation, model.rotation * palm, weight);
         }
 
