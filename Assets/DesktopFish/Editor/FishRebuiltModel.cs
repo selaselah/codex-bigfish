@@ -468,6 +468,39 @@ namespace DesktopFish.Editor
                     }
                 }
             }
+            public void GuidedTail(int bone) {
+                int oldRegion=body.region;body.region=0;
+                for(int part=0;part<3;part++) {
+                    int rows=FishTailGuides.Rows(part),cols=FishTailGuides.Columns(part);
+                    var indices=new int[rows,cols];var centers=new Vector3[rows];
+                    for(int row=0;row<rows;row++) {
+                        for(int col=0;col<cols;col++)centers[row]+=AuthorPoint(FishTailGuides.Point(part,row,col))/cols;
+                        for(int col=0;col<cols;col++) {
+                            float t=row/(float)(rows-1);
+                            Color color=part==0?Color.Lerp(Hex("4A6E9C"),Hex("689AAF"),t*.75f):Hair;
+                            indices[row,col]=part>0&&(row==0||row==rows-1)&&col>0?indices[row,0]:
+                                body.Add(AuthorPoint(FishTailGuides.Point(part,row,col)),color,bone);
+                        }
+                    }
+                    Action<int,int,int,Vector3> face=(a,b,c,outward)=>{
+                        if(a==b||b==c||c==a)return;
+                        if(Vector3.Dot(Vector3.Cross(body.p[b]-body.p[a],body.p[c]-body.p[a]),outward)<0){int swap=b;b=c;c=swap;}
+                        body.tri.AddRange(new[]{a,b,c});
+                    };
+                    for(int row=0;row<rows-1;row++)for(int col=0;col<cols;col++) {
+                        int next=(col+1)%cols,a=indices[row,col],b=indices[row+1,col],c=indices[row,next],d=indices[row+1,next];
+                        var middle=(centers[row]+centers[row+1])*.5f;
+                        face(a,b,c,(body.p[a]+body.p[b]+body.p[c])/3-middle);
+                        face(c,b,d,(body.p[c]+body.p[b]+body.p[d])/3-middle);
+                    }
+                    if(part==0)foreach(int row in new[]{0,rows-1}) {
+                        int pole=body.Add(centers[row],row==0?Hex("4A6E9C"):Hex("689AAF"),bone);
+                        var outward=(centers[row]-centers[row==0?1:rows-2]).normalized;
+                        for(int col=0;col<cols;col++)face(pole,indices[row,col],indices[row,(col+1)%cols],outward);
+                    }
+                }
+                body.region=oldRegion;
+            }
             public void GuidedCrownTuft(int head) {
                 int oldRegion=body.region;body.region=0;
                 int rows=FishCrownTuftGuides.Rows,cols=FishCrownTuftGuides.Columns;
@@ -1891,6 +1924,7 @@ namespace DesktopFish.Editor
             RenderIdle();Build();
         }
         // Localized head-look, secondary-sway and working hair checks.
+        public static void RenderIdleTailCheckAndBuild() { RenderHairCheckAndBuild(false); }
         public static void RenderIdleHairCheckAndBuild() { RenderHairCheckAndBuild(false); }
         public static void RenderIdleHeadSkinAndBuild() { RenderHairCheckAndBuild(true); }
         static void RenderHairCheckAndBuild(bool includeFace) {
@@ -1928,7 +1962,7 @@ namespace DesktopFish.Editor
             if(min.x<.02f||min.y<.02f||max.x>.98f||max.y>.98f)
                 throw new InvalidOperationException("Hair regression outside viewport: "+min+" / "+max);
             sheet.Apply();File.WriteAllBytes("work/rebuilt-hair-regression.png",sheet.EncodeToPNG());
-            File.WriteAllText("work/hair-motion-validation.json","{\n  \"sampled_poses\": 8,\n  \"scope\": \"head look, secondary hair sway, working posture\",\n  \"finite_and_viewport_passed\": true,\n  \"intersection_test\": false\n}\n");
+            File.WriteAllText("work/hair-motion-validation.json","{\n  \"sampled_poses\": 8,\n  \"scope\": \"head look, secondary hair and tail sway, working posture\",\n  \"finite_and_viewport_passed\": true,\n  \"intersection_test\": false\n}\n");
             Debug.Log("Targeted hair validation passed: 8 poses; viewport "+min+" / "+max);
             camera.targetTexture=null;RenderTexture.active=null;
             UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);UnityEngine.Object.DestroyImmediate(sheet);
@@ -2078,6 +2112,15 @@ namespace DesktopFish.Editor
             RenderHeadStudy(camera,"work/rebuilt-headband",1,Vector3.zero);
             foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
             bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(bandOnly);
+            int tailBone=Array.FindIndex(skins[0].bones,b=>b.name=="J_Opt_C_FoxTail1_01");
+            var tailOnly=UnityEngine.Object.Instantiate(completeBody);var tailFacets=new List<int>();
+            for(int k=0;k<bodyTriangles.Length;k+=3)if(Enumerable.Range(0,3).All(c=>skinWeights[bodyTriangles[k+c]].boneIndex0==tailBone))
+                tailFacets.AddRange(new[]{bodyTriangles[k],bodyTriangles[k+1],bodyTriangles[k+2]});
+            tailOnly.triangles=tailFacets.ToArray();bodySnapshot.sharedMesh=tailOnly;
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=false;
+            RenderBodyStudy(camera,"work/rebuilt-tail-isolated",1,Vector3.zero);
+            foreach(var snapshot in snapshots.Skip(1))snapshot.GetComponent<Renderer>().enabled=true;
+            bodySnapshot.sharedMesh=completeBody;UnityEngine.Object.DestroyImmediate(tailOnly);
             var feetOnly=UnityEngine.Object.Instantiate(completeBody);var footTriangles=new List<int>();
             var footBones=skins[0].bones.Select((b,i)=>new{b,i}).Where(v=>v.b.name.Contains("Foot")||v.b.name.Contains("LowerLeg")).Select(v=>v.i).ToArray();
             for(int i=0;i<bodyTriangles.Length;i+=3)if(Enumerable.Range(0,3).All(k=>footBones.Contains(skinWeights[bodyTriangles[i+k]].boneIndex0)))
@@ -3384,22 +3427,7 @@ namespace DesktopFish.Editor
             }
             ChestRibbon(a,chest);
             int tail=a.Bone("J_Opt_C_FoxTail1_01",hips,V(0,.255f,-.083f));
-            int tailStart=a.body.p.Count,tailTriangles=a.body.tri.Count;
-            a.Sweep(a.body,Curve(new[]{V(.02f,.26f,-.095f),V(.19f,.18f,-.12f),V(.22f,.10f,-.12f),V(.31f,.13f,-.065f)},20),
-                t=>Mathf.Lerp(.030f,.012f,t),t=>Mathf.Lerp(.020f,.009f,t),t=>Color.Lerp(Hair,Hex("689AAF"),t),tail,10);
-            // Two curved lobes leave an open notch instead of a flat arrowhead.
-            FinBlade(a,
-                new[]{V(.302f,.132f,-.064f),V(.303f,.179f,-.060f),V(.347f,.217f,-.025f),V(.369f,.222f,-.018f)},
-                new[]{V(.302f,.132f,-.064f),V(.355f,.138f,-.035f),V(.341f,.190f,-.020f),V(.369f,.222f,-.018f)},
-                tail,Hex("4A6E9C"),Hair,false,.005f);
-            FinBlade(a,
-                new[]{V(.302f,.132f,-.064f),V(.351f,.144f,-.040f),V(.378f,.169f,-.015f),V(.408f,.163f,-.006f)},
-                new[]{V(.302f,.132f,-.064f),V(.331f,.103f,-.060f),V(.386f,.118f,-.028f),V(.408f,.163f,-.006f)},
-                tail,Hex("4A6E9C"),Hair,false,.005f);
-            for(int i=tailStart;i<a.body.p.Count;i++) {
-                Vector3 p=a.body.p[i];p.x=-p.x;a.body.p[i]=p;
-            }
-            ReverseFaces(a.body,tailTriangles);
+            a.GuidedTail(tail);
         }
         static void HeadFin(Author a,int sign,int bone) {
             // Separate open outer and inner shells retain the pale lining seen

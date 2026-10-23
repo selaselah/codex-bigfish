@@ -141,6 +141,80 @@ namespace DesktopFish.Editor
             Debug.Log("Sparse rest sleeves measured; reference unchanged.");
         }
 
+        public static void MeasureTail() {
+            AssetDatabase.Refresh();
+            var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene,NewSceneMode.Single);
+            string sourcePath=AssetDatabase.FindAssets("t:Prefab",new[]{"Assets/Mzkagami"}).Select(AssetDatabase.GUIDToAssetPath).Single();
+            var model=(GameObject)PrefabUtility.InstantiatePrefab(AssetDatabase.LoadAssetAtPath<GameObject>(sourcePath));
+            var animator=model.GetComponent<Animator>();if(animator)animator.enabled=false;
+            FishChibiStyle.Apply(model);
+            var skin=model.GetComponentsInChildren<SkinnedMeshRenderer>().Single();skin.sharedMesh=reference;
+            guideMaterials=skin.sharedMaterials;guideTextures.Clear();
+            foreach(var bone in model.GetComponentsInChildren<Transform>(true)) {
+                if(bone.name=="J_Bip_L_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,62);
+                if(bone.name=="J_Bip_R_UpperArm")bone.localRotation*=Quaternion.Euler(0,0,-62);
+            }
+            new FishMotion(model.transform){randomActions=false}.Tick(0,1,0,0,"idle",false);
+            var baked=new Mesh();skin.BakeMesh(baked);var points=baked.vertices.Select(skin.transform.TransformPoint).ToArray();
+            var triangles=baked.GetTriangles(8).Concat(baked.GetTriangles(9)).ToArray();
+            var samples=new System.Collections.Generic.List<Landmark>();
+            var axes=skin.bones.Where(t=>t.name.Contains("FoxTail")).OrderBy(t=>t.name).Select(t=>t.position).ToArray();
+            foreach(var bone in skin.bones.Where(t=>t.name.Contains("FoxTail")))samples.Add(new Landmark{name=bone.name,position=bone.position});
+            File.WriteAllText("work/ref-tail-84/source-axis.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));samples.Clear();
+            for(int segment=0;segment<axes.Length-1;segment++)for(int station=0;station<4;station++) {
+                float t=station/4f;var center=Vector3.Lerp(axes[segment],axes[segment+1],t);var axis=(axes[segment+1]-axes[segment]).normalized;
+                var up=Vector3.ProjectOnPlane(Vector3.up,axis).normalized;var across=Vector3.Cross(axis,up).normalized;
+                var cuts=VisibleSection(points,baked.uv,baked.GetTriangles(9),axis,Vector3.Dot(center,axis),9,maxStep:.00005f);
+                if(cuts.Count<3)continue;
+                center=cuts.Aggregate(Vector3.zero,(sum,q)=>sum+q)/cuts.Count;
+                for(int col=0;col<12;col++) {
+                    float angle=col*Mathf.PI/6;var ray=up*Mathf.Cos(angle)+across*Mathf.Sin(angle);var perpendicular=Vector3.Cross(axis,ray);
+                    var positive=cuts.Where(q=>Vector3.Dot(q-center,ray)>0).ToArray();if(positive.Length==0)throw new InvalidOperationException("Tail ray outside section");
+                    float distance=positive.Min(q=>Mathf.Abs(Vector3.Dot(q-center,perpendicular)));
+                    var point=positive.Where(q=>Mathf.Abs(Vector3.Dot(q-center,perpendicular))<=distance+.00004f).OrderByDescending(q=>Vector3.Dot(q-center,ray)).First();
+                    samples.Add(new Landmark{name="segment-"+segment+"-station-"+station+"-column-"+col,position=point});
+                }
+            }
+            File.WriteAllText("work/ref-tail-84/source-stem-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var fin=baked.GetTriangles(8);var used=fin.Distinct().ToArray();var parents=Enumerable.Range(0,points.Length).ToArray();
+            Func<int,int> root=null;root=i=>parents[i]==i?i:parents[i]=root(parents[i]);
+            for(int i=0;i<fin.Length;i+=3){parents[root(fin[i+1])]=root(fin[i]);parents[root(fin[i+2])]=root(fin[i]);}
+            var groups=used.GroupBy(root).OrderByDescending(g=>g.Count()).Select(g=>g.ToArray()).ToArray();
+            samples.Clear();var longitudinal=(axes[5]-axes[4]).normalized;
+            var acrossFin=Vector3.ProjectOnPlane(Vector3.up,longitudinal).normalized;var depthAxis=Vector3.Cross(longitudinal,acrossFin).normalized;
+            for(int blade=0;blade<2;blade++) {
+                var members=new System.Collections.Generic.HashSet<int>(groups[blade*2].Concat(groups[blade*2+1]));
+                var selected=new System.Collections.Generic.List<int>();
+                for(int i=0;i<fin.Length;i+=3)if(members.Contains(fin[i]))selected.AddRange(new[]{fin[i],fin[i+1],fin[i+2]});
+                float lo=members.Min(i=>Vector3.Dot(points[i],longitudinal)),hi=members.Max(i=>Vector3.Dot(points[i],longitudinal));
+                for(int station=0;station<=16;station++) {
+                    float plane=Mathf.Lerp(lo+.000001f,hi-.000001f,station/16f);
+                    var cuts=VisibleSection(points,baked.uv,selected.ToArray(),longitudinal,plane,8,maxStep:.000025f);if(cuts.Count<3)continue;
+                    float inner=cuts.Min(q=>Vector3.Dot(q,acrossFin)),outer=cuts.Max(q=>Vector3.Dot(q,acrossFin));
+                    for(int col=0;col<5;col++) {
+                        float radial=Mathf.Lerp(inner,outer,col/4f),distance=cuts.Min(q=>Mathf.Abs(Vector3.Dot(q,acrossFin)-radial));
+                        var near=cuts.Where(q=>Mathf.Abs(Vector3.Dot(q,acrossFin)-radial)<=distance+.000025f).ToArray();
+                        foreach(int side in new[]{1,-1}) {
+                            var point=near.OrderByDescending(q=>Vector3.Dot(q,depthAxis)*side).First();
+                            point=longitudinal*plane+acrossFin*radial+depthAxis*Vector3.Dot(point,depthAxis);
+                            samples.Add(new Landmark{name="blade-"+blade+"-station-"+station+"-column-"+col+"-side-"+side,position=point});
+                        }
+                    }
+                }
+            }
+            File.WriteAllText("work/ref-tail-84/source-blade-sections.json",JsonUtility.ToJson(new FaceSectionReport{samples=samples.ToArray()},true));
+            var only=UnityEngine.Object.Instantiate(baked);for(int sub=0;sub<only.subMeshCount;sub++)only.SetTriangles(sub==8?baked.GetTriangles(8):sub==9?baked.GetTriangles(9):Array.Empty<int>(),sub,false);
+            var snapshot=new GameObject("Local tail review");snapshot.transform.SetPositionAndRotation(skin.transform.position,skin.transform.rotation);snapshot.transform.localScale=skin.transform.lossyScale;
+            snapshot.AddComponent<MeshFilter>().sharedMesh=only;snapshot.AddComponent<MeshRenderer>().sharedMaterials=skin.sharedMaterials;model.SetActive(false);
+            var camera=new GameObject("Tail camera").AddComponent<Camera>();camera.orthographic=true;camera.aspect=.75f;camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.clear;camera.nearClipPlane=.01f;camera.farClipPlane=20;
+            camera.gameObject.AddComponent<FishPalette>().paletteShader=AssetDatabase.LoadAssetAtPath<Shader>("Assets/DesktopFish/Shaders/IllustratedPalette.shader");
+            RenderSettings.ambientMode=AmbientMode.Flat;RenderSettings.ambientLight=new Color(.78f,.81f,.9f);
+            FishRebuiltModel.RenderHeadStudy(camera,"work/ref-tail-84/source",.8f,new Vector3(0,-.056f,0));
+            FishRebuiltModel.RenderBodyStudy(camera,"work/ref-tail-84/source-full",.8f,new Vector3(0,-.056f,0));
+            foreach(var texture in guideTextures.Values)UnityEngine.Object.DestroyImmediate(texture);guideTextures.Clear();
+        }
+
         public static void MeasureTuft() {
             AssetDatabase.Refresh();
             var reference=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Generated/Ref.asset");
