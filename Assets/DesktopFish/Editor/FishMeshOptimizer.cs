@@ -34,7 +34,10 @@ namespace DesktopFish.Editor
         public static Mesh ReduceRebuilt(Mesh source,int targetTriangles,int headBone,int[] handBones) {
             Directory.CreateDirectory("work");
             var p=source.vertices;var n=source.normals;var uv=source.uv;var w=source.boneWeights;
-            var indices=source.triangles;if(indices.Length/3<=targetTriangles)return source;
+            // Optional author-only UV sidecar keeps prepacking metrics and
+            // semantic protected-chart identity. It never enters deliverables.
+            var guardUV=source.uv2;if(guardUV.Length!=p.Length)guardUV=uv;
+            var indices=source.triangles;if(indices.Length/3<=targetTriangles){source.SetUVs(1,new List<Vector2>());return source;}
             var locked=new byte[p.Length];
             // Tiny curved finger segments can collapse into coincident opposing
             // triangles when the global budget is redistributed. Keep hand and
@@ -70,13 +73,13 @@ namespace DesktopFish.Editor
             // Front strips carry deliberately sparse measured cross-sections.
             // Keep their thin layered surfaces; body-scale collapse can alter
             // their carefully allocated silhouette and overlap.
-            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x<.75f&&uv[i].y>.12f*FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight&&
-                uv[i].y<(float)FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight)locked[i]=1;
+            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&guardUV[i].x<.75f&&guardUV[i].y>.12f*FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight&&
+                guardUV[i].y<(float)FishRebuiltModel.LegacyPaintHeight/FishRebuiltModel.PaintHeight)locked[i]=1;
             // Limb topology changes can alter the global reducer's tie order.
             // Keep the original head and opaque closed-eye skin charts intact,
             // including every UV/alpha/RGBA sample retained before this pass.
             for(int i=0;i<p.Length;i++) {
-                float u=uv[i].x*FishRebuiltModel.PaintWidth,v=uv[i].y*FishRebuiltModel.PaintHeight;
+                float u=guardUV[i].x*FishRebuiltModel.PaintWidth,v=guardUV[i].y*FishRebuiltModel.PaintHeight;
                 bool headSkin=u>=648-.0001f&&u<=752+.0001f&&v>=784-.0001f&&v<=1080+.0001f;
                 bool eyeBacking=u>=512-.0001f&&u<=568+.0001f&&
                     ((v>=1696-.0001f&&v<=1824+.0001f)||(v>=1856-.0001f&&v<=1984+.0001f));
@@ -84,8 +87,8 @@ namespace DesktopFish.Editor
             }
             // A small alpha-edged cloth chart needs its nonuniform UV field
             // retained; reducing a white padded sheet alone loses the visible edge.
-            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&uv[i].x>=8f/1024&&uv[i].x<=248f/1024&&
-                uv[i].y>=16f/FishRebuiltModel.PaintHeight&&uv[i].y<=113f/FishRebuiltModel.PaintHeight)locked[i]=1;
+            for(int i=0;i<p.Length;i++)if(w[i].boneIndex0==headBone&&w[i].weight0>.999f&&guardUV[i].x>=8f/1024&&guardUV[i].x<=248f/1024&&
+                guardUV[i].y>=16f/FishRebuiltModel.PaintHeight&&guardUV[i].y<=113f/FishRebuiltModel.PaintHeight)locked[i]=1;
             for(int i=0;i<p.Length;i++)if(w[i].weight1>.00001f&&w[i].weight1<.99999f)locked[i]=1;
             for(int i=0;i<indices.Length;i+=3) {
                 int a=indices[i],b=indices[i+1],c=indices[i+2];
@@ -109,7 +112,7 @@ namespace DesktopFish.Editor
             byte[] metricBytes=File.ReadAllBytes(input);
             using(var writer=new BinaryWriter(new MemoryStream(metricBytes))) {
                 for(int i=0;i<uv.Length;i++) {
-                    Vector2 metric=FishHemSurfaceGuides.ConservativeReductionUV(uv[i]);
+                    Vector2 metric=FishHemSurfaceGuides.ConservativeReductionUV(guardUV[i]);
                     writer.BaseStream.Position=12+i*32+24;writer.Write(metric.x);writer.Write(metric.y);
                 }
             }
@@ -129,8 +132,10 @@ namespace DesktopFish.Editor
                 if(result.Any(i=>i<0||i>=p.Length))throw new InvalidOperationException("Invalid rebuilt vertex index");
             }
             var mesh=Extract(source,new List<int>{0},new[]{result});mesh.name=source.name;
+            // UV1 is author-only metric state; player and portable assets use UV0.
+            mesh.SetUVs(1,new List<Vector2>());
             Debug.Log($"Rebuilt reduction: {indices.Length/3} -> {result.Length/3}; error={error}; locked={locked.Count(x=>x!=0)}");
-            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries; guard new opposed shading facets; conservative original cloth UV metric under atlas contraction"},true));
+            File.WriteAllText("work/rebuilt-reduction.json",JsonUtility.ToJson(new Part {material="Body",originalTriangles=indices.Length/3,optimizedTriangles=result.Length/3,maximumError=error,treatment="index-only; locked seams, mixed weights and bone boundaries; guard new opposed shading facets; conservative original cloth and posterior-layer UV metrics under affine atlas contractions"},true));
             UnityEngine.Object.DestroyImmediate(source);return mesh;
         }
 

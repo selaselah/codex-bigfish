@@ -46,28 +46,39 @@ namespace DesktopFish.Editor
             public readonly List<int> regions=new List<int>();
             public readonly List<Color> colors = new List<Color>();
             public readonly List<Vector2> uv = new List<Vector2>();
+            public readonly Dictionary<int,Vector2> reductionUVOverrides = new Dictionary<int,Vector2>();
             public readonly List<BoneWeight> weights = new List<BoneWeight>();
             public readonly List<int> tri = new List<int>();
             public readonly List<int> chestPaintCorners = new List<int>();
             public readonly Dictionary<int,Vector4> normalBlends = new Dictionary<int,Vector4>();
             public readonly List<Vector2Int> smoothNormalPairs = new List<Vector2Int>();
             public readonly Dictionary<int,List<int>> splitNormalCorners = new Dictionary<int,List<int>>();
-            public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0) {
+            public int Add(Vector3 v, Color color, int bone, Vector2? texture = null, int secondaryBone = -1, float secondaryWeight = 0, Vector2? reductionTexture = null) {
                 // Cloth shading scales RGB only. Cutout coverage belongs to the
                 // atlas, so glTF vertex alpha must not shrink the lace edge.
                 color.a=1;
+                if(reductionTexture.HasValue)reductionUVOverrides[p.Count]=reductionTexture.Value;
                 p.Add(v);regions.Add(region); colors.Add(color); uv.Add(texture ?? new Vector2(.995f,.995f));
                 weights.Add(new BoneWeight { boneIndex0 = bone, weight0 = 1-secondaryWeight,
                     boneIndex1 = secondaryBone < 0 ? bone : secondaryBone, weight1 = secondaryWeight });
                 return p.Count - 1;
             }
             public void Face(int a, int b, int c) { tri.Add(a); tri.Add(b); tri.Add(c); }
+            public void AttachReductionUV(Mesh mesh) {
+                if(reductionUVOverrides.Count==0)return;
+                // Calibrators may rewrite ordinary cloth UVs after Build.
+                // Start from final UV0, then override only packed rear sheets.
+                var metric=(Vector2[])mesh.uv.Clone();
+                foreach(var entry in reductionUVOverrides)metric[entry.Key]=new Vector2(entry.Value.x,(entry.Value.y*1024+128)/PaintHeight);
+                mesh.SetUVs(1,metric.ToList());
+            }
             public Mesh Build(string name, Transform root, Transform[] bones) {
                 // Duplicate only a shared normal boundary, after all parts have
                 // been authored, so existing vertex indices and skinning stay stable.
                 foreach(var edge in splitNormalCorners.OrderBy(e=>e.Key)) {
                     int source=edge.Key,target=p.Count;
                     p.Add(p[source]);regions.Add(regions[source]);colors.Add(colors[source]);uv.Add(uv[source]);weights.Add(weights[source]);
+                    if(reductionUVOverrides.TryGetValue(source,out var metric))reductionUVOverrides[target]=metric;
                     foreach(int corner in edge.Value)tri[corner]=target;
                 }
                 if (p.Any(v => float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
@@ -127,6 +138,7 @@ namespace DesktopFish.Editor
             mesh.normals=retained.Select(i=>normals[i]).ToArray();
             mesh.colors=retained.Select(i=>colors[i]).ToArray();
             mesh.uv=retained.Select(i=>uv[i]).ToArray();
+            var metricUV=source.uv2;if(metricUV.Length==vertices.Length)mesh.uv2=retained.Select(i=>metricUV[i]).ToArray();
             mesh.boneWeights=retained.Select(i=>weights[i]).ToArray();mesh.bindposes=source.bindposes;
             mesh.triangles=triangles.Select(i=>remap[i]).ToArray();
             foreach(var frame in frames)mesh.AddBlendShapeFrame(frame.Item1,frame.Item2,
@@ -936,18 +948,20 @@ namespace DesktopFish.Editor
                     int rows=FishPosteriorIntrinsicGuides.Rows,cols=4;
                     var centers=new Vector3[rows];
                     for(int row=0;row<rows;row++)for(int col=0;col<8;col++)centers[row]+=AuthorPoint(FishPosteriorIntrinsicGuides.Point(panel,row,col))/8;
-                    Func<Vector3,int> add=p=>{
-                        if(p.y<=.480f){float share=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.405f,.480f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,bone,RearPaintFinalUV(p),middle,bone==middle?0:share);}
-                        float headShare=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,middle,RearPaintFinalUV(p),head,headShare);
+                    FishRearLayerPaintGuides.Configure(panel,Enumerable.Range(0,rows).SelectMany(row=>Enumerable.Range(0,8).Select(col=>RearPaintFinalUV(FishPosteriorIntrinsicGuides.Point(panel,row,col)))).ToArray());
+                    Func<Vector3,int,int> add=(p,side)=>{
+                        Vector2 original=RearPaintFinalUV(p),paint=FishRearLayerPaintGuides.UV(panel,side,original);
+                        if(p.y<=.480f){float share=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.405f,.480f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,bone,paint,middle,bone==middle?0:share,reductionTexture:original);}
+                        float headShare=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.64f,.74f,p.y));return body.Add(AuthorPoint(p),Color.white*.97f,middle,paint,head,headShare,reductionTexture:original);
                     };
                     var back=new int[rows][];var front=new int[rows][];
                     for(int row=0;row<rows;row++) {
                         back[row]=new int[cols+1];front[row]=new int[cols+1];
                         // Source chart ends are near-collinear, not finite caps.
                         // One shared indexed pole closes each physical end.
-                        if(row==0||row==rows-1){Vector3 center=Vector3.zero;for(int col=0;col<8;col++)center+=FishPosteriorIntrinsicGuides.Point(panel,row,col)/8;int rearPole=add(center),frontPole=add(center);for(int col=0;col<=cols;col++){back[row][col]=rearPole;front[row][col]=frontPole;}continue;}
-                        for(int col=0;col<=cols;col++)back[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,col));
-                        for(int col=0;col<=cols;col++)front[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,8-col));
+                        if(row==0||row==rows-1){Vector3 center=Vector3.zero;for(int col=0;col<8;col++)center+=FishPosteriorIntrinsicGuides.Point(panel,row,col)/8;int rearPole=add(center,0),frontPole=add(center,1);for(int col=0;col<=cols;col++){back[row][col]=rearPole;front[row][col]=frontPole;}continue;}
+                        for(int col=0;col<=cols;col++)back[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,col),0);
+                        for(int col=0;col<=cols;col++)front[row][col]=add(FishPosteriorIntrinsicGuides.Point(panel,row,8-col),1);
                     }
                     foreach(bool rear in new[]{true,false}) {
                         var grid=rear?back:front;int mid=rows/2;
@@ -1408,6 +1422,7 @@ namespace DesktopFish.Editor
                     if (part == 1) { Expressions(mesh); ShapeEyes(mesh); }
                     FitProportions(mesh);
                     FishModelGuides.Apply(mesh,geo.regions.ToArray());
+                    geo.AttachReductionUV(mesh);
                     mesh=CompactMesh(mesh);
                     if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"],
                         ids.Where(pair=>new[]{"_Hand","_Thumb","_Index","_Middle","_Ring","_Little"}.Any(partName=>pair.Key.Contains(partName))).Select(pair=>pair.Value).ToArray());
@@ -1417,6 +1432,7 @@ namespace DesktopFish.Editor
                         mesh.GetBlendShapeFrameVertices(i,0,deltas,null,null);
                         shapes.Add(new ShapeDump { name=mesh.GetBlendShapeName(i), deltas=deltas });
                     }
+                    if(part==0&&mesh.HasVertexAttribute(VertexAttribute.TexCoord1))throw new InvalidOperationException("Reduction-only UV sidecar leaked into delivery mesh");
                     exports.Add(new MeshDump {name=mesh.name, vertices=mesh.vertices, normals=mesh.normals, colors=mesh.colors, uv=mesh.uv,
                         triangles=mesh.triangles,bone_indices=mesh.boneWeights.Select(w=>w.boneIndex0).ToArray(),
                         secondary_bone_indices=mesh.boneWeights.Select(w=>w.boneIndex1).ToArray(),
@@ -1726,6 +1742,7 @@ namespace DesktopFish.Editor
             PaintFrontPanels(pixels,geometry);
             PaintFrontSkin(pixels);
             FishChestPaintGuides.Paint(pixels,geometry.p.Select(FitPoint).ToArray(),geometry.uv.ToArray(),geometry.chestPaintCorners.Select(k=>geometry.tri[k]).ToArray(),PaintWidth,LegacyPaintHeight);
+            PaintRearLayers(pixels);
             PaintFinShells(pixels);
             PaintHeadBows(pixels);
             texture.SetPixels(pixels);texture.Apply();
@@ -1843,6 +1860,66 @@ namespace DesktopFish.Editor
             color=Color.Lerp(color,Hex("172B60"),seam*upper*.40f);color.a=1;
             return color;
         }
+
+        static Color RearLayerPaintColor(int chart,float x,float y,Vector2[] spans) {
+            float crest=FishRearLayerPaintGuides.Height(chart,3,x);
+            float low=FishRearLayerPaintGuides.Height(chart,0,x),middle=FishRearLayerPaintGuides.Height(chart,1,x);
+            float wide=Mathf.SmoothStep(0,1,Mathf.InverseLerp(low+.065f,middle-.070f,y));
+            float fine=Mathf.SmoothStep(0,1,Mathf.InverseLerp(crest+.004f,crest-.019f,y));
+            // A broad, continuous transition carries the volume. Thin measured
+            // tongues modulate it without jumping directly to a solid cyan edge.
+            float cyan=wide*.45f+fine*.55f;
+            float crown=Mathf.Exp(-Mathf.Pow((y-.755f)/.185f,2));
+            Color blue=Color.Lerp(Hex("2949A4"),Hex("3D6CC9"),crown*.85f);
+            // Missing cyan observations do not define the broad blue volume field.
+            // Keep the existing own blue background; replace only layer cyan boundaries.
+            float lowerGlow=Mathf.Exp(-Mathf.Pow((y-(FishRearColorBandGuides.Broad(x,0)+.085f))/.115f,2));
+            blue=Color.Lerp(blue,Hex("3869C0"),lowerGlow*.75f);
+            float volume=0,seam=0;
+            for(int panel=0;panel<spans.Length;panel++) {
+                float width=spans[panel].y-spans[panel].x;
+                if(width<.002f)continue;
+                float u=(x-spans[panel].x)/width;
+                if(u>=0&&u<=1)volume=Mathf.Max(volume,Mathf.Pow(Mathf.Max(0,Mathf.Sin(u*Mathf.PI)),.65f));
+                if(panel<spans.Length-1&&panel!=2) {
+                    float edge=(spans[panel].y+spans[panel+1].x)*.5f;
+                    // The narrow middle pair forms a shared parting, rather
+                    // than two long parallel ink lines down the center.
+                    if(panel==1)edge=(edge+(spans[2].y+spans[3].x)*.5f)*.5f;
+                    seam=Mathf.Max(seam,Mathf.Exp(-Mathf.Pow((x-edge)/.00075f,2)));
+                }
+            }
+            float volumeGate=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.23f,.48f,y));
+            blue*=1-(1-volume)*(.085f+.055f*crown)*volumeGate;
+            Color color=Color.Lerp(blue,Hex("60BBFF"),cyan*.96f);
+            float pool=Mathf.SmoothStep(0,1,Mathf.InverseLerp(FishRearLayerPaintGuides.Height(chart,2,x)+.022f,FishRearLayerPaintGuides.Height(chart,2,x)-.038f,y));
+            color=Color.Lerp(color,Hex("80D5FF"),pool*cyan*.16f);
+            color*=1-(1-volume)*cyan*.085f;
+            // Unequal per-piece boundaries now carry the blue returns; do not
+            // overlay the old repeated global brush spears on these new charts.
+            float upper=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.48f,.62f,y))*
+                (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.90f,.965f,y)));
+            color=Color.Lerp(color,Hex("172B60"),seam*upper*.40f);color.a=1;
+            return color;
+        }
+
+        static void PaintRearLayers(Color[] pixels) {
+            var cache=new Dictionary<float,Vector2[]>();
+            FishRearLayerPaintGuides.Paint(pixels,(chart,x,height)=>{
+                if(!cache.TryGetValue(height,out var spans)) {
+                    spans=new Vector2[5];
+                    for(int panel=0;panel<5;panel++) {
+                        float sample=Mathf.Min(.807f,height),blend=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.45f,.53f,height));
+                        float cap=Mathf.Sqrt(Mathf.Max(.003f,1-Mathf.Pow(Mathf.Max(0,height-.807f)/.185f,2)));
+                        float left=Mathf.Lerp(FishLowerRearGuides.Surface(panel,Mathf.Min(.50f,sample),0).x,FishRearHairGuides.Surface(panel,sample,0).x,blend);
+                        float right=Mathf.Lerp(FishLowerRearGuides.Surface(panel,Mathf.Min(.50f,sample),1).x,FishRearHairGuides.Surface(panel,sample,1).x,blend);
+                        spans[panel]=new Vector2(left,right)*(height>.807f?cap:1);
+                    }cache[height]=spans;
+                }
+                return RearLayerPaintColor(chart,x,height,spans);
+            });
+        }
+
 
         // Independent 104x296 alpha tile in an audited unused chart region.
         // Planar front XY stays exact; the rear uses an opaque tile edge.
@@ -2490,7 +2567,7 @@ namespace DesktopFish.Editor
                     bool rear=true;
                     for(int c=0;c<3;c++) {
                         int i=bodyTriangles[k+c];Vector3 p=bind[i];float t=Mathf.Clamp01((1.03f-p.y)/.96f);
-                        if(Mathf.Abs(uv[i].x-Mathf.Clamp01(.5f+p.x/.82f))>.00001f||Mathf.Abs(uv[i].y-(LegacyPaintHeight+t*(RearPaintHeight-1))/PaintHeight)>.00001f)rear=false;
+                        if(!FishRearLayerPaintGuides.Contains(uv[i])&&(Mathf.Abs(uv[i].x-Mathf.Clamp01(.5f+p.x/.82f))>.00001f||Mathf.Abs(uv[i].y-(LegacyPaintHeight+t*(RearPaintHeight-1))/PaintHeight)>.00001f))rear=false;
                     }
                     if(!rear)continue;rearFaces.Add(k);parents[root(bodyTriangles[k+1])]=root(bodyTriangles[k]);parents[root(bodyTriangles[k+2])]=root(bodyTriangles[k]);
                 }
