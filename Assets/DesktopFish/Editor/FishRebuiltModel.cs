@@ -1434,6 +1434,9 @@ namespace DesktopFish.Editor
                             ids.Where(pair=>new[]{"_Hand","_Thumb","_Index","_Middle","_Ring","_Little"}.Any(partName=>pair.Key.Contains(partName))).Select(pair=>pair.Value).ToArray());
                         mesh=FishNeckCollarAssemblyGuides.Apply(mesh,neckAssembly,root.transform,bones.ToArray(),
                             ids["J_Bip_C_Chest"],ids["J_Bip_C_Neck"],ids["J_Bip_L_UpperArm"],ids["J_Bip_R_UpperArm"]);
+                        int tailPaint=FishTailSurfacePaintGuides.Apply(mesh,ids["J_Opt_C_FoxTail1_01"]);
+                        if(tailPaint!=165)throw new InvalidOperationException("Independent tail paint scope changed: "+tailPaint);
+                        File.WriteAllText("work/rebuilt-tail-paint.json","{\"method\":\"independent complete-tail periodic spatial RGB fields evaluated on actual mesh; own84 ramp decoded only as author parameter\",\"actual_tail_body_RGB_records\":"+tailPaint+",\"all_alpha_geometry_normals_UV_indices_skinning_unchanged\":true,\"source_pixels_UV_RGBvalues_copied\":false}");
                     }
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
