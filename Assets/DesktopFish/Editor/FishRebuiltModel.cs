@@ -1236,6 +1236,34 @@ namespace DesktopFish.Editor
                 if (feature != "") for (int i = start; i < face.p.Count; i++)
                     features.Add(Tuple.Create(i, V(xy.Average(p => p.x), .700f, 0), feature));
             }
+            // Two distinct painted marks: the high charcoal eyebrow and the
+            // lower warm lid crease. Both follow our own facial surface; the
+            // outer shared tip replaces the old round, three-segment tube.
+            public void BrowRibbon(int sign,int bone,bool eyebrow) {
+                int start=face.p.Count;
+                Func<Vector2,Vector3> point=q=>{
+                    float width=FishModelGuides.Point(V(1,q.y,0),1).x;
+                    return FacePoint(q.x/width,AuthorPoint(V(q.x,q.y,0)).y,.0035f);
+                };
+                for(int row=0;row<=10;row++) {
+                    float t=row/10f;
+                    Vector3 band=FishBrowRibbonGuides.Band(t,eyebrow);
+                    for(int edge=0;edge<(row==0?1:2);edge++) {
+                        Vector2 xy=new Vector2(sign*band.x,band.y+(row==0?0:(edge==0?-band.z:band.z)));
+                        int i=face.Add(point(xy),eyebrow?Hex("302D35"):Hex("83666B"),bone);
+                        features.Add(Tuple.Create(i,V(sign*.085f,.700f,0),"brow"));
+                    }
+                }
+                Action<int,int,int> add=(a,b,c)=>{
+                    if(Vector3.Cross(face.p[b]-face.p[a],face.p[c]-face.p[a]).z<0)face.Face(a,c,b);
+                    else face.Face(a,b,c);
+                };
+                add(start,start+1,start+2);
+                for(int row=1;row<10;row++) {
+                    int a=start+1+(row-1)*2,b=a+2;
+                    add(a,b,a+1);add(a+1,b,b+1);
+                }
+            }
             Vector2 EyeInputPoint(Vector3 registered) {
                 float width=FishModelGuides.Point(V(1,registered.y,0),1).x,center=Mathf.Sign(registered.x)*.085f;
                 float x=center+(registered.x/width-center)/1.08f;
@@ -1438,6 +1466,7 @@ namespace DesktopFish.Editor
                         int tailPaint=FishTailSurfacePaintGuides.Apply(mesh,ids["J_Opt_C_FoxTail1_01"]);
                         if(tailPaint!=165)throw new InvalidOperationException("Independent tail paint scope changed: "+tailPaint);
                         File.WriteAllText("work/rebuilt-tail-paint.json","{\"method\":\"independent complete-tail periodic spatial RGB fields evaluated on actual mesh; own84 ramp decoded only as author parameter\",\"actual_tail_body_RGB_records\":"+tailPaint+",\"all_alpha_geometry_normals_UV_indices_skinning_unchanged\":true,\"source_pixels_UV_RGBvalues_copied\":false}");
+                        mesh=FishSkirtCordGuides.Apply(mesh,ids["J_Bip_C_Hips"]);
                     }
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
@@ -3118,10 +3147,11 @@ namespace DesktopFish.Editor
                 a.GuidedEyeWhite(sign,head);
                 a.PaintedIris(sign,head);
                 a.GuidedUpperEyeLine(sign,head);
-                a.FaceLine(new[] { new Vector2(x - .031f, .742f), new Vector2(x, .748f), new Vector2(x + .029f, .742f) }, .0016f, Hex("83666B"), head,"brow");
+                a.BrowRibbon(sign,head,false);
             }
             a.Mouth(head);
             a.Disk(a.face,new Vector2(0,.652f),new Vector2(.0015f,.0018f),Hex("E5B5A6"),head,.0018f,"",16);
+            foreach(int sign in new[]{-1,1})a.BrowRibbon(sign,head,true);
         }
 
         static void BuildHair(Author a, int head)
