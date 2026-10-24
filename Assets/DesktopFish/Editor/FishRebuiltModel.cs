@@ -1425,8 +1425,16 @@ namespace DesktopFish.Editor
                     FishModelGuides.Apply(mesh,geo.regions.ToArray());
                     geo.AttachReductionUV(mesh);
                     mesh=CompactMesh(mesh);
-                    if(part==0)mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"],
-                        ids.Where(pair=>new[]{"_Hand","_Thumb","_Index","_Middle","_Ring","_Little"}.Any(partName=>pair.Key.Contains(partName))).Select(pair=>pair.Value).ToArray());
+                    if(part==0) {
+                        // Keep the unchanged base reducer deterministic. The new
+                        // sparse structural parts are retained exactly afterward,
+                        // with their actual UVs and zero simplification error.
+                        var neckAssembly=FishNeckCollarAssemblyGuides.CaptureNeck(mesh,ids["J_Bip_C_Neck"],ids["J_Bip_C_Chest"]);
+                        mesh=FishMeshOptimizer.ReduceRebuilt(mesh,17500,ids["J_Bip_C_Head"],
+                            ids.Where(pair=>new[]{"_Hand","_Thumb","_Index","_Middle","_Ring","_Little"}.Any(partName=>pair.Key.Contains(partName))).Select(pair=>pair.Value).ToArray());
+                        mesh=FishNeckCollarAssemblyGuides.Apply(mesh,neckAssembly,root.transform,bones.ToArray(),
+                            ids["J_Bip_C_Chest"],ids["J_Bip_C_Neck"],ids["J_Bip_L_UpperArm"],ids["J_Bip_R_UpperArm"]);
+                    }
                     var shapes = new List<ShapeDump>();
                     for(int i=0;i<mesh.blendShapeCount;i++) {
                         var deltas = new Vector3[mesh.vertexCount];
@@ -2114,7 +2122,7 @@ namespace DesktopFish.Editor
             float center=tile==0?.5f:0;
             return new Vector2((tile*256+8+center+239*u)/1024f,(16+center+96*r-128)/1024f);
         }
-        static Vector3 AuthorPoint(Vector3 final) {
+        internal static Vector3 AuthorPoint(Vector3 final) {
             float lo=-.5f,hi=1.5f;
             for(int i=0;i<28;i++) {float mid=(lo+hi)*.5f,d;if(FitHeight(mid,out d)<final.y)lo=mid;else hi=mid;}
             final.y=(lo+hi)*.5f;if(final.y<.585f)final.y=.585f-(.585f-final.y)/.88f;
