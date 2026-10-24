@@ -1249,10 +1249,11 @@ namespace DesktopFish.Editor
                     Vector3 final=Vector3.Lerp(lower,upper,row/(float)rows);final.y=center+(row-rows*.5f)*half;
                     Vector2 p=EyeInputPoint(final);int vertex=face.Add(FacePoint(p.x,p.y,.0035f),Hex("211D27"),bone);
                     features.Add(Tuple.Create(vertex,V(sign*.085f,.700f,0),"lash"));
-                    float arc=1-Mathf.Clamp01(Mathf.Pow((p.x-sign*.085f)/.050f,2));
+                    Vector2 closure=EyeInputPoint(FishEyeContourGuides.ClosureParameterPoint(sign,col,row/(float)rows));
+                    float arc=1-Mathf.Clamp01(Mathf.Pow((closure.x-sign*.085f)/.050f,2));
                     float thickness=.0014f*(row-rows*.5f);
-                    closedLashes[vertex]=FacePoint(p.x,.698f-.008f*arc+thickness,.0035f);
-                    smilingLashes[vertex]=FacePoint(p.x,.694f+.016f*arc+thickness,.0035f);
+                    closedLashes[vertex]=FacePoint(closure.x,.698f-.008f*arc+thickness,.0035f);
+                    smilingLashes[vertex]=FacePoint(closure.x,.694f+.016f*arc+thickness,.0035f);
                 }
                 int first=face.tri.Count;Grid(face,start,rows,columns-1);
                 if(sign<0)ReverseFaces(face,first);
