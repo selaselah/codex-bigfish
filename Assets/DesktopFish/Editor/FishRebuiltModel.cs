@@ -3588,26 +3588,7 @@ namespace DesktopFish.Editor
         }
         static void PaintApron(Color[] pixels) {
             for(int y=1664;y<PaintHeight;y++)for(int x=0;x<PaintWidth;x++)pixels[y*PaintWidth+x]=Color.white;
-            foreach(var shape in ApronPaintShapes()) {
-                var path=shape.Item1;float minX=path.Min(p=>p.x),maxX=path.Max(p=>p.x),minY=path.Min(p=>p.y),maxY=path.Max(p=>p.y);
-                int x0=Mathf.FloorToInt(16+(minX+.106f)/.212f*480)-1,x1=Mathf.CeilToInt(16+(maxX+.106f)/.212f*480)+1;
-                int y0=Mathf.FloorToInt(1680+(minY-.235f)/.175f*352)-1,y1=Mathf.CeilToInt(1680+(maxY-.235f)/.175f*352)+1;
-                for(int y=Mathf.Max(1664,y0);y<=Mathf.Min(PaintHeight-1,y1);y++)for(int x=Mathf.Max(0,x0);x<=Mathf.Min(PaintWidth-1,x1);x++) {
-                    int covered=0;
-                    for(int sy=0;sy<2;sy++)for(int sx=0;sx<2;sx++) {
-                        float px=(x+(sx+.5f)*.5f-16)/480*.212f-.106f;
-                        float py=(y+(sy+.5f)*.5f-1680)/352*.175f+.235f;
-                        if(InsideArtwork(path,px,py))covered++;
-                    }
-                    int index=y*PaintWidth+x;pixels[index]=Color.Lerp(pixels[index],shape.Item2,covered*.25f);
-                }
-            }
-            // Preserve every original own motif texel, including its AA edge.
-            for(int y=1680;y<PaintHeight;y++)for(int x=16;x<496;x++) {
-                int index=y*PaintWidth+x;if(pixels[index]!=Color.white)continue;
-                float px=(x+.5f-16)/480*.212f-.106f,py=(y+.5f-1680)/352*.175f+.235f;
-                pixels[index]=FishApronSheetGuides.Paint(px,py);
-            }
+            FishApronWhalePaint.Paint(pixels);
         }
 
         static float ApronGather(float x,float y) {
