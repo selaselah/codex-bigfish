@@ -1,7 +1,7 @@
 using System;using System.IO;using System.Linq;using System.Collections.Generic;using UnityEngine;
 namespace DesktopFish.Editor {
-// Final actual-mesh embroidery replacement. The original base QEM and its
-// metric remain untouched. All new cord surfaces retain their real UV/skin.
+// Original printed artwork, explicitly requested by the user. The unchanged
+// base QEM runs first; all new actual UV/skin surfaces are kept afterward.
 public static class FishSkirtCordGuides {
 static Vector3 V(float x,float y,float z=0)=>new Vector3(x,y,z);
 static Vector2 Q(float x,float y)=>new Vector2(x,y);
@@ -34,10 +34,6 @@ public static Mesh Apply(Mesh old,int hips) {
   foreach(int k in cloth){var cut=new List<Vector3>();for(int e=0;e<3;e++){var a=p[tri[k+e]];var b=p[tri[k+(e+1)%3]];if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))cut.Add(Vector3.Lerp(a,b,(y-a.y)/(b.y-a.y)));}if(cut.Count!=2)continue;float da=Vector3.Dot(cut[0],side),db=Vector3.Dot(cut[1],side);if(Mathf.Abs(da-db)<1e-10f)continue;float t=da/(da-db);if(t>=0&&t<=1)radius=Mathf.Max(radius,Vector3.Dot(Vector3.Lerp(cut[0],cut[1],t),ray));}
   if(float.IsNegativeInfinity(radius))throw new InvalidOperationException("146 border outside own cloth");return ray*(radius+.00055f)+Vector3.up*y;
  };
- Func<Vector2,float,Vector3> front=(q,lift)=>{
-  float depth=float.NegativeInfinity;foreach(int k in cloth){var a=p[tri[k]];var b=p[tri[k+1]];var d=p[tri[k+2]];float det=(b.x-a.x)*(d.y-a.y)-(b.y-a.y)*(d.x-a.x);if(Mathf.Abs(det)<1e-12f)continue;float u=((q.x-a.x)*(d.y-a.y)-(q.y-a.y)*(d.x-a.x))/det;float v=((b.x-a.x)*(q.y-a.y)-(b.y-a.y)*(q.x-a.x))/det;if(u>=-1e-6f&&v>=-1e-6f&&u+v<=1.000001f)depth=Mathf.Max(depth,a.z+u*(b.z-a.z)+v*(d.z-a.z));}
-  if(float.IsNegativeInfinity(depth)||depth<=0)throw new InvalidOperationException("146 cord outside own cloth "+q);return V(q.x,q.y,depth+lift);
- };
  var np=new List<Vector3>();var nt=new List<int>();
  Action<int,int,int> add=(a,b,d)=>{var cross=Vector3.Cross(np[b]-np[a],np[d]-np[a]);if(cross.sqrMagnitude<=1e-18f)throw new InvalidOperationException("146 degenerate cord");var mid=(np[a]+np[b]+np[d])/3;if(Vector3.Dot(cross,V(mid.x,0,mid.z))<0)nt.AddRange(new[]{a,d,b});else nt.AddRange(new[]{a,b,d});};
  // One 1.3mm border, centered on our original lower hem; no parallel band.
@@ -55,32 +51,54 @@ public static Mesh Apply(Mesh old,int hips) {
   np[cols]=np[0];np[2*cols+1]=np[cols+1];
  }
  for(int j=0;j<cols;j++){int a=j,b=j+cols+1;add(a,a+1,b);add(a+1,b+1,b);}
- Action<Vector2[],float,float> stroke=(path,width,lift)=>{
-  int start=np.Count;for(int j=0;j<path.Length;j++){Vector2 direction=path[Mathf.Min(path.Length-1,j+1)]-path[Mathf.Max(0,j-1)];if(direction.sqrMagnitude<1e-14f)throw new InvalidOperationException("146 zero cord tangent");direction.Normalize();Vector2 across=new Vector2(-direction.y,direction.x)*width;np.Add(front(path[j]-across,lift));np.Add(front(path[j]+across,lift));}
-  for(int j=0;j<path.Length-1;j++){int a=start+j*2;add(a,a+2,a+1);add(a+1,a+2,a+3);}
- };
- Func<Vector2[],int,Vector2[]> curve=(controls,steps)=>Enumerable.Range(0,steps+1).Select(j=>{float t=j/(float)steps*((controls.Length-1)/3);int s=Mathf.Min((controls.Length-1)/3-1,(int)t);t-=s;float u=1-t;return u*u*u*controls[s*3]+3*u*u*t*controls[s*3+1]+3*u*t*t*controls[s*3+2]+t*t*t*controls[s*3+3];}).ToArray();
- foreach(int sign in new[]{-1,1}){
-  Func<Vector2[],Vector2[]> mirror=points=>points.Select(q=>Q(sign*q.x,q.y)).ToArray();
-  // Two open cord loops meet at a crossing, with separate free ends.
-  stroke(curve(mirror(new[]{Q(.145f,.222f),Q(.135f,.222f),Q(.128f,.239f),Q(.135f,.235f),Q(.142f,.232f),Q(.143f,.226f),Q(.147f,.2225f)}),16),.00070f,.00060f);
-  stroke(curve(mirror(new[]{Q(.145f,.222f),Q(.149f,.229f),Q(.160f,.241f),Q(.161f,.233f),Q(.163f,.225f),Q(.154f,.222f),Q(.145f,.2228f)}),16),.00070f,.00065f);
-  stroke(curve(mirror(new[]{Q(.144f,.222f),Q(.143f,.215f),Q(.135f,.211f),Q(.133f,.206f)}),10),.00080f,.00065f);
-  stroke(curve(mirror(new[]{Q(.147f,.222f),Q(.149f,.216f),Q(.153f,.212f),Q(.151f,.2038f)}),10),.00072f,.00075f);
-  stroke(curve(mirror(new[]{Q(.1438f,.2228f),Q(.1445f,.224f),Q(.147f,.223f),Q(.1477f,.2215f)}),5),.00085f,.00105f);
-  // Hollow four-point sparks and small stitches, rather than solid stars.
-  foreach(var spark in new[]{V(.096f,.212f,.0046f),V(.177f,.224f,.0040f)}) {
-   float x=spark.x,y=spark.y,r=spark.z;var path=new[]{Q(x,y+r*.55f),Q(x+r*.25f,y+r*.14f),Q(x+r,y),Q(x+r*.25f,y-r*.14f),Q(x,y-r*.55f),Q(x-r*.25f,y-r*.14f),Q(x-r,y),Q(x-r*.25f,y+r*.14f),Q(x,y+r*.55f)};
-   stroke(mirror(path),.00028f,.0006f);
+ // Original artwork is mapped onto exact clipped triangles of our own
+ // current skirt, so the complete printed surface clears the cloth rather
+ // than only its sample vertices. No reference mesh/UV/topology is imported.
+ var newUV=new List<Vector2>();for(int row=0;row<2;row++)for(int j=0;j<=cols;j++)newUV.Add(FishOriginalSkirtPattern.UV(9,4.5f,row==0?5.5f:4.5f));
+ Action<int,float,float,float,float,bool> patch=(cell,x0,yTop,width,height,back)=>{
+  float pixel=FishOriginalSkirtPattern.PixelSize,x1=x0+width*pixel,yBottom=yTop-height*pixel;
+  Func<List<Vector3>,int,float,bool,List<Vector3>> clip=(input,axis,bound,greater)=>{
+   var output=new List<Vector3>();if(input.Count==0)return output;var a=input[input.Count-1];bool ai=greater?a[axis]>=bound:a[axis]<=bound;
+   foreach(var b in input){bool bi=greater?b[axis]>=bound:b[axis]<=bound;if(ai!=bi){float u=(bound-a[axis])/(b[axis]-a[axis]);var v=Vector3.LerpUnclamped(a,b,u);v[axis]=bound;output.Add(v);}if(bi)output.Add(b);a=b;ai=bi;}return output;
+  };
+  int hits=0;foreach(int k in cloth) {
+   if(((p[tri[k]].z+p[tri[k+1]].z+p[tri[k+2]].z)>0)==back)continue;
+   var poly=new List<Vector3>{p[tri[k]],p[tri[k+1]],p[tri[k+2]]};
+   poly=clip(poly,0,x0,true);poly=clip(poly,0,x1,false);poly=clip(poly,1,yBottom,true);poly=clip(poly,1,yTop,false);
+   var clean=new List<Vector3>();foreach(var v in poly)if(clean.Count==0||(v-clean[clean.Count-1]).sqrMagnitude>1e-20f)clean.Add(v);
+   if(clean.Count>1&&(clean[0]-clean[clean.Count-1]).sqrMagnitude<=1e-20f)clean.RemoveAt(clean.Count-1);if(clean.Count<3)continue;
+   int start=np.Count;foreach(var v in clean){np.Add(v+Vector3.forward*(back?-.0006f:.0006f));newUV.Add(FishOriginalSkirtPattern.UV(cell,(v.x-x0)/pixel,(yTop-v.y)/pixel));}
+   for(int i=1;i<clean.Count-1;i++)add(start,start+i,start+i+1);hits++;
   }
-  foreach(var dot in new[]{Q(.073f,.212f),Q(.189f,.229f)})stroke(mirror(new[]{dot-Q(.0005f,0),dot+Q(.0005f,0)}),.00040f,.0006f);
+  if(hits==0)throw new InvalidOperationException("147 original artwork misses actual own cloth "+cell);
+ };
+ float px=FishOriginalSkirtPattern.PixelSize;
+ // The native 96x72 area includes clear pixels around the original89x68 bow.
+ // The upper/lower atlas charts overlap in their8px *native* padding.
+ foreach(bool back in new[]{false,true})foreach(int sign in new[]{-1,1}) {
+  float center=sign*.145f,anchor=sign>0?253.5f:1797.5f;
+  float sourceX=sign>0?205:1750;int top=sign>0?0:2,bottom=top+1;
+  patch(top,center+(sourceX-anchor)*px,.224f+(1780-1757)*px,96,36,back);
+  patch(bottom,center+(sourceX-anchor)*px,.224f+(1780-1793)*px,96,36,back);
+  if(sign>0) {
+   patch(4,center+(159-anchor)*px,.224f+(1780-1794)*px,25,20,back);
+   patch(5,center+(315-anchor)*px,.224f+(1780-1776)*px,25,20,back);
+   patch(8,center+(131-anchor)*px,.224f+(1780-1800)*px,10,10,back);
+   patch(8,center+(359-anchor)*px,.224f+(1780-1774)*px,10,10,back);
+  }else {
+   patch(6,center+(1867-anchor)*px,.224f+(1780-1794)*px,25,20,back);
+   patch(7,center+(1711-anchor)*px,.224f+(1780-1776)*px,25,20,back);
+   patch(8,center+(1910-anchor)*px,.224f+(1780-1800)*px,10,10,back);
+   patch(8,center+(1682-anchor)*px,.224f+(1780-1774)*px,10,10,back);
+  }
  }
+ if(np.Count!=newUV.Count)throw new InvalidOperationException("147 original chart mapping count");
  var part=new Mesh();part.SetVertices(np);part.SetTriangles(nt,0);part.RecalculateNormals();
  var used=keep.Distinct().OrderBy(i=>i).ToArray();var map=new Dictionary<int,int>();for(int i=0;i<used.Length;i++)map[used[i]]=i;
  var pp=used.Select(i=>p[i]).ToList();var nn=used.Select(i=>n[i]).ToList();var st=used.Select(i=>uv[i]).ToList();var cc=used.Select(i=>c[i]).ToList();var ww=used.Select(i=>w[i]).ToList();var tt=keep.Select(i=>map[i]).ToList();int offset=pp.Count;
- pp.AddRange(np);nn.AddRange(part.normals);st.AddRange(Enumerable.Repeat(uv[border[0]],np.Count));cc.AddRange(Enumerable.Repeat(new Color(226/255f,196/255f,125/255f,1),np.Count));ww.AddRange(Enumerable.Repeat(new BoneWeight{boneIndex0=hips,boneIndex1=hips,weight0=1},np.Count));tt.AddRange(nt.Select(i=>i+offset));
+ pp.AddRange(np);nn.AddRange(part.normals);st.AddRange(newUV);cc.AddRange(Enumerable.Repeat(Color.white,np.Count));ww.AddRange(Enumerable.Repeat(new BoneWeight{boneIndex0=hips,boneIndex1=hips,weight0=1},np.Count));tt.AddRange(nt.Select(i=>i+offset));
  var mesh=new Mesh{name=old.name};mesh.SetVertices(pp);mesh.SetNormals(nn);mesh.SetUVs(0,st);mesh.SetColors(cc);mesh.boneWeights=ww.ToArray();mesh.bindposes=old.bindposes;mesh.SetTriangles(tt,0);mesh.RecalculateBounds();
- File.WriteAllText("work/rebuilt-skirt-cord.json","{\"method\":\"actual lower gold replacement after unchanged base QEM/135/141/138; one fine border, small independent looped cord knots, no stems/leaves\",\"outside_actual_vertices\":"+used.Length+",\"removed_actual_vertices\":764,\"removed_actual_triangles\":728,\"new_vertices\":"+np.Count+",\"new_triangles\":"+nt.Count/3+",\"border_full_width_m\":0.0013,\"new_surfaces_retained_complete\":true,\"actual_own_cloth_projected\":true,\"source_pixels_UV_topology_weights_copied\":false}");
+ File.WriteAllText("work/rebuilt-skirt-cord.json","{\"method\":\"explicit user-authorized original skirt motif RGB copied without repaint or resampling; alpha-only foreground separation, original highlights and silhouettes at1.25scale, exact own-cloth clipped surface\",\"outside_actual_vertices\":"+used.Length+",\"removed_actual_vertices\":764,\"removed_actual_triangles\":728,\"new_vertices\":"+np.Count+",\"new_triangles\":"+nt.Count/3+",\"original_art_scale\":1.25,\"bow_instances\":4,\"front_and_back_printed\":true,\"border_full_width_m\":0.0013,\"source_art_RGB_copied\":true,\"source_mesh_UV_topology_weights_copied\":false,\"new_surfaces_retained_complete\":true}");
  UnityEngine.Object.DestroyImmediate(part);UnityEngine.Object.DestroyImmediate(old);return mesh;
 }
 }}

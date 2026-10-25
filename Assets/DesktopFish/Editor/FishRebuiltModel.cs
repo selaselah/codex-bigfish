@@ -1787,6 +1787,7 @@ namespace DesktopFish.Editor
             PaintRearLayers(pixels);
             PaintFinShells(pixels);
             PaintHeadBows(pixels);
+            FishOriginalSkirtPattern.Paint(pixels);
             texture.SetPixels(pixels);texture.Apply();
             File.WriteAllBytes(Folder+"/HairPaint.png",texture.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(texture);
