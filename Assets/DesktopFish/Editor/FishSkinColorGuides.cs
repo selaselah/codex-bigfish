@@ -150,14 +150,18 @@ namespace DesktopFish.Editor {
             }
             return inside?distance:-distance;
         }
-        static readonly float[] Weights={.24f,.26f,.28f};
+        // Nested, overlapping washes replace the old three narrow pigment
+        // bands. The wider falloff crosses the eye cutout continuously, so
+        // open eyes and the opaque closed-eye backing share one soft field.
+        static readonly float[] Weights={.28f,.26f,.22f};
+        static readonly float[] Feather={.012f,.016f,.018f};
         public static float Blush(Vector3 point) {
             int side=point.x<0?0:1;Vector2 p=new Vector2(Mathf.Abs(point.x),point.y);
             float amount=0;
             for(int level=0;level<3;level++) {
                 float d=Distance(Contours[level*2+side],p);
-                amount+=Weights[level]*Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.007f,.007f,d));
-                if(level==2)amount+=.10f*Mathf.SmoothStep(0,1,Mathf.InverseLerp(0,.012f,d));
+                amount+=Weights[level]*Mathf.SmoothStep(0,1,
+                    Mathf.InverseLerp(-Feather[level],Feather[level],d));
             }
             return Mathf.Clamp01(amount);
         }

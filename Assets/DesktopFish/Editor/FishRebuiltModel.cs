@@ -2000,7 +2000,9 @@ namespace DesktopFish.Editor
                 }
             }
         }
-        static Color SkinPaintColor(Vector3 registered)=>Color.Lerp(Hex("FFF2E8"),Hex("F2B8AB"),FishSkinColorGuides.Blush(registered));
+        // A pale neutral base and rose pigment keep the face from reading as
+        // orange beside the white eye openings. Both skin charts use this field.
+        static Color SkinPaintColor(Vector3 registered)=>Color.Lerp(Hex("FFF6EF"),Hex("F6C2C2"),FishSkinColorGuides.Blush(registered));
         static Vector2 OpaqueSkinUV(Vector3 registered,int sign) {
             float u=Mathf.Clamp01(Mathf.Abs(registered.x)/.24f),v=Mathf.Clamp01((registered.y-.58f)/.16f);
             int origin=sign<0?1696:1856;
