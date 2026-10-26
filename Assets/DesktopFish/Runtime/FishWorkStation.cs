@@ -12,6 +12,8 @@ namespace DesktopFish
         public static readonly Vector3 CrankCenter = new Vector3(.120f, .435f, .176f);
         public static readonly Vector3 BraceWrist = new Vector3(-.045f, .478f, .176f);
         public const float CrankRadius = .024f;
+        public static readonly Vector3 CookerPort = new Vector3(.046f, .038f, -.012f);
+        const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         public static float CrankAngle(float time) => time * 4.4f;
         public static Vector3 CrankGrip(float time) => CrankCenter +
             new Vector3(Mathf.Cos(CrankAngle(time)) * CrankRadius, Mathf.Sin(CrankAngle(time)) * CrankRadius, .009f);
@@ -32,10 +34,11 @@ namespace DesktopFish
 
         sealed class Pot
         {
-            public Transform root, spark;
-            public Mesh steam;
-            public Vector3[] steamVertices = new Vector3[28];
-            public Color[] steamColors = new Color[28];
+            public Transform root, wobble, lid, spark;
+            public Mesh steam, cable;
+            public Vector3[] steamVertices = new Vector3[SteamPuffs * (1 + 2 * PuffSides)];
+            public Color[] steamColors = new Color[SteamPuffs * (1 + 2 * PuffSides)];
+            public Vector3[] cableVertices = new Vector3[CableSteps * 4];
             public Vector3 cableStart, cableEnd;
         }
 
@@ -85,19 +88,35 @@ namespace DesktopFish
             current.localScale = Vector3.one * (1 + Mathf.Sin(time*4.4f)*.10f);
             for(int i=0;i<pots.Count;i++)
             {
-                var p=pots[i];float phase=Mathf.Repeat(time*.55f-i*.19f,1);
+                var p=pots[i];float seed=i*1.73f;
+                // Each cooker has its own boiling rhythm. Rock the cooker above
+                // its fixed floor and let the lid briefly release the pressure.
+                p.wobble.localPosition=new Vector3(Mathf.Sin(time*26+seed)*.0015f,
+                    Mathf.Abs(Mathf.Sin(time*17+seed))*.0014f,0)*weight;
+                p.wobble.localRotation=Quaternion.Euler(0,0,(Mathf.Sin(time*24+seed)*1.8f+Mathf.Sin(time*39+seed)*.6f)*weight);
+                float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*weight;
+                p.lid.localPosition=Vector3.up*(pressure*.0045f);
+                p.lid.localRotation=Quaternion.Euler(0,0,Mathf.Sin(time*21+seed)*pressure*1.7f);
+                UpdateCable(p);
+                float phase=Mathf.Repeat(time*.55f-i*.19f,1);
                 p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase)));
-                for(int strand=0;strand<2;strand++) for(int k=0;k<7;k++)
+                for(int puff=0;puff<SteamPuffs;puff++)
                 {
-                    float t=k/6f, pulse=Mathf.Repeat(time*.65f+strand*.45f+i*.2f,1);
-                    float rise=t*.065f+pulse*.018f;
-                    float x=(strand==0?-.013f:.013f)+Mathf.Sin(t*6-time*2.4f+strand)*.006f;
-                    float width=Mathf.Max(.00001f,.0035f*Mathf.Sin(Mathf.PI*t));
-                    int n=(strand*7+k)*2;
-                    p.steamVertices[n]=new Vector3(x-width,.097f+rise,.018f);
-                    p.steamVertices[n+1]=new Vector3(x+width,.097f+rise,.018f);
-                    float alpha=Mathf.Sin(Mathf.PI*t)*(.58f+.12f*Mathf.Sin(time*2+i));
-                    p.steamColors[n]=p.steamColors[n+1]=new Color(.55f,.76f,.81f,alpha);
+                    float life=Mathf.Repeat(time*.52f+puff/9f+seed*.13f,1);
+                    float x=(puff%3-1)*.014f+Mathf.Sin(life*5+seed+puff)*(.003f+.005f*life);
+                    Vector3 center=new Vector3(x,.098f+life*.080f+pressure*.003f,.032f);
+                    float radius=.0045f+.0085f*life;
+                    float alpha=Mathf.Sin(life*Mathf.PI)*.67f*weight;
+                    int n=puff*(1+2*PuffSides);p.steamVertices[n]=center;
+                    p.steamColors[n]=new Color(.92f,.97f,1,alpha);
+                    for(int ring=0;ring<2;ring++)for(int j=0;j<PuffSides;j++)
+                    {
+                        float a=j*Mathf.PI*2/PuffSides;
+                        float r=radius*(ring==0?1:1.5f)*(1+.11f*Mathf.Sin(a*3+life*3));
+                        int v=n+1+ring*PuffSides+j;
+                        p.steamVertices[v]=center+new Vector3(Mathf.Cos(a)*r,Mathf.Sin(a)*r,0);
+                        p.steamColors[v]=ring==0?new Color(.64f,.83f,.90f,alpha*.60f):new Color(.64f,.83f,.90f,0);
+                    }
                 }
                 p.steam.vertices=p.steamVertices;p.steam.colors=p.steamColors;p.steam.RecalculateBounds();
             }
@@ -126,22 +145,27 @@ namespace DesktopFish
                 p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size,.085f+row*.085f*size,.280f-row*.025f);
                 p.root.localScale=Vector3.one*size;
                 p.cableStart=new Vector3(.063f,.365f,.186f);
-                p.cableEnd=p.root.localPosition+new Vector3(.046f,.038f,-.012f)*size;
-                // Cable belongs to this pot but is authored in station space.
-                var wire=p.root.Find("Power cable");
-                wire.localPosition=Vector3.zero;wire.localScale=Vector3.one;
-                var shape=new Shape();const int steps=18;
-                for(int j=0;j<steps;j++)
-                {
-                    Vector3 a=Cable(p.cableStart,p.cableEnd,j/(float)steps),b=Cable(p.cableStart,p.cableEnd,(j+1f)/steps);
-                    Vector3 normal=Vector3.Cross(b-a,Vector3.forward).normalized*.0022f;
-                    shape.Quad(p.root.InverseTransformPoint(root.TransformPoint(a-normal)),p.root.InverseTransformPoint(root.TransformPoint(a+normal)),
-                        p.root.InverseTransformPoint(root.TransformPoint(b+normal)),p.root.InverseTransformPoint(root.TransformPoint(b-normal)),Navy);
-                }
-                var f=wire.GetComponent<MeshFilter>();if(f.sharedMesh){meshes.Remove(f.sharedMesh);Release(f.sharedMesh);}f.sharedMesh=Own(shape.Make("Connected power cable"));
+                UpdateCable(p);
                 // Electric pulse travels in station coordinates, independent of pot scaling.
                 p.spark.localScale=Vector3.one/size;
             }
+        }
+
+        void UpdateCable(Pot p)
+        {
+            // Keep the actual plug connected while the cooker rocks. The cable
+            // mesh and its buffers are reused, rather than rebuilt each frame.
+            p.cableEnd=root.InverseTransformPoint(p.wobble.TransformPoint(CookerPort));
+            for(int j=0;j<CableSteps;j++)
+            {
+                Vector3 a=Cable(p.cableStart,p.cableEnd,j/(float)CableSteps),b=Cable(p.cableStart,p.cableEnd,(j+1f)/CableSteps);
+                Vector3 normal=Vector3.Cross(b-a,Vector3.forward).normalized*.0022f;int n=j*4;
+                p.cableVertices[n]=p.root.InverseTransformPoint(root.TransformPoint(a-normal));
+                p.cableVertices[n+1]=p.root.InverseTransformPoint(root.TransformPoint(a+normal));
+                p.cableVertices[n+2]=p.root.InverseTransformPoint(root.TransformPoint(b+normal));
+                p.cableVertices[n+3]=p.root.InverseTransformPoint(root.TransformPoint(b-normal));
+            }
+            p.cable.vertices=p.cableVertices;p.cable.RecalculateBounds();
         }
 
         static Vector3 Cable(Vector3 start, Vector3 end, float t)
@@ -153,26 +177,65 @@ namespace DesktopFish
         Pot CreatePot(int index)
         {
             var p=new Pot {root=Child(root,"Rice cooker "+(index+1))};
+            p.wobble=Child(p.root,"Cooker wobble");
             var body=new Shape();
-            body.Lathe(new[] {new Vector2(.039f,0),new Vector2(.053f,.012f),new Vector2(.055f,.057f),new Vector2(.048f,.072f)},12,Ivory);
-            body.Lathe(new[] {new Vector2(.049f,.070f),new Vector2(.054f,.075f),new Vector2(.046f,.083f),new Vector2(.018f,.088f)},12,Teal);
-            body.Box(new Vector3(0,.093f,0),new Vector3(.026f,.011f,.017f),Navy);
-            body.Box(new Vector3(0,.033f,.054f),new Vector3(.031f,.024f,.004f),Navy);
-            body.Box(new Vector3(0,.036f,.057f),new Vector3(.018f,.009f,.003f),new Color(.62f,.88f,.80f));
-            body.Box(new Vector3(.060f,.042f,0),new Vector3(.017f,.013f,.026f),Teal);
-            body.Box(new Vector3(-.060f,.042f,0),new Vector3(.017f,.013f,.026f),Teal);
-            Part(p.root,"Rounded rice cooker, lid and controls",body);
-            var wire=Child(p.root,"Power cable");wire.gameObject.AddComponent<MeshFilter>();wire.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;
+            body.Lathe(new[] {new Vector2(.035f,0),new Vector2(.046f,.006f),new Vector2(.053f,.019f),
+                new Vector2(.055f,.041f),new Vector2(.053f,.057f),new Vector2(.048f,.068f)},20,Ivory);
+            foreach(float sign in new[]{-1f,1f})
+            {
+                var loop=new Vector3[16];for(int j=0;j<loop.Length;j++){float a=j*Mathf.PI*2/loop.Length;loop[j]=new Vector3(sign*.057f+Mathf.Cos(a)*.011f,.038f+Mathf.Sin(a)*.009f,0);}
+                body.Tube(loop,.0032f,6,Teal,true);
+            }
+            Part(p.wobble,"Round cartoon cooker",body);
+            var lid=new Shape();lid.Lathe(new[] {new Vector2(.047f,.068f),new Vector2(.054f,.073f),new Vector2(.052f,.079f),new Vector2(.040f,.085f),new Vector2(.020f,.089f)},20,Teal);
+            lid.Lathe(new[] {new Vector2(.006f,.090f),new Vector2(.012f,.093f),new Vector2(.011f,.097f),new Vector2(.004f,.100f)},12,Navy);
+            p.lid=Part(p.wobble,"Bouncing lid",lid);
+            var face=new Shape();
+            foreach(float sign in new[]{-1f,1f})
+            {
+                face.FaceOval(new Vector2(sign*.015f,.044f),new Vector2(.0033f,.0058f),Navy);
+                face.FaceOval(new Vector2(sign*.015f-.0009f,.046f),new Vector2(.0011f,.0016f),Ivory,.0015f);
+                face.FaceOval(new Vector2(sign*.026f,.033f),new Vector2(.0055f,.0028f),new Color(1,.68f,.66f));
+            }
+            for(int j=0;j<12;j++)
+            {
+                float x0=Mathf.Lerp(-.009f,.009f,j/12f),x1=Mathf.Lerp(-.009f,.009f,(j+1)/12f);
+                float y0=.026f+.005f*Mathf.Pow(x0/.009f,2),y1=.026f+.005f*Mathf.Pow(x1/.009f,2);
+                face.Quad(FacePoint(x0,y0-.0008f),FacePoint(x0,y0+.0008f),FacePoint(x1,y1+.0008f),FacePoint(x1,y1-.0008f),Navy);
+            }
+            face.FaceOval(new Vector2(0,.013f),new Vector2(.012f,.005f),Teal);
+            face.FaceOval(new Vector2(0,.013f),new Vector2(.006f,.0028f),Gold,.0017f);
+            Part(p.wobble,"Smiling face and heating light",face);
+            var wire=Child(p.root,"Power cable");p.cable=Own(new Mesh{name="Connected power cable"});p.cable.MarkDynamic();
+            p.cable.vertices=p.cableVertices;var cableColors=new Color[p.cableVertices.Length];var cableNormals=new Vector3[cableColors.Length];var cableTriangles=new List<int>();
+            for(int j=0;j<cableColors.Length;j++){cableColors[j]=Navy;cableNormals[j]=Vector3.forward;}
+            for(int j=0;j<CableSteps;j++){int n=j*4;cableTriangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
+            p.cable.colors=cableColors;p.cable.normals=cableNormals;p.cable.triangles=cableTriangles.ToArray();
+            wire.gameObject.AddComponent<MeshFilter>().sharedMesh=p.cable;wire.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;
             var spark=new Shape();spark.Box(Vector3.zero,new Vector3(.005f,.010f,.005f),Gold);
             p.spark=Part(p.root,"Electric pulse",spark);
             // Steam has its own transparent material and no opaque shadow quads.
             p.steam=Own(new Mesh {name="Rising steam"});p.steam.MarkDynamic();
             p.steam.vertices=p.steamVertices;p.steam.colors=p.steamColors;
             var triangles=new List<int>();
-            for(int s=0;s<2;s++)for(int j=0;j<6;j++){int n=(s*7+j)*2;triangles.AddRange(new[]{n,n+1,n+3,n,n+3,n+2});}
-            p.steam.triangles=triangles.ToArray();var normals=new Vector3[28];for(int j=0;j<28;j++)normals[j]=Vector3.forward;p.steam.normals=normals;
-            var steam=Child(p.root,"Steam");steam.gameObject.AddComponent<MeshFilter>().sharedMesh=p.steam;steam.gameObject.AddComponent<MeshRenderer>().sharedMaterial=vapor;
+            for(int s=0;s<SteamPuffs;s++)for(int j=0;j<PuffSides;j++)
+            {
+                int n=s*(1+2*PuffSides),next=(j+1)%PuffSides;
+                triangles.AddRange(new[]{n,n+1+j,n+1+next,n+1+j,n+1+PuffSides+j,n+1+PuffSides+next,n+1+j,n+1+PuffSides+next,n+1+next});
+            }
+            p.steam.triangles=triangles.ToArray();var normals=new Vector3[p.steamVertices.Length];for(int j=0;j<normals.Length;j++)normals[j]=Vector3.forward;p.steam.normals=normals;
+            var steam=Child(p.wobble,"Steam");steam.gameObject.AddComponent<MeshFilter>().sharedMesh=p.steam;steam.gameObject.AddComponent<MeshRenderer>().sharedMaterial=vapor;
             return p;
+        }
+
+        static Vector3 FacePoint(float x,float y,float offset=.001f)
+        {
+            // The expression follows the rounded front rather than floating on
+            // a flat sign. Keep it just above the faceted 20-column body surface.
+            float r=y<.019f?Mathf.Lerp(.046f,.053f,Mathf.InverseLerp(.006f,.019f,y)):
+                y<.041f?Mathf.Lerp(.053f,.055f,Mathf.InverseLerp(.019f,.041f,y)):
+                Mathf.Lerp(.055f,.053f,Mathf.InverseLerp(.041f,.057f,y));
+            return new Vector3(x,y,Mathf.Sqrt(Mathf.Max(0,r*r-x*x))+offset);
         }
 
         Transform Part(Transform parent,string name,Shape shape)
@@ -196,6 +259,24 @@ namespace DesktopFish
                 for(int i=0;i<24;i+=4)Quad(center+v[ids[i]],center+v[ids[i+1]],center+v[ids[i+2]],center+v[ids[i+3]],color);
             }
             public void Polygon(Vector3[] p,Color color){int n=points.Count;points.AddRange(p);foreach(var unused in p)colors.Add(color);for(int i=1;i<p.Length-1;i++)triangles.AddRange(new[]{n,n+i,n+i+1});}
+            public void FaceOval(Vector2 center,Vector2 radius,Color color,float offset=.001f)
+            {
+                const int steps=16;int n=points.Count;points.Add(FacePoint(center.x,center.y,offset));colors.Add(color);
+                for(int j=0;j<steps;j++){float a=j*Mathf.PI*2/steps;points.Add(FacePoint(center.x+Mathf.Cos(a)*radius.x,center.y+Mathf.Sin(a)*radius.y,offset));colors.Add(color);}
+                for(int j=0;j<steps;j++)triangles.AddRange(new[]{n,n+1+j,n+1+(j+1)%steps});
+            }
+            public void Tube(Vector3[] path,float radius,int sides,Color color,bool closed)
+            {
+                int n=points.Count;
+                for(int i=0;i<path.Length;i++)
+                {
+                    Vector3 tangent=(path[(i+1)%path.Length]-path[(i+path.Length-1)%path.Length]).normalized;
+                    Vector3 normal=Vector3.Cross(tangent,Vector3.forward).normalized;
+                    for(int j=0;j<sides;j++){float a=j*Mathf.PI*2/sides;points.Add(path[i]+radius*(normal*Mathf.Cos(a)+Vector3.forward*Mathf.Sin(a)));colors.Add(color);}
+                }
+                for(int i=0;i<(closed?path.Length:path.Length-1);i++)for(int j=0;j<sides;j++)
+                {int a=n+i*sides+j,b=n+i*sides+(j+1)%sides,c=n+(i+1)%path.Length*sides+(j+1)%sides,d=n+(i+1)%path.Length*sides+j;triangles.AddRange(new[]{a,b,c,a,c,d});}
+            }
             public void Lathe(Vector2[] profile,int sides,Color color)
             {
                 int n=points.Count;

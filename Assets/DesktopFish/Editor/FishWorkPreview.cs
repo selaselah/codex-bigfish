@@ -11,11 +11,14 @@ namespace DesktopFish.Editor
         {
             public int sampledFrames, countTransitions, maxCookers, avatarTriangles, maxPropTriangles;
             public float maxRightWristError, maxLeftWristError, maxArmLengthChange, maxCrankPhaseError, maxCableEndpointError;
+            public float maxCookerRockDegrees, maxLidLift, maxSteamAlpha, maxSteamTravel, maxCookerPhaseDifference;
+            public float minimumOpaqueAlpha=1;
             public float minimumViewportMargin=1;
             public bool passed, allJobsRepresented;
         }
         public static void Render() => Render("work/hand-generator-156");
         public static void RenderLargeCookers() => Render("work/rice-cooker-size-157");
+        public static void RenderCartoonCookers() => Render("work/cartoon-cookers-158");
 
         static void Render(string output)
         {
@@ -69,12 +72,14 @@ namespace DesktopFish.Editor
                         report.minimumViewportMargin=Mathf.Min(report.minimumViewportMargin,v.x,1-v.x,v.y,1-v.y);
                     }
                     camera.Render();RenderTexture.active=target;image.ReadPixels(new Rect(0,0,480,640),0,0);image.Apply();
+                    foreach(var pixel in image.GetPixels32())report.minimumOpaqueAlpha=Mathf.Min(report.minimumOpaqueAlpha,pixel.a/255f);
                     File.WriteAllBytes(output+"/"+path+".png",image.EncodeToPNG());
                 };
                 motion.Tick(0,1,0,0,"idle",false);station.Tick(0,motion.WorkWeight,0);capture("idle");
                 if(station.Visible)throw new InvalidOperationException("Work props visible while idle.");
                 // Settle the same exponential blend used by the actual player.
                 for(int i=0;i<150;i++)motion.Tick(i/30f,1/30f,0,0,"working",false);
+                Vector3 firstSteam=Vector3.zero;
                 for(int f=0;f<48;f++)
                 {
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
@@ -84,6 +89,21 @@ namespace DesktopFish.Editor
                     report.maxLeftWristError=Mathf.Max(report.maxLeftWristError,Vector3.Distance(left,FishWorkStation.BraceWrist));
                     var actualGrip=station.Root.Find("Hand crank/Crank grip");
                     report.maxCrankPhaseError=Mathf.Max(report.maxCrankPhaseError,Vector3.Distance(model.InverseTransformPoint(actualGrip.position),FishWorkStation.CrankGrip(time)));
+                    var wobble=station.Root.Find("Rice cooker 1/Cooker wobble");
+                    report.maxCookerRockDegrees=Mathf.Max(report.maxCookerRockDegrees,Quaternion.Angle(wobble.localRotation,Quaternion.identity));
+                    report.maxLidLift=Mathf.Max(report.maxLidLift,wobble.Find("Bouncing lid").localPosition.y);
+                    var steam=wobble.Find("Steam").GetComponent<MeshFilter>().sharedMesh;
+                    report.maxSteamAlpha=Mathf.Max(report.maxSteamAlpha,steam.colors.Max(c=>c.a));
+                    if(f==0)firstSteam=steam.vertices[0];
+                    report.maxSteamTravel=Mathf.Max(report.maxSteamTravel,Vector3.Distance(firstSteam,steam.vertices[0]));
+                    report.maxCookerPhaseDifference=Mathf.Max(report.maxCookerPhaseDifference,Quaternion.Angle(wobble.localRotation,station.Root.Find("Rice cooker 2/Cooker wobble").localRotation));
+                    foreach(var wire in station.Root.GetComponentsInChildren<MeshFilter>().Where(m=>m.name=="Power cable"))
+                    {
+                        var vertices=wire.sharedMesh.vertices;
+                        Vector3 end=wire.transform.TransformPoint((vertices[vertices.Length-1]+vertices[vertices.Length-2])*.5f);
+                        Vector3 plug=wire.transform.parent.Find("Cooker wobble").TransformPoint(FishWorkStation.CookerPort);
+                        report.maxCableEndpointError=Mathf.Max(report.maxCableEndpointError,Vector3.Distance(end,plug));
+                    }
                     for(int side=0;side<2;side++)
                     {
                         string prefix="J_Bip_"+sides[side]+"_";
@@ -106,8 +126,9 @@ namespace DesktopFish.Editor
                             if(Vector3.Cross(vertices[triangles[i+1]]-vertices[triangles[i]],vertices[triangles[i+2]]-vertices[triangles[i]]).sqrMagnitude<1e-18f)
                                 throw new InvalidOperationException("Degenerate work prop in "+filter.name);
                         if(filter.name=="Power cable") {
-                            Vector3 end=(vertices[vertices.Length-1]+vertices[vertices.Length-2])*.5f;
-                            report.maxCableEndpointError=Mathf.Max(report.maxCableEndpointError,Vector3.Distance(end,new Vector3(.046f,.038f,-.012f)));
+                            Vector3 end=filter.transform.TransformPoint((vertices[vertices.Length-1]+vertices[vertices.Length-2])*.5f);
+                            Vector3 plug=filter.transform.parent.Find("Cooker wobble").TransformPoint(FishWorkStation.CookerPort);
+                            report.maxCableEndpointError=Mathf.Max(report.maxCableEndpointError,Vector3.Distance(end,plug));
                         }
                     }
                     capture("jobs-"+count);
@@ -122,6 +143,10 @@ namespace DesktopFish.Editor
                 if(report.maxRightWristError>.0002f||report.maxLeftWristError>.0002f||report.maxArmLengthChange>.000001f||
                     report.maxCrankPhaseError>.000001f||report.maxCableEndpointError>.000001f||report.minimumViewportMargin<.02f)
                     throw new InvalidOperationException("Crank contact or arm length validation failed: "+JsonUtility.ToJson(report));
+                if(report.maxCookerRockDegrees<1||report.maxLidLift<.003f||report.maxSteamAlpha<.6f||report.maxSteamTravel<.02f||report.maxCookerPhaseDifference<1)
+                    throw new InvalidOperationException("Cookers are not visibly boiling: "+JsonUtility.ToJson(report));
+                if(report.minimumOpaqueAlpha<.999f)
+                    throw new InvalidOperationException("Steam reduced the opaque background alpha: "+JsonUtility.ToJson(report));
                 report.passed=true;File.WriteAllText(output+"/validation.json",JsonUtility.ToJson(report,true));
                 Debug.Log("Hand generator preview passed: "+JsonUtility.ToJson(report));
             }

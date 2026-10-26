@@ -10,7 +10,7 @@ Shader "DesktopFish/WorkProps"
         Tags { "RenderType"="Opaque" "Queue"="Geometry" }
         Pass {
             Cull Off
-            Blend [_SrcBlend] [_DstBlend]
+            Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha
             ZWrite [_ZWrite]
             CGPROGRAM
             #pragma vertex vert
