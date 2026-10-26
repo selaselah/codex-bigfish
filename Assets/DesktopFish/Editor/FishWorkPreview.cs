@@ -14,9 +14,12 @@ namespace DesktopFish.Editor
             public float minimumViewportMargin=1;
             public bool passed, allJobsRepresented;
         }
-        public static void Render()
+        public static void Render() => Render("work/hand-generator-156");
+        public static void RenderLargeCookers() => Render("work/rice-cooker-size-157");
+
+        static void Render(string output)
         {
-            string output="work/hand-generator-156";Directory.CreateDirectory(output+"/frames");
+            Directory.CreateDirectory(output+"/frames");
             FishBuild.UseRebuilt=true;FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var model=companion.model;var motion=new FishMotion(model){randomActions=false};

@@ -115,13 +115,15 @@ namespace DesktopFish
                 Release(p.root.gameObject);pots.RemoveAt(pots.Count-1);
             }
             while(pots.Count<count) pots.Add(CreatePot(pots.Count));
-            int columns=Mathf.Min(4,Mathf.Max(1,count)),rows=Mathf.CeilToInt(count/(float)columns);
-            float size=Mathf.Min(1,2f/Mathf.Max(1,rows));
+            int columns=Mathf.Min(count<=6?3:4,Mathf.Max(1,count)),rows=Mathf.CeilToInt(count/(float)columns);
+            // Make a few cookers substantially larger; only shrink when their
+            // combined footprint needs to fit the available width or height.
+            float size=Mathf.Min(1.75f,.90f/(.137f+(columns-1)*.155f),.26f/(.10f+Mathf.Max(0,rows-1)*.085f));
             for(int i=0;i<count;i++)
             {
                 int row=i/columns,column=i%columns,inRow=Mathf.Min(columns,count-row*columns);
                 var p=pots[i];
-                p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.128f*size,.067f+row*.115f*size,.265f+row*.012f);
+                p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size,.085f+row*.085f*size,.280f-row*.025f);
                 p.root.localScale=Vector3.one*size;
                 p.cableStart=new Vector3(.063f,.365f,.186f);
                 p.cableEnd=p.root.localPosition+new Vector3(.046f,.038f,-.012f)*size;
