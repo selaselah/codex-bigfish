@@ -252,12 +252,22 @@ namespace DesktopFish
             foreach(float sign in new[]{-1f,1f})
             {
                 if(p.style==CookerStyle.ModernCream)
-                    body.Box(new Vector3(sign*.060f,.068f,0),new Vector3(.019f,.012f,.026f),trim);
+                    body.RoundedBlock(new Vector3(sign*.060f,.068f,0),new Vector3(.019f,.012f,.026f),.002f,trim);
+                else if(p.style==CookerStyle.RetroGold)
+                {
+                    body.RoundedBlock(new Vector3(sign*.055f,.066f,0),new Vector3(.012f,.022f,.024f),.003f,new Color(.97f,.95f,.87f));
+                    body.RoundedBlock(new Vector3(sign*.058f,.074f,0),new Vector3(.013f,.006f,.025f),.0015f,trim);
+                }
+                else if(p.style==CookerStyle.CoralMetal)
+                {
+                    body.RoundedBlock(new Vector3(sign*.057f,.068f,0),new Vector3(.017f,.005f,.016f),.0015f,trim);
+                    body.RoundedBlock(new Vector3(sign*.065f,.073f,0),new Vector3(.006f,.015f,.017f),.0015f,trim);
+                }
                 else
                 {
-                    var loop=new Vector3[16];float y=p.style==CookerStyle.CoralMetal?.064f:.057f;
-                    for(int j=0;j<loop.Length;j++){float a=j*Mathf.PI*2/loop.Length;loop[j]=new Vector3(sign*.058f+Mathf.Cos(a)*.010f,y+Mathf.Sin(a)*.006f,0);}
-                    body.Tube(loop,.0032f,6,trim,true);
+                    float y=p.style==CookerStyle.SlateBlue?.064f:.058f;
+                    body.RoundedBlock(new Vector3(sign*.060f,y,0),new Vector3(.024f,.013f,.028f),.003f,trim);
+                    body.RoundedBlock(new Vector3(sign*.062f,y+.005f,0),new Vector3(.016f,.003f,.020f),.001f,new Color(.38f,.45f,.48f));
                 }
             }
             Func<float,float,float,Vector3> surface=(x,y,offset)=>SurfacePoint(profile,exponent,depth,x,y,offset);
@@ -300,7 +310,8 @@ namespace DesktopFish
             else if(p.style==CookerStyle.SlateBlue)
             {
                 lid.Lathe(new[]{new Vector2(.048f,.071f),new Vector2(.054f,.076f),new Vector2(.049f,.084f),new Vector2(.025f,.090f)},20,silver,exponent,depth);
-                CarryHandle(lid,.094f,.012f,.003f,trim);
+                lid.RoundedBlock(new Vector3(0,.092f,0),new Vector3(.029f,.004f,.021f),.0015f,trim);
+                lid.RoundedBlock(new Vector3(0,.096f,0),new Vector3(.020f,.008f,.013f),.0025f,trim);
                 panel.ControlHousingRect(surface,front,new Vector2(.010f,.032f),new Vector2(.027f,.043f),.003f,charcoal);
                 panel.SurfaceRect(front,new Vector2(.010f,.043f),new Vector2(.018f,.004f),.0015f,Gold,.0017f);
                 panel.SurfaceRect(front,new Vector2(.010f,.034f),new Vector2(.018f,.004f),.0015f,new Color(.97f,.49f,.18f),.0017f);
@@ -329,8 +340,11 @@ namespace DesktopFish
 
         static void CarryHandle(Shape shape,float y,float width,float height,Color color)
         {
-            var path=new Vector3[20];for(int j=0;j<path.Length;j++){float a=j*Mathf.PI*2/path.Length;path[j]=new Vector3(Mathf.Sign(Mathf.Cos(a))*Mathf.Pow(Mathf.Abs(Mathf.Cos(a)),.55f)*width,y+Mathf.Sin(a)*height,0);}
-            shape.Tube(path,.003f,6,color,true);
+            // A rigid bridge and two supports, rather than an oval wire ring.
+            float top=y+height+.005f;
+            shape.RoundedBlock(new Vector3(0,top,0),new Vector3(width*2+.006f,.005f,.014f),.002f,color);
+            foreach(float sign in new[]{-1f,1f})
+                shape.RoundedBlock(new Vector3(sign*width,top-.005f,0),new Vector3(.006f,.014f,.014f),.0015f,color);
         }
 
         static Vector3 SurfacePoint(Vector2[] profile,float exponent,float depth,float x,float y,float offset)
@@ -360,6 +374,24 @@ namespace DesktopFish
                 Vector3 a=size*.5f;Vector3[] v={new Vector3(-a.x,-a.y,-a.z),new Vector3(a.x,-a.y,-a.z),new Vector3(a.x,a.y,-a.z),new Vector3(-a.x,a.y,-a.z),new Vector3(-a.x,-a.y,a.z),new Vector3(a.x,-a.y,a.z),new Vector3(a.x,a.y,a.z),new Vector3(-a.x,a.y,a.z)};
                 int[] ids={0,3,2,1,4,5,6,7,0,4,7,3,1,2,6,5,3,7,6,2,0,1,5,4};
                 for(int i=0;i<24;i+=4)Quad(center+v[ids[i]],center+v[ids[i+1]],center+v[ids[i+2]],center+v[ids[i+3]],color);
+            }
+            public void RoundedBlock(Vector3 center,Vector3 size,float bevel,Color color)
+            {
+                const int sides=8;Vector3 half=size*.5f;
+                float r=Mathf.Min(bevel,half.x*.45f,half.y*.45f,half.z*.45f);int n=points.Count;
+                float[] x={-half.x,-half.x+r,half.x-r,half.x};
+                for(int ring=0;ring<4;ring++)for(int j=0;j<sides;j++)
+                {
+                    float a=j*Mathf.PI*2/sides,c=Mathf.Cos(a),s=Mathf.Sin(a),inset=ring==0||ring==3?r:0;
+                    points.Add(center+new Vector3(x[ring],Mathf.Sign(c)*Mathf.Sqrt(Mathf.Abs(c))*(half.y-inset),Mathf.Sign(s)*Mathf.Sqrt(Mathf.Abs(s))*(half.z-inset)));colors.Add(color);
+                }
+                for(int ring=0;ring<3;ring++)for(int j=0;j<sides;j++)
+                {int a=n+ring*sides+j,b=n+ring*sides+(j+1)%sides,c=b+sides,d=a+sides;triangles.AddRange(new[]{a,b,c,a,c,d});}
+                for(int end=0;end<2;end++)
+                {
+                    int mid=points.Count;points.Add(center+new Vector3(x[end==0?0:3],0,0));colors.Add(color);
+                    for(int j=0;j<sides;j++){int a=n+(end==0?0:3*sides)+j,b=n+(end==0?0:3*sides)+(j+1)%sides;triangles.AddRange(end==0?new[]{mid,b,a}:new[]{mid,a,b});}
+                }
             }
             public void Polygon(Vector3[] p,Color color){int n=points.Count;points.AddRange(p);foreach(var unused in p)colors.Add(color);for(int i=1;i<p.Length-1;i++)triangles.AddRange(new[]{n,n+i,n+i+1});}
             public void SurfaceOval(Func<float,float,float,Vector3> point,Vector2 center,Vector2 radius,Color color,float offset=.0012f)

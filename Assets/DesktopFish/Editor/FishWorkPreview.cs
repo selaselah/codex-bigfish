@@ -22,6 +22,7 @@ namespace DesktopFish.Editor
         public static void RenderLargeCookers() => Render("work/rice-cooker-size-157");
         public static void RenderCartoonCookers() => Render("work/cartoon-cookers-158");
         public static void RenderCookerVariants() => Render("work/cooker-variants-159");
+        public static void RenderCookerHandles() => Render("work/cooker-handles-160");
 
         static void Render(string output)
         {
