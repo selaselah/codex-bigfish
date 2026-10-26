@@ -99,7 +99,7 @@ namespace DesktopFish.Editor
             companion.model = model.transform;
             companion.view = camera;
             companion.face = model.GetComponentsInChildren<SkinnedMeshRenderer>()
-                .OrderByDescending(r => r.sharedMesh ? r.sharedMesh.blendShapeCount : 0).FirstOrDefault();
+                .OrderByDescending(r => r.name=="Face").ThenByDescending(r => r.sharedMesh ? r.sharedMesh.blendShapeCount : 0).FirstOrDefault();
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
             var desktopWindow = new GameObject("Desktop Window").AddComponent<UniWindowController>();
             desktopWindow.forceWindowed = true;
@@ -282,11 +282,12 @@ namespace DesktopFish.Editor
 
         internal static void ApplyMotionExpressions(FishCompanion companion, FishMotion motion)
         {
-            for (int shape = 0; shape < companion.face.sharedMesh.blendShapeCount; shape++)
+            foreach(var renderer in companion.model.GetComponentsInChildren<SkinnedMeshRenderer>())
+            for (int shape = 0; shape < renderer.sharedMesh.blendShapeCount; shape++)
             {
-                string name = companion.face.sharedMesh.GetBlendShapeName(shape);
-                companion.face.SetBlendShapeWeight(shape, name == "Fcl_EYE_Close" ? motion.BlinkWeight() :
-                    name == "Fcl_EYE_Joy" ? motion.SmileEyes : name == "Fcl_ALL_Joy" ? motion.Joy : 0);
+                string name = renderer.sharedMesh.GetBlendShapeName(shape);
+                renderer.SetBlendShapeWeight(shape, name == "Fcl_EYE_Close" ? motion.BlinkWeight() :
+                    name == "Fcl_EYE_Joy" ? Mathf.Max(0,motion.SmileEyes-motion.Joy) : name == "Fcl_ALL_Joy" ? motion.Joy : 0);
             }
         }
 

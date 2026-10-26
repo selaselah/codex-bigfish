@@ -40,8 +40,11 @@ for index, item in enumerate(data['bones']):
     if direction.length < .005:
         direction = Vector((0, 0, .018))
     bone.tail = bone.head + direction
+# Appended helper roles can have a higher index than an existing child.
+# Create every bone before resolving hierarchy; preserve the authored indices.
+for item in data['bones']:
     if item['parent'] >= 0:
-        bone.parent = rig_data.edit_bones[data['bones'][item['parent']]['name']]
+        rig_data.edit_bones[item['name']].parent = rig_data.edit_bones[data['bones'][item['parent']]['name']]
 bpy.ops.object.mode_set(mode='OBJECT')
 rig.show_in_front = True
 rig.display_type = 'WIRE'
@@ -126,6 +129,20 @@ for index, item in enumerate(data['meshes']):
         for shape in item['shapes']:
             key = obj.shape_key_add(name=shape['name'])
             key.value = 0.0
+            # Shared expression controls drive the skin and feature meshes together.
+            if shape['name'] not in rig:
+                rig[shape['name']] = 0.0
+                rig.id_properties_ui(shape['name']).update(min=0.0, max=1.0)
+            driver = key.driver_add('value').driver
+            variable = driver.variables.new()
+            variable.name = 'amount'
+            variable.targets[0].id = rig
+            variable.targets[0].data_path = '["' + shape['name'] + '"]'
+            driver.expression = 'amount'
+            if shape.get('normal_deltas'):
+                attribute = mesh.attributes.new('NormalDelta:' + shape['name'], 'FLOAT_VECTOR', 'POINT')
+                for value, delta in zip(attribute.data, shape['normal_deltas']):
+                    value.vector = xyz(delta)
             for vertex, base, delta in zip(key.data, item['vertices'], shape['deltas']):
                 vertex.co = xyz(base) + xyz(delta)
 
@@ -243,6 +260,58 @@ def float_vectors(accessor_id):
             values[index] = struct.unpack_from('<' + 'f' * dimensions, binary, value_offset + row * dimensions * 4)
     return values
 
+
+# Blender regenerates morph normals from geometry, which discards the authored
+# transport of custom skin normals. Preserve the explicit deformation normals
+# stored as POINT vectors in the saved project, using the actual exported seams.
+normal_checks = []
+rebuilt_binary = bytearray(binary)
+for mesh in document['meshes']:
+    source = next(item for item in data['meshes'] if item['name'] == mesh['name'])
+    if not any(shape.get('normal_deltas') for shape in source['shapes']):
+        continue
+    by_position = {}
+    for i, position in enumerate(source['vertices']):
+        by_position.setdefault(tuple(round(c, 6) for c in gltf_xyz(position)), []).append(i)
+    for primitive in mesh['primitives']:
+        positions = float_vectors(primitive['attributes']['POSITION'])
+        uvs = float_vectors(primitive['attributes']['TEXCOORD_0'])
+        normals = float_vectors(primitive['attributes']['NORMAL'])
+        mapping = []
+        for position, uv, normal in zip(positions, uvs, normals):
+            choices = [i for i in by_position[tuple(round(c, 6) for c in position)]
+                       if abs(uv[0]-source['uv'][i]['x']) < 2e-6 and
+                       abs(uv[1]-(1-source['uv'][i]['y'])) < 2e-6]
+            assert choices, 'Morph normal has no actual UV seam correspondence'
+            chosen = max(choices, key=lambda i: Vector(normal).dot(gltf_xyz(source['normals'][i])))
+            assert all(all((gltf_xyz(shape['normal_deltas'][i])-gltf_xyz(shape['normal_deltas'][chosen])).length < 1e-7
+                           for shape in source['shapes']) for i in choices
+                       if (gltf_xyz(source['normals'][i])-gltf_xyz(source['normals'][chosen])).length < 1e-6), 'Ambiguous morph normal mapping'
+            mapping.append(chosen)
+        for target, shape in zip(primitive['targets'], source['shapes']):
+            expected = [tuple(gltf_xyz(shape['normal_deltas'][i])) for i in mapping]
+            while len(rebuilt_binary) % 4:
+                rebuilt_binary.append(0)
+            offset = len(rebuilt_binary)
+            for normal in expected:
+                rebuilt_binary.extend(struct.pack('<3f', *normal))
+            view = len(document['bufferViews'])
+            document['bufferViews'].append(dict(buffer=0, byteOffset=offset, byteLength=len(expected)*12))
+            accessor = len(document['accessors'])
+            document['accessors'].append(dict(bufferView=view, componentType=5126, count=len(expected), type='VEC3'))
+            target['NORMAL'] = accessor
+            normal_checks.append((accessor, expected))
+binary = bytes(rebuilt_binary)
+if normal_checks:
+    document['buffers'][0]['byteLength'] = len(binary)
+    encoded_json = json.dumps(document, separators=(',', ':')).encode()
+    encoded_json += b' ' * ((-len(encoded_json)) % 4)
+    payload = binary + b'\0' * ((-len(binary)) % 4)
+    encoded_glb = struct.pack('<III', 0x46546C67, 2, 28+len(encoded_json)+len(payload)) + struct.pack('<II', len(encoded_json), 0x4E4F534A) + encoded_json + struct.pack('<II', len(payload), 0x004E4942) + payload
+    (folder / 'BigFish.glb').write_bytes(encoded_glb)
+    for accessor, expected in normal_checks:
+        assert float_vectors(accessor) == [struct.unpack('<3f', struct.pack('<3f', *value)) for value in expected], 'Authored GLB morph normal changed'
+    print(f'Explicit skin morph normals validated: {sum(len(values) for _, values in normal_checks)} float32 vectors')
 
 assert len(document['meshes']) == len(data['meshes'])
 assert len(document['images']) == 1

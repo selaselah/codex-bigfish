@@ -16,7 +16,8 @@ namespace DesktopFish
         public SkinnedMeshRenderer face;
         public Camera view;
         FishMotion motion;
-        readonly Dictionary<string, int> shapes = new Dictionary<string, int>();
+        sealed class ShapeBinding { public SkinnedMeshRenderer renderer; public int index; }
+        readonly Dictionary<string, List<ShapeBinding>> shapes = new Dictionary<string, List<ShapeBinding>>();
         readonly Dictionary<string, float> expressions = new Dictionary<string, float>();
         UniWindowController window;
         Vector2 cursorStart, windowStart, menuPoint;
@@ -58,9 +59,12 @@ namespace DesktopFish
             menuFont = Font.CreateDynamicFontFromOSFont(new[] { "PingFang SC", "Arial Unicode MS", "Arial" }, 14);
             showStatus = PlayerPrefs.GetInt("showStatus", 1) != 0;
             motion = new FishMotion(model);
-            if (face && face.sharedMesh)
-                for (int i = 0; i < face.sharedMesh.blendShapeCount; i++)
-                    shapes[face.sharedMesh.GetBlendShapeName(i)] = i;
+            foreach(var renderer in model.GetComponentsInChildren<SkinnedMeshRenderer>())
+                for(int i=0;i<renderer.sharedMesh.blendShapeCount;i++) {
+                    string name=renderer.sharedMesh.GetBlendShapeName(i);
+                    if(!shapes.TryGetValue(name,out var bindings))shapes[name]=bindings=new List<ShapeBinding>();
+                    bindings.Add(new ShapeBinding{renderer=renderer,index=i});
+                }
             nextBlink = Time.time + 2.5f;
             statePath = Path.Combine(Application.persistentDataPath, "state.json");
             Debug.Log("Desktop Fish state file: " + statePath);
@@ -150,10 +154,12 @@ namespace DesktopFish
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
             float blinkTime = t - blinkStart;
-            SetShape("Fcl_EYE_Close", motion.BlinkWeight(blinkTime < 0.19f ?
-                Mathf.Sin(blinkTime / 0.19f * Mathf.PI) * 100 : 0));
-            SetShape("Fcl_EYE_Joy", motion.SmileEyes);
-            Expression("Fcl_ALL_Joy", motion.Joy);
+            float visibleJoy=Expression("Fcl_ALL_Joy", motion.Joy);
+            // ALL_Joy already closes the eyes. Add only the requested excess.
+            float extraEyes=Expression("Fcl_EYE_Joy",Mathf.Max(0,motion.SmileEyes-motion.Joy));
+            float visibleSmile=Mathf.Clamp(visibleJoy+extraEyes,0,100);
+            float blink=blinkTime<.19f?Mathf.Sin(blinkTime/.19f*Mathf.PI)*100:0;
+            SetShape("Fcl_EYE_Close",Mathf.Max(motion.ClosedEyes,blink)*(1-visibleSmile*.01f));
             Expression("Fcl_ALL_Sorrow", state == "error" ? 70 : 0);
             Expression("Fcl_ALL_Surprised", dragging ? 35 : state == "waiting" ? 45 : 0);
             Expression("Fcl_ALL_Fun", state == "working" ? 25 : 0);
@@ -170,15 +176,16 @@ namespace DesktopFish
 
         void SetShape(string name, float weight)
         {
-            if (face && shapes.TryGetValue(name, out int index)) face.SetBlendShapeWeight(index, weight);
+            if(shapes.TryGetValue(name,out var bindings))foreach(var binding in bindings)binding.renderer.SetBlendShapeWeight(binding.index,weight);
         }
 
-        void Expression(string name, float target)
+        float Expression(string name, float target)
         {
             expressions.TryGetValue(name, out float previous);
             float value = Mathf.Lerp(previous, target, 1 - Mathf.Exp(-7 * Time.deltaTime));
             expressions[name] = value;
             SetShape(name, value);
+            return value;
         }
 
         void PollState()

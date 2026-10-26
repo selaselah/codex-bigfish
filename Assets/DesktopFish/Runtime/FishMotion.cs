@@ -173,6 +173,8 @@ namespace DesktopFish
                     Joy = 90 * weight;
                     break;
             }
+            // SmileEyes denotes total closure, including the closure in ALL_Joy.
+            if(model.GetComponent<FishRigProfile>()?.referenceCoreRig==true)SmileEyes=Mathf.Max(SmileEyes,Joy);
             float bounce = now - bounceStart;
             if (bounce >= 0 && bounce < 0.65f)
                 squash += -0.10f * Mathf.Sin(bounce / 0.65f * Mathf.PI * 3) * Mathf.Exp(-bounce * 5);

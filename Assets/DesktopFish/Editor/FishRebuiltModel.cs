@@ -22,7 +22,7 @@ namespace DesktopFish.Editor
         [Serializable] sealed class PartBudget {public string name;public int triangles;}
         [Serializable] sealed class BudgetDump {public string partCountStage="authored, before compaction and reduction";public int limit=20000,total;public PartBudget[] parts;}
         [Serializable] sealed class BoneDump { public string name; public int parent; public Vector3 position; }
-        [Serializable] sealed class ShapeDump { public string name; public Vector3[] deltas; }
+        [Serializable] sealed class ShapeDump { public string name; public Vector3[] deltas, normal_deltas; }
         [Serializable] sealed class MeshDump {
             public string name; public Vector3[] vertices, normals; public Color[] colors; public Vector2[] uv;
             public int[] triangles, bone_indices, secondary_bone_indices;
@@ -1497,9 +1497,26 @@ namespace DesktopFish.Editor
                     skin.sharedMaterial = mat; skin.updateWhenOffscreen = true;
                     EditorUtility.SetDirty(mesh); EditorUtility.SetDirty(mat);
                 }
+                // Calibrate the completed neutral model after the unchanged reduction and
+                // assembled neck/tuft/tail/motif passes. Existing 55 joint indices stay stable.
+                var calibrated=FishSmileRigGuides.Apply(root);bones.Clear();bones.AddRange(calibrated);
+                exports.Clear();
+                foreach(var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>()) {
+                    var mesh=renderer.sharedMesh;var shapes=new List<ShapeDump>();
+                    for(int i=0;i<mesh.blendShapeCount;i++) {
+                        var dp=new Vector3[mesh.vertexCount];var dn=new Vector3[mesh.vertexCount];
+                        mesh.GetBlendShapeFrameVertices(i,0,dp,dn,null);
+                        shapes.Add(new ShapeDump{name=mesh.GetBlendShapeName(i),deltas=dp,
+                            normal_deltas=renderer.name=="Face"?null:dn});
+                    }
+                    exports.Add(new MeshDump{name=mesh.name,vertices=mesh.vertices,normals=mesh.normals,colors=mesh.colors,uv=mesh.uv,
+                        triangles=mesh.triangles,bone_indices=mesh.boneWeights.Select(w=>w.boneIndex0).ToArray(),
+                        secondary_bone_indices=mesh.boneWeights.Select(w=>w.boneIndex1).ToArray(),
+                        primary_bone_weights=mesh.boneWeights.Select(w=>w.weight0).ToArray(),shapes=shapes.ToArray()});
+                }
                 int totalTriangles=exports.Sum(m=>m.triangles.Length)/3;
                 if(totalTriangles>20000)throw new InvalidOperationException("Rebuilt model exceeds 20,000-triangle budget: "+totalTriangles);
-                root.AddComponent<FishRigProfile>().articulatedHandRig=true;
+                var rigProfile=root.AddComponent<FishRigProfile>();rigProfile.articulatedHandRig=true;rigProfile.referenceCoreRig=true;
                 Directory.CreateDirectory("work");
                 File.WriteAllText("work/rebuilt-geometry.json",JsonUtility.ToJson(new ModelDump {
                     bones=bones.Select(b=>new BoneDump {name=b.name,parent=bones.IndexOf(b.parent),position=b.position}).ToArray(),
@@ -1783,6 +1800,7 @@ namespace DesktopFish.Editor
             PaintSideLace(pixels);
             PaintFrontPanels(pixels,geometry);
             PaintFrontSkin(pixels);
+            PaintMouth(pixels);
             FishChestPaintGuides.Paint(pixels,geometry.p.Select(FitPoint).ToArray(),geometry.uv.ToArray(),geometry.chestPaintCorners.Select(k=>geometry.tri[k]).ToArray(),PaintWidth,LegacyPaintHeight);
             PaintRearLayers(pixels);
             PaintFinShells(pixels);
@@ -2000,6 +2018,27 @@ namespace DesktopFish.Editor
                 }
             }
         }
+        // Audited empty 64x48 cell, with an 8px gutter around 48x32 paint.
+        // Mouth UVs retain their disk coordinates through all six expressions.
+        static Vector2 MouthPaintUV(float u,float v)=>new Vector2(
+            (194+24*(u+1))/PaintWidth,(1164+16*(v+1)-128)/1024f);
+        static void PaintMouth(Color[] pixels) {
+            for(int y=1156;y<1204;y++)for(int x=186;x<250;x++) {
+                float u=(x+.5f-194)/24f-1,v=(y+.5f-1164)/16f-1;
+                float radius=Mathf.Sqrt(u*u+v*v);
+                Color colour=Color.Lerp(Hex("7B3C51"),Hex("E88F9D"),
+                    Mathf.SmoothStep(0,1,Mathf.InverseLerp(.65f,-.85f,v)));
+                float tongue=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.75f,1,
+                    Mathf.Sqrt(Mathf.Pow(u/.90f,2)+Mathf.Pow((v+.38f)/.63f,2))));
+                colour=Color.Lerp(colour,Hex("F4AEB8"),tongue*.75f);
+                float teeth=Mathf.SmoothStep(0,1,Mathf.InverseLerp(.52f,.70f,v))*
+                    (1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.73f,.92f,Mathf.Abs(u))));
+                colour=Color.Lerp(colour,Hex("FFF5E9"),teeth);
+                colour=Color.Lerp(colour,Hex("A26372"),Mathf.SmoothStep(0,1,Mathf.InverseLerp(.87f,1,radius)));
+                colour.a=pixels[y*PaintWidth+x].a;pixels[y*PaintWidth+x]=colour;
+            }
+        }
+
         // A pale neutral base and rose pigment keep the face from reading as
         // orange beside the white eye openings. Both skin charts use this field.
         static Color SkinPaintColor(Vector3 registered)=>Color.Lerp(Hex("FFF6EF"),Hex("F6C2C2"),FishSkinColorGuides.Blush(registered));
