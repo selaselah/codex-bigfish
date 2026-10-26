@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build the small AppKit status overlay for the Apple Silicon desktop player."""
 from pathlib import Path
-import hashlib,json,plistlib,subprocess
+import hashlib,json,plistlib,subprocess,tempfile
 root=Path(__file__).resolve().parents[2]
-source=Path(__file__).with_name('FishGlassStatus.m')
+source=Path(__file__).with_name('FishGlassStatus.swift')
 bundle=root/'Assets/DesktopFish/Plugins/macOS/FishGlassStatus.bundle'
 contents=bundle/'Contents'; binary=contents/'MacOS/FishGlassStatus'; manifest=contents/'Resources/build.json'
 fingerprint=hashlib.sha256(source.read_bytes()+Path(__file__).read_bytes()).hexdigest()
@@ -12,7 +12,10 @@ if binary.exists() and manifest.exists() and json.loads(manifest.read_text()).ge
     print('AppKit status plugin up to date',flush=True)
 else:
     binary.parent.mkdir(parents=True,exist_ok=True);manifest.parent.mkdir(parents=True,exist_ok=True)
-    subprocess.run(['xcrun','clang','-arch','arm64','-mmacosx-version-min=12.0','-fobjc-arc','-fvisibility=hidden','-bundle','-framework','Cocoa','-framework','QuartzCore',str(source),'-o',str(binary)],check=True)
+    with tempfile.TemporaryDirectory(prefix='status-glass-build-',dir=root/'work') as temporary:
+        obj=Path(temporary)/'FishGlassStatus.o'
+        subprocess.run(['xcrun','swiftc','-parse-as-library','-emit-object','-O','-module-name','FishGlassStatus','-target','arm64-apple-macos12.0',str(source),'-o',str(obj)],check=True)
+        subprocess.run(['xcrun','swiftc','-target','arm64-apple-macos12.0','-Xlinker','-bundle',str(obj),'-o',str(binary)],check=True)
     (contents/'Info.plist').write_bytes(plistlib.dumps(dict(CFBundleExecutable='FishGlassStatus',CFBundleIdentifier='local.desktop.rebuiltbigfish.statusglass',CFBundleName='FishGlassStatus',CFBundlePackageType='BNDL',CFBundleVersion='1',CFBundleShortVersionString='1.0',LSMinimumSystemVersion='12.0')))
     manifest.write_text(json.dumps(dict(source_sha256=fingerprint,architecture='arm64',minimum_macos='12.0',system_liquid_glass_macos='26.0'),indent=2)+'\n')
     subprocess.run(['codesign','--force','--sign','-','--timestamp=none',str(bundle)],check=True)

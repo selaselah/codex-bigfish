@@ -65,46 +65,46 @@ namespace DesktopFish
             if (text == null)
             {
                 text = new GUIStyle(GUI.skin.label) {
-                    fontSize = 11, alignment = TextAnchor.MiddleCenter,
+                    fontSize = 13, alignment = TextAnchor.MiddleCenter,
                     clipping = TextClipping.Clip, padding = new RectOffset()
                 };
                 text.normal.textColor = new Color(.12f,.17f,.25f,.96f);
             }
             text.font = font;
-            int width = Mathf.CeilToInt(Mathf.Clamp(text.CalcSize(new GUIContent(label)).x+39,116,212));
+            int width = Mathf.CeilToInt(Mathf.Clamp(text.CalcSize(new GUIContent(label)).x+48,140,212));
             if (!fallback || textureWidth != width) CreateFallback(width);
             var oldMatrix = GUI.matrix; var oldColor = GUI.color;
             GUI.matrix = Matrix4x4.Scale(Vector3.one*scale);
-            Rect rect = new Rect((Screen.width/scale-width)*.5f,Screen.height/scale-29,width,24);
+            Rect rect = new Rect((Screen.width/scale-width)*.5f,Screen.height/scale-45,width,40);
             GUI.color = Color.white;
-            GUI.DrawTexture(new Rect(rect.x-6,rect.y-6,width+12,36),fallback);
+            GUI.DrawTexture(new Rect(rect.x-6,rect.y-6,width+12,52),fallback);
             Color dot = tone == "complete" ? new Color(.18f,.66f,.50f) : tone == "error" ?
                 new Color(.91f,.33f,.39f) : tone == "waiting" ? new Color(.91f,.64f,.22f) :
                 tone == "idle" ? new Color(.48f,.56f,.67f) : new Color(.29f,.55f,.95f);
-            GUI.DrawTexture(new Rect(rect.x+12,rect.y+9,6,6),Texture2D.whiteTexture,
+            GUI.DrawTexture(new Rect(rect.x+16,rect.y+17,6,6),Texture2D.whiteTexture,
                 ScaleMode.StretchToFill,true,0,dot,0,3);
-            GUI.Label(new Rect(rect.x+25,rect.y,width-37,24),label,text);
+            GUI.Label(new Rect(rect.x+32,rect.y,width-48,40),label,text);
             GUI.color = oldColor; GUI.matrix = oldMatrix;
         }
 
         void CreateFallback(int width)
         {
             ReleaseTexture(); textureWidth = width;
-            fallback = new Texture2D((width+12)*2,72,TextureFormat.RGBA32,false) {
+            fallback = new Texture2D((width+12)*2,104,TextureFormat.RGBA32,false) {
                 hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear
             };
             var pixels = new Color[fallback.width*fallback.height];
             for (int y=0;y<fallback.height;y++) for (int x=0;x<fallback.width;x++)
             {
                 float px=(x+.5f)*.5f-6, py=(y+.5f)*.5f-6;
-                float cx=Mathf.Clamp(px,12,width-12);
-                float distance=new Vector2(px-cx,py-12).magnitude-12;
+                float cx=Mathf.Clamp(px,20,width-20);
+                float distance=new Vector2(px-cx,py-20).magnitude-20;
                 float coverage=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.3f,.3f,distance));
-                float shadowDistance=new Vector2(px-cx,py-10.5f).magnitude-12;
+                float shadowDistance=new Vector2(px-cx,py-18.5f).magnitude-20;
                 float shadow=.12f*Mathf.Exp(-Mathf.Max(0,shadowDistance)*.7f)*(1-coverage);
                 float rim=(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(.2f,1.0f,Mathf.Abs(distance+.5f))))*.4f*coverage;
-                float fill=coverage*Mathf.Lerp(.26f,.40f,Mathf.Clamp01(py/24));
-                Color glass=Color.Lerp(new Color(.82f,.89f,.98f),Color.white,Mathf.Clamp01(py/24));
+                float fill=coverage*Mathf.Lerp(.26f,.40f,Mathf.Clamp01(py/40));
+                Color glass=Color.Lerp(new Color(.82f,.89f,.98f),Color.white,Mathf.Clamp01(py/40));
                 float alpha=fill+shadow*(1-fill);
                 Color colour=(glass*fill+new Color(.05f,.08f,.14f)*shadow*(1-fill))/Mathf.Max(.0001f,alpha);
                 colour=Color.Lerp(colour,Color.white,rim);
