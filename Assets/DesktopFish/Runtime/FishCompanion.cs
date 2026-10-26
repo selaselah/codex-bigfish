@@ -32,8 +32,7 @@ namespace DesktopFish
         int activeCount;
         string stateSource = "", notice = "";
         bool showStatus = true;
-        Texture2D statusPill;
-        GUIStyle statusStyle;
+        FishStatusGlass statusGlass;
         Font menuFont;
         UniWindowController.MouseButton previousButtons;
 
@@ -254,37 +253,18 @@ namespace DesktopFish
 
         void DrawStatus(float scale)
         {
-            if (!showStatus) return;
-            if (!statusPill)
-            {
-                statusPill = new Texture2D(64, 32, TextureFormat.RGBA32, false);
-                for (int y = 0; y < 32; y++) for (int x = 0; x < 64; x++)
-                {
-                    float cx = Mathf.Clamp(x, 16, 47);
-                    float distance = Vector2.Distance(new Vector2(x, y), new Vector2(cx, 15.5f));
-                    statusPill.SetPixel(x, y, new Color(1, 1, 1, Mathf.Clamp01(16 - distance)));
-                }
-                statusPill.Apply();
-                statusStyle = new GUIStyle(GUI.skin.label) {
-                    font = menuFont, fontSize = 11, alignment = TextAnchor.MiddleCenter
-                };
-                statusStyle.normal.textColor = Color.white;
-            }
+            if (!showStatus) { statusGlass?.Hide(); return; }
+            if (statusGlass == null) statusGlass = new FishStatusGlass();
             double now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
             string label = state == "working" ? "工作中" : state == "waiting" ? "等你回复" :
                 state == "complete" ? "本回合结束" : state == "error" ? "遇到问题" : "休息中";
             if (state == "working" || state == "waiting")
                 label += activeCount > 0 ? " · " + activeCount + " 项" : "";
-            if (state == "working") label += new string('.', (int)(Time.unscaledTime * 2) % 3 + 1);
             if (noticeUntil > now && !string.IsNullOrEmpty(notice)) label = notice;
-            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
-            Rect rect = new Rect((Screen.width / scale - 170) * 0.5f, Screen.height / scale - 27, 170, 22);
-            GUI.color = state == "complete" || noticeUntil > now ?
-                new Color(0.10f, 0.38f, 0.37f, 0.92f) : new Color(0.10f, 0.16f, 0.30f, 0.88f);
-            GUI.DrawTexture(rect, statusPill);
-            GUI.color = Color.white;
-            GUI.Label(rect, label, statusStyle);
+            statusGlass.Draw(label, noticeUntil > now ? "complete" : state, scale, menuFont);
         }
+
+        void OnDestroy() { statusGlass?.Dispose(); }
 
         void CloseMenu()
         {
@@ -313,6 +293,7 @@ namespace DesktopFish
             if (menu && mouseEvent.type == EventType.MouseDown && mouseEvent.button == 0 &&
                 !MenuRect().Contains(menuPointer)) CloseMenu();
             if (!menu) { DrawStatus(scale); return; }
+            statusGlass?.Hide();
             GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
             if (menuFont) GUI.skin.font = menuFont;
             GUILayout.BeginArea(MenuRect(), GUI.skin.box);

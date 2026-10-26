@@ -155,6 +155,7 @@ namespace DesktopFish.Editor
         [MenuItem("Desktop Fish/Build macOS App")]
         public static void BuildMac()
         {
+            FishNativeStatusBuild.Ensure();
             CreateScene();
             PlayerSettings.companyName = "LocalCompanions";
             PlayerSettings.productName = "BigFatBlueFish";
