@@ -13,6 +13,8 @@ namespace DesktopFish
         public static readonly Vector3 BraceWrist = new Vector3(-.045f, .478f, .176f);
         public const float CrankRadius = .024f;
         public static readonly Vector3 CookerPort = new Vector3(.046f, .038f, -.012f);
+        public enum CookerStyle { ClassicWhite, RetroGold, CoralMetal, ModernCream, SlateBlue }
+        public const int CookerStyleCount = 5;
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         public static float CrankAngle(float time) => time * 4.4f;
         public static Vector3 CrankGrip(float time) => CrankCenter +
@@ -27,10 +29,14 @@ namespace DesktopFish
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly List<Pot> pots = new List<Pot>();
         readonly Transform current;
+        readonly System.Random styleRandom;
+        readonly int[] styleOrder = new int[CookerStyleCount];
+        int nextStyle = CookerStyleCount, lastStyle = -1;
         bool disposed;
         public int CookerCount => pots.Count;
         public bool Visible => root && root.gameObject.activeSelf;
         public Transform Root => root;
+        public CookerStyle CookerStyleAt(int index) => pots[index].style;
 
         sealed class Pot
         {
@@ -40,10 +46,14 @@ namespace DesktopFish
             public Color[] steamColors = new Color[SteamPuffs * (1 + 2 * PuffSides)];
             public Vector3[] cableVertices = new Vector3[CableSteps * 4];
             public Vector3 cableStart, cableEnd;
+            public CookerStyle style;
         }
 
-        public FishWorkStation(Transform model, Shader shader)
+        public FishWorkStation(Transform model, Shader shader, int? cookerSeed = null)
         {
+            // Keep appearance randomness separate from the mascot's blink and
+            // gesture RNG. A seed is optional for repeatable editor previews.
+            styleRandom = cookerSeed.HasValue ? new System.Random(cookerSeed.Value) : new System.Random();
             if (!shader) shader = Shader.Find("DesktopFish/WorkProps");
             if (!shader) throw new InvalidOperationException("Work-prop shader is missing from the player.");
             solid = new Material(shader) { name = "Generator and rice cookers" };
@@ -176,36 +186,9 @@ namespace DesktopFish
 
         Pot CreatePot(int index)
         {
-            var p=new Pot {root=Child(root,"Rice cooker "+(index+1))};
+            var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle()};
             p.wobble=Child(p.root,"Cooker wobble");
-            var body=new Shape();
-            body.Lathe(new[] {new Vector2(.035f,0),new Vector2(.046f,.006f),new Vector2(.053f,.019f),
-                new Vector2(.055f,.041f),new Vector2(.053f,.057f),new Vector2(.048f,.068f)},20,Ivory);
-            foreach(float sign in new[]{-1f,1f})
-            {
-                var loop=new Vector3[16];for(int j=0;j<loop.Length;j++){float a=j*Mathf.PI*2/loop.Length;loop[j]=new Vector3(sign*.057f+Mathf.Cos(a)*.011f,.038f+Mathf.Sin(a)*.009f,0);}
-                body.Tube(loop,.0032f,6,Teal,true);
-            }
-            Part(p.wobble,"Round cartoon cooker",body);
-            var lid=new Shape();lid.Lathe(new[] {new Vector2(.047f,.068f),new Vector2(.054f,.073f),new Vector2(.052f,.079f),new Vector2(.040f,.085f),new Vector2(.020f,.089f)},20,Teal);
-            lid.Lathe(new[] {new Vector2(.006f,.090f),new Vector2(.012f,.093f),new Vector2(.011f,.097f),new Vector2(.004f,.100f)},12,Navy);
-            p.lid=Part(p.wobble,"Bouncing lid",lid);
-            var face=new Shape();
-            foreach(float sign in new[]{-1f,1f})
-            {
-                face.FaceOval(new Vector2(sign*.015f,.044f),new Vector2(.0033f,.0058f),Navy);
-                face.FaceOval(new Vector2(sign*.015f-.0009f,.046f),new Vector2(.0011f,.0016f),Ivory,.0015f);
-                face.FaceOval(new Vector2(sign*.026f,.033f),new Vector2(.0055f,.0028f),new Color(1,.68f,.66f));
-            }
-            for(int j=0;j<12;j++)
-            {
-                float x0=Mathf.Lerp(-.009f,.009f,j/12f),x1=Mathf.Lerp(-.009f,.009f,(j+1)/12f);
-                float y0=.026f+.005f*Mathf.Pow(x0/.009f,2),y1=.026f+.005f*Mathf.Pow(x1/.009f,2);
-                face.Quad(FacePoint(x0,y0-.0008f),FacePoint(x0,y0+.0008f),FacePoint(x1,y1+.0008f),FacePoint(x1,y1-.0008f),Navy);
-            }
-            face.FaceOval(new Vector2(0,.013f),new Vector2(.012f,.005f),Teal);
-            face.FaceOval(new Vector2(0,.013f),new Vector2(.006f,.0028f),Gold,.0017f);
-            Part(p.wobble,"Smiling face and heating light",face);
+            BuildCooker(p);
             var wire=Child(p.root,"Power cable");p.cable=Own(new Mesh{name="Connected power cable"});p.cable.MarkDynamic();
             p.cable.vertices=p.cableVertices;var cableColors=new Color[p.cableVertices.Length];var cableNormals=new Vector3[cableColors.Length];var cableTriangles=new List<int>();
             for(int j=0;j<cableColors.Length;j++){cableColors[j]=Navy;cableNormals[j]=Vector3.forward;}
@@ -228,14 +211,134 @@ namespace DesktopFish
             return p;
         }
 
-        static Vector3 FacePoint(float x,float y,float offset=.001f)
+        CookerStyle PickStyle()
         {
-            // The expression follows the rounded front rather than floating on
-            // a flat sign. Keep it just above the faceted 20-column body surface.
-            float r=y<.019f?Mathf.Lerp(.046f,.053f,Mathf.InverseLerp(.006f,.019f,y)):
-                y<.041f?Mathf.Lerp(.053f,.055f,Mathf.InverseLerp(.019f,.041f,y)):
-                Mathf.Lerp(.055f,.053f,Mathf.InverseLerp(.041f,.057f,y));
-            return new Vector3(x,y,Mathf.Sqrt(Mathf.Max(0,r*r-x*x))+offset);
+            if(nextStyle>=CookerStyleCount)
+            {
+                for(int i=0;i<CookerStyleCount;i++)styleOrder[i]=i;
+                for(int i=CookerStyleCount-1;i>0;i--){int j=styleRandom.Next(i+1),v=styleOrder[i];styleOrder[i]=styleOrder[j];styleOrder[j]=v;}
+                if(styleOrder[0]==lastStyle){int v=styleOrder[0];styleOrder[0]=styleOrder[1];styleOrder[1]=v;}
+                nextStyle=0;
+            }
+            lastStyle=styleOrder[nextStyle++];return (CookerStyle)lastStyle;
+        }
+
+        void BuildCooker(Pot p)
+        {
+            Color charcoal=new Color(.20f,.23f,.26f),silver=new Color(.72f,.77f,.79f),red=new Color(.91f,.25f,.23f),green=new Color(.35f,.68f,.39f);
+            Vector2[] profile;Color paint,trim;float exponent=2,depth=1;
+            switch(p.style)
+            {
+                case CookerStyle.RetroGold:
+                    profile=new[]{new Vector2(.035f,.004f),new Vector2(.050f,.010f),new Vector2(.055f,.035f),new Vector2(.054f,.060f),new Vector2(.047f,.073f)};
+                    paint=new Color(.89f,.67f,.32f);trim=new Color(.52f,.35f,.19f);break;
+                case CookerStyle.CoralMetal:
+                    profile=new[]{new Vector2(.033f,.004f),new Vector2(.042f,.010f),new Vector2(.048f,.045f),new Vector2(.052f,.071f)};
+                    paint=new Color(.92f,.31f,.41f);trim=charcoal;break;
+                case CookerStyle.ModernCream:
+                    profile=new[]{new Vector2(.038f,.005f),new Vector2(.052f,.013f),new Vector2(.055f,.020f),new Vector2(.055f,.062f),new Vector2(.051f,.072f)};
+                    paint=new Color(.95f,.94f,.90f);trim=new Color(.27f,.29f,.33f);exponent=3.4f;depth=.87f;break;
+                case CookerStyle.SlateBlue:
+                    profile=new[]{new Vector2(.039f,.004f),new Vector2(.052f,.015f),new Vector2(.056f,.040f),new Vector2(.052f,.067f),new Vector2(.048f,.073f)};
+                    paint=new Color(.32f,.41f,.48f);trim=charcoal;exponent=2.5f;depth=.95f;break;
+                default:
+                    profile=new[]{new Vector2(.034f,.005f),new Vector2(.046f,.010f),new Vector2(.054f,.022f),new Vector2(.054f,.060f),new Vector2(.049f,.071f)};
+                    paint=new Color(.96f,.97f,.96f);trim=charcoal;break;
+            }
+            var body=new Shape();var lid=new Shape();var panel=new Shape();
+            body.Lathe(profile,20,paint,exponent,depth);
+            foreach(float x in new[]{-.033f,.033f})foreach(float z in new[]{-.021f,.021f})
+                body.Box(new Vector3(x,.003f,z),new Vector3(.013f,.006f,.013f),trim);
+            foreach(float sign in new[]{-1f,1f})
+            {
+                if(p.style==CookerStyle.ModernCream)
+                    body.Box(new Vector3(sign*.060f,.068f,0),new Vector3(.019f,.012f,.026f),trim);
+                else
+                {
+                    var loop=new Vector3[16];float y=p.style==CookerStyle.CoralMetal?.064f:.057f;
+                    for(int j=0;j<loop.Length;j++){float a=j*Mathf.PI*2/loop.Length;loop[j]=new Vector3(sign*.058f+Mathf.Cos(a)*.010f,y+Mathf.Sin(a)*.006f,0);}
+                    body.Tube(loop,.0032f,6,trim,true);
+                }
+            }
+            Func<float,float,float,Vector3> surface=(x,y,offset)=>SurfacePoint(profile,exponent,depth,x,y,offset);
+            float controlDepth=0;foreach(var row in profile)controlDepth=Mathf.Max(controlDepth,row.x*depth);
+            Func<float,float,float,Vector3> front=(x,y,offset)=>new Vector3(x,y,controlDepth+offset);
+            if(p.style==CookerStyle.ModernCream)
+            {
+                body.Lathe(new[]{new Vector2(.040f,.002f),new Vector2(.055f,.012f),new Vector2(.056f,.020f)},20,trim,exponent,depth);
+                lid.Lathe(new[]{new Vector2(.053f,.068f),new Vector2(.057f,.072f),new Vector2(.057f,.083f),new Vector2(.049f,.091f)},20,trim,exponent,depth);
+                lid.Lathe(new[]{new Vector2(.047f,.090f),new Vector2(.045f,.094f)},20,new Color(.76f,.87f,.86f),exponent,depth);
+                CarryHandle(lid,.094f,.020f,.003f,trim);
+                panel.ControlHousingRect(surface,front,new Vector2(0,.036f),new Vector2(.031f,.041f),.006f,new Color(.65f,.67f,.68f));
+                panel.SurfaceRect(front,new Vector2(0,.047f),new Vector2(.018f,.008f),.002f,charcoal,.0017f);
+                panel.SurfaceRect(front,new Vector2(0,.047f),new Vector2(.010f,.002f),.0007f,new Color(.66f,.87f,.79f),.0023f);
+                for(int j=-1;j<=1;j++)panel.SurfaceOval(front,new Vector2(j*.008f,.030f),new Vector2(.0025f,.0025f),Ivory,.0016f);
+                panel.SurfaceOval(front,new Vector2(0,.020f),new Vector2(.0034f,.0028f),Gold,.0016f);
+            }
+            else if(p.style==CookerStyle.RetroGold)
+            {
+                lid.Lathe(new[]{new Vector2(.047f,.069f),new Vector2(.054f,.074f),new Vector2(.050f,.084f),new Vector2(.028f,.090f)},20,new Color(.97f,.95f,.87f));
+                LidKnob(lid,trim,.090f);
+                panel.ControlHousingOval(surface,front,new Vector2(0,.036f),new Vector2(.019f,.025f),trim);
+                panel.SurfaceOval(front,new Vector2(0,.036f),new Vector2(.016f,.022f),Ivory,.0017f);
+                panel.SurfaceOval(front,new Vector2(0,.039f),new Vector2(.011f,.014f),charcoal,.0023f);
+                panel.SurfaceOval(front,new Vector2(0,.044f),new Vector2(.006f,.0024f),red,.0029f);
+                panel.SurfaceOval(front,new Vector2(0,.036f),new Vector2(.006f,.0024f),green,.0029f);
+                panel.SurfaceRect(front,new Vector2(0,.022f),new Vector2(.011f,.004f),.0015f,trim,.0023f);
+                foreach(float sign in new[]{-1f,1f})for(int j=0;j<5;j++)
+                {float a=j*Mathf.PI*2/5;panel.SurfaceOval(surface,new Vector2(sign*.034f+Mathf.Cos(a)*.0055f,.048f+Mathf.Sin(a)*.0065f),new Vector2(.0025f,.0031f),new Color(.68f,.43f,.17f));}
+            }
+            else if(p.style==CookerStyle.CoralMetal)
+            {
+                lid.Lathe(new[]{new Vector2(.052f,.070f),new Vector2(.055f,.075f),new Vector2(.049f,.085f),new Vector2(.022f,.090f)},20,silver);
+                LidKnob(lid,charcoal,.090f);
+                panel.ControlHousingRect(surface,front,new Vector2(0,.022f),new Vector2(.025f,.032f),.003f,charcoal);
+                panel.SurfaceRect(front,new Vector2(0,.022f),new Vector2(.019f,.027f),.002f,silver,.0017f);
+                panel.SurfaceRect(front,new Vector2(0,.022f),new Vector2(.0035f,.019f),.0015f,charcoal,.0023f);
+                panel.SurfaceOval(front,new Vector2(0,.030f),new Vector2(.0042f,.0042f),charcoal,.0029f);
+            }
+            else if(p.style==CookerStyle.SlateBlue)
+            {
+                lid.Lathe(new[]{new Vector2(.048f,.071f),new Vector2(.054f,.076f),new Vector2(.049f,.084f),new Vector2(.025f,.090f)},20,silver,exponent,depth);
+                CarryHandle(lid,.094f,.012f,.003f,trim);
+                panel.ControlHousingRect(surface,front,new Vector2(.010f,.032f),new Vector2(.027f,.043f),.003f,charcoal);
+                panel.SurfaceRect(front,new Vector2(.010f,.043f),new Vector2(.018f,.004f),.0015f,Gold,.0017f);
+                panel.SurfaceRect(front,new Vector2(.010f,.034f),new Vector2(.018f,.004f),.0015f,new Color(.97f,.49f,.18f),.0017f);
+                panel.SurfaceRect(front,new Vector2(.010f,.019f),new Vector2(.015f,.010f),.0015f,silver,.0017f);
+            }
+            else
+            {
+                lid.Lathe(new[]{new Vector2(.049f,.069f),new Vector2(.055f,.073f),new Vector2(.055f,.078f)},20,trim);
+                lid.Lathe(new[]{new Vector2(.050f,.077f),new Vector2(.046f,.085f),new Vector2(.023f,.091f)},20,new Color(.74f,.84f,.88f));
+                LidKnob(lid,trim,.090f);
+                panel.ControlHousingRect(surface,front,new Vector2(0,.032f),new Vector2(.033f,.045f),.007f,trim);
+                panel.SurfaceRect(front,new Vector2(0,.032f),new Vector2(.025f,.037f),.005f,new Color(.80f,.87f,.89f),.0017f);
+                panel.SurfaceOval(front,new Vector2(0,.043f),new Vector2(.006f,.0026f),red,.0023f);
+                panel.SurfaceOval(front,new Vector2(0,.034f),new Vector2(.006f,.0026f),green,.0023f);
+                panel.SurfaceRect(front,new Vector2(0,.021f),new Vector2(.014f,.008f),.002f,trim,.0023f);
+            }
+            Part(p.wobble,"Cooker shell "+p.style,body);
+            p.lid=Part(p.wobble,"Bouncing lid",lid);
+            Part(p.wobble,"Controls and indicator lamps",panel);
+        }
+
+        static void LidKnob(Shape shape,Color color,float bottom)
+        {
+            shape.Lathe(new[]{new Vector2(.007f,bottom),new Vector2(.011f,bottom+.003f),new Vector2(.010f,.098f),new Vector2(.005f,.100f)},12,color);
+        }
+
+        static void CarryHandle(Shape shape,float y,float width,float height,Color color)
+        {
+            var path=new Vector3[20];for(int j=0;j<path.Length;j++){float a=j*Mathf.PI*2/path.Length;path[j]=new Vector3(Mathf.Sign(Mathf.Cos(a))*Mathf.Pow(Mathf.Abs(Mathf.Cos(a)),.55f)*width,y+Mathf.Sin(a)*height,0);}
+            shape.Tube(path,.003f,6,color,true);
+        }
+
+        static Vector3 SurfacePoint(Vector2[] profile,float exponent,float depth,float x,float y,float offset)
+        {
+            float r=profile[profile.Length-1].x;
+            for(int i=1;i<profile.Length;i++)if(y<=profile[i].y){r=Mathf.Lerp(profile[i-1].x,profile[i].x,Mathf.InverseLerp(profile[i-1].y,profile[i].y,y));break;}
+            float z=Mathf.Pow(Mathf.Max(0,1-Mathf.Pow(Mathf.Abs(x/r),exponent)),1/exponent)*r*depth;
+            return new Vector3(x,y,z+offset);
         }
 
         Transform Part(Transform parent,string name,Shape shape)
@@ -259,11 +362,42 @@ namespace DesktopFish
                 for(int i=0;i<24;i+=4)Quad(center+v[ids[i]],center+v[ids[i+1]],center+v[ids[i+2]],center+v[ids[i+3]],color);
             }
             public void Polygon(Vector3[] p,Color color){int n=points.Count;points.AddRange(p);foreach(var unused in p)colors.Add(color);for(int i=1;i<p.Length-1;i++)triangles.AddRange(new[]{n,n+i,n+i+1});}
-            public void FaceOval(Vector2 center,Vector2 radius,Color color,float offset=.001f)
+            public void SurfaceOval(Func<float,float,float,Vector3> point,Vector2 center,Vector2 radius,Color color,float offset=.0012f)
             {
-                const int steps=16;int n=points.Count;points.Add(FacePoint(center.x,center.y,offset));colors.Add(color);
-                for(int j=0;j<steps;j++){float a=j*Mathf.PI*2/steps;points.Add(FacePoint(center.x+Mathf.Cos(a)*radius.x,center.y+Mathf.Sin(a)*radius.y,offset));colors.Add(color);}
+                const int steps=16;int n=points.Count;points.Add(point(center.x,center.y,offset));colors.Add(color);
+                for(int j=0;j<steps;j++){float a=j*Mathf.PI*2/steps;points.Add(point(center.x+Mathf.Cos(a)*radius.x,center.y+Mathf.Sin(a)*radius.y,offset));colors.Add(color);}
                 for(int j=0;j<steps;j++)triangles.AddRange(new[]{n,n+1+j,n+1+(j+1)%steps});
+            }
+            public void SurfaceRect(Func<float,float,float,Vector3> point,Vector2 center,Vector2 size,float radius,Color color,float offset=.0012f)
+            {
+                var boundary=new Vector2[16];
+                for(int corner=0;corner<4;corner++)for(int j=0;j<4;j++)
+                {float a=(corner*90+j*30)*Mathf.Deg2Rad;float x=center.x+(corner==0||corner==3?1:-1)*(size.x*.5f-radius)+Mathf.Cos(a)*radius;
+                    float y=center.y+(corner<2?1:-1)*(size.y*.5f-radius)+Mathf.Sin(a)*radius;boundary[corner*4+j]=new Vector2(x,y);}
+                // Long corner-to-corner chords can cut into a rounded shell.
+                // Sample the actual surface between the center and perimeter.
+                int n=points.Count;points.Add(point(center.x,center.y,offset));colors.Add(color);
+                for(int ring=0;ring<2;ring++)for(int j=0;j<16;j++)
+                {Vector2 p=Vector2.Lerp(center,boundary[j],ring==0?.5f:1);points.Add(point(p.x,p.y,offset));colors.Add(color);}
+                for(int j=0;j<16;j++)
+                {int a=n+1+j,b=n+1+(j+1)%16,c=n+17+j,d=n+17+(j+1)%16;triangles.AddRange(new[]{n,a,b,a,c,d,a,d,b});}
+            }
+            public void ControlHousingRect(Func<float,float,float,Vector3> back,Func<float,float,float,Vector3> front,Vector2 center,Vector2 size,float radius,Color color)
+            {
+                SurfaceRect(front,center,size,radius,color);var boundary=new Vector2[16];
+                for(int corner=0;corner<4;corner++)for(int j=0;j<4;j++)
+                {float a=(corner*90+j*30)*Mathf.Deg2Rad;boundary[corner*4+j]=center+new Vector2((corner==0||corner==3?1:-1)*(size.x*.5f-radius)+Mathf.Cos(a)*radius,(corner<2?1:-1)*(size.y*.5f-radius)+Mathf.Sin(a)*radius);}
+                HousingWalls(back,front,boundary,color);
+            }
+            public void ControlHousingOval(Func<float,float,float,Vector3> back,Func<float,float,float,Vector3> front,Vector2 center,Vector2 radius,Color color)
+            {
+                SurfaceOval(front,center,radius,color);var boundary=new Vector2[16];
+                for(int j=0;j<16;j++){float a=j*Mathf.PI*2/16;boundary[j]=center+new Vector2(Mathf.Cos(a)*radius.x,Mathf.Sin(a)*radius.y);}
+                HousingWalls(back,front,boundary,color);
+            }
+            void HousingWalls(Func<float,float,float,Vector3> back,Func<float,float,float,Vector3> front,Vector2[] boundary,Color color)
+            {
+                for(int j=0;j<boundary.Length;j++){var a=boundary[j];var b=boundary[(j+1)%boundary.Length];Quad(back(a.x,a.y,.0005f),back(b.x,b.y,.0005f),front(b.x,b.y,.0012f),front(a.x,a.y,.0012f),color);}
             }
             public void Tube(Vector3[] path,float radius,int sides,Color color,bool closed)
             {
@@ -277,10 +411,10 @@ namespace DesktopFish
                 for(int i=0;i<(closed?path.Length:path.Length-1);i++)for(int j=0;j<sides;j++)
                 {int a=n+i*sides+j,b=n+i*sides+(j+1)%sides,c=n+(i+1)%path.Length*sides+(j+1)%sides,d=n+(i+1)%path.Length*sides+j;triangles.AddRange(new[]{a,b,c,a,c,d});}
             }
-            public void Lathe(Vector2[] profile,int sides,Color color)
+            public void Lathe(Vector2[] profile,int sides,Color color,float exponent=2,float depth=1)
             {
                 int n=points.Count;
-                foreach(var p in profile)for(int j=0;j<sides;j++){float a=j*Mathf.PI*2/sides;points.Add(new Vector3(Mathf.Cos(a)*p.x,p.y,Mathf.Sin(a)*p.x));colors.Add(color);}
+                foreach(var p in profile)for(int j=0;j<sides;j++){float a=j*Mathf.PI*2/sides;float c=Mathf.Cos(a),s=Mathf.Sin(a);points.Add(new Vector3(Mathf.Sign(c)*Mathf.Pow(Mathf.Abs(c),2/exponent)*p.x,p.y,Mathf.Sign(s)*Mathf.Pow(Mathf.Abs(s),2/exponent)*p.x*depth));colors.Add(color);}
                 for(int row=0;row<profile.Length-1;row++)for(int j=0;j<sides;j++){int a=n+row*sides+j,b=n+row*sides+(j+1)%sides,c=b+sides,d=a+sides;triangles.AddRange(new[]{a,d,c,a,c,b});}
                 for(int end=0;end<2;end++)
                 {

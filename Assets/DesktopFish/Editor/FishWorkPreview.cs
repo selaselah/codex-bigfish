@@ -15,10 +15,13 @@ namespace DesktopFish.Editor
             public float minimumOpaqueAlpha=1;
             public float minimumViewportMargin=1;
             public bool passed, allJobsRepresented;
+            public int stableStyleChecks, distinctRandomOrders, distinctShellGeometries;
+            public string[] firstFiveStyles;
         }
         public static void Render() => Render("work/hand-generator-156");
         public static void RenderLargeCookers() => Render("work/rice-cooker-size-157");
         public static void RenderCartoonCookers() => Render("work/cartoon-cookers-158");
+        public static void RenderCookerVariants() => Render("work/cooker-variants-159");
 
         static void Render(string output)
         {
@@ -47,7 +50,7 @@ namespace DesktopFish.Editor
                 var go=new GameObject("Generator preview snapshot");go.transform.SetParent(skins[s].transform,false);
                 snapshots[s]=go.AddComponent<MeshFilter>();go.AddComponent<MeshRenderer>().sharedMaterials=skins[s].sharedMaterials;skins[s].enabled=false;
             }
-            using(var station=new FishWorkStation(model,companion.workPropShader))
+            using(var station=new FishWorkStation(model,companion.workPropShader,159))
             try
             {
                 camera.targetTexture=target;
@@ -79,11 +82,22 @@ namespace DesktopFish.Editor
                 if(station.Visible)throw new InvalidOperationException("Work props visible while idle.");
                 // Settle the same exponential blend used by the actual player.
                 for(int i=0;i<150;i++)motion.Tick(i/30f,1/30f,0,0,"working",false);
+                motion.Tick(.5f,1,0,0,"working",false);station.Tick(.5f,1,5);
+                report.firstFiveStyles=Enumerable.Range(0,5).Select(i=>station.CookerStyleAt(i).ToString()).ToArray();
+                if(report.firstFiveStyles.Distinct().Count()!=FishWorkStation.CookerStyleCount)
+                    throw new InvalidOperationException("Shuffled cooker set did not include every design.");
+                var shells=station.Root.GetComponentsInChildren<MeshFilter>().Where(f=>f.name.StartsWith("Cooker shell ")).ToArray();
+                report.distinctShellGeometries=shells.Select(f=>string.Join(";",f.sharedMesh.vertices.Select(p=>p.x.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+","+p.y.ToString("R",System.Globalization.CultureInfo.InvariantCulture)+","+p.z.ToString("R",System.Globalization.CultureInfo.InvariantCulture)))).Distinct().Count();
+                if(report.distinctShellGeometries!=FishWorkStation.CookerStyleCount)
+                    throw new InvalidOperationException("Cooker variants differ only by their paint.");
+                capture("all-five-styles");RenderCatalog(camera,station,snapshots,output);
+                var initialStyles=Enumerable.Range(0,3).Select(i=>station.CookerStyleAt(i)).ToArray();
                 Vector3 firstSteam=Vector3.zero;
                 for(int f=0;f<48;f++)
                 {
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
                     if(station.CookerCount!=3||!station.Visible)throw new InvalidOperationException("Missing job cooker.");
+                    for(int i=0;i<3;i++){if(station.CookerStyleAt(i)!=initialStyles[i])throw new InvalidOperationException("Cooker appearance changed while working.");report.stableStyleChecks++;}
                     Vector3 right=model.InverseTransformPoint(bones["J_Bip_R_Hand"].position),left=model.InverseTransformPoint(bones["J_Bip_L_Hand"].position);
                     report.maxRightWristError=Mathf.Max(report.maxRightWristError,Vector3.Distance(right,FishWorkStation.CrankGrip(time)+Vector3.up*.025f));
                     report.maxLeftWristError=Mathf.Max(report.maxLeftWristError,Vector3.Distance(left,FishWorkStation.BraceWrist));
@@ -113,9 +127,11 @@ namespace DesktopFish.Editor
                 }
                 foreach(int count in new[]{1,3,5,2,0,8,1,0})
                 {
+                    var previousStyles=Enumerable.Range(0,station.CookerCount).Select(i=>station.CookerStyleAt(i)).ToArray();
                     motion.Tick(.5f,1,0,0,"working",false);
                     station.Tick(.5f,1,count);
                     if(station.CookerCount!=count)throw new InvalidOperationException("Cooker count differs from active jobs.");
+                    for(int i=0;i<Mathf.Min(previousStyles.Length,count);i++){if(previousStyles[i]!=station.CookerStyleAt(i))throw new InvalidOperationException("Existing cookers rerolled when count changed.");report.stableStyleChecks++;}
                     report.countTransitions++;report.maxCookers=Mathf.Max(report.maxCookers,count);
                     report.maxPropTriangles=Mathf.Max(report.maxPropTriangles,station.Root.GetComponentsInChildren<MeshFilter>().Sum(m=>m.sharedMesh.triangles.Length/3));
                     foreach(var filter in station.Root.GetComponentsInChildren<MeshFilter>())
@@ -140,6 +156,11 @@ namespace DesktopFish.Editor
                 }
                 for(int i=0;i<90;i++)motion.Tick(6+i/30f,1/30f,0,0,"working",true);
                 station.Tick(9,motion.WorkWeight,3);if(station.Visible)throw new InvalidOperationException("Crank props persist during drag.");
+                var orders=new System.Collections.Generic.HashSet<string>();
+                for(int seed=159;seed<167;seed++)using(var probe=new FishWorkStation(model,companion.workPropShader,seed))
+                {probe.Tick(.5f,1,5);orders.Add(string.Join(",",Enumerable.Range(0,5).Select(i=>probe.CookerStyleAt(i).ToString())));}
+                report.distinctRandomOrders=orders.Count;
+                if(report.distinctRandomOrders<2)throw new InvalidOperationException("Cooker order is fixed instead of randomized.");
                 if(report.maxRightWristError>.0002f||report.maxLeftWristError>.0002f||report.maxArmLengthChange>.000001f||
                     report.maxCrankPhaseError>.000001f||report.maxCableEndpointError>.000001f||report.minimumViewportMargin<.02f)
                     throw new InvalidOperationException("Crank contact or arm length validation failed: "+JsonUtility.ToJson(report));
@@ -154,6 +175,41 @@ namespace DesktopFish.Editor
             {
                 camera.targetTexture=null;RenderTexture.active=previous;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);
                 for(int s=0;s<skins.Length;s++){if(snapshots[s].sharedMesh)UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);UnityEngine.Object.DestroyImmediate(snapshots[s].gameObject);skins[s].enabled=true;}
+            }
+        }
+
+        static void RenderCatalog(Camera camera,FishWorkStation station,MeshFilter[] snapshots,string output)
+        {
+            var transforms=station.Root.GetComponentsInChildren<Transform>(true);
+            var active=transforms.Select(t=>t.gameObject.activeSelf).ToArray();
+            var positions=transforms.Select(t=>t.localPosition).ToArray();var rotations=transforms.Select(t=>t.localRotation).ToArray();
+            var snapshotActive=snapshots.Select(s=>s.gameObject.activeSelf).ToArray();
+            Vector3 cameraPosition=camera.transform.position;Quaternion cameraRotation=camera.transform.rotation;
+            float size=camera.orthographicSize,aspect=camera.aspect;var previousTarget=camera.targetTexture;var previousActive=RenderTexture.active;
+            var target=new RenderTexture(256,256,24,RenderTextureFormat.ARGB32){antiAliasing=4};var image=new Texture2D(256,256,TextureFormat.RGBA32,false);
+            try
+            {
+                foreach(var s in snapshots)s.gameObject.SetActive(false);
+                foreach(Transform t in station.Root)t.gameObject.SetActive(false);
+                camera.targetTexture=target;camera.aspect=1;
+                for(int i=0;i<5;i++)
+                {
+                    var pot=station.Root.Find("Rice cooker "+(i+1));pot.gameObject.SetActive(true);
+                    pot.Find("Power cable").gameObject.SetActive(false);pot.Find("Electric pulse").gameObject.SetActive(false);
+                    var wobble=pot.Find("Cooker wobble");wobble.localPosition=Vector3.zero;wobble.localRotation=Quaternion.identity;
+                    wobble.Find("Steam").gameObject.SetActive(false);var lid=wobble.Find("Bouncing lid");lid.localPosition=Vector3.zero;lid.localRotation=Quaternion.identity;
+                    float scale=pot.lossyScale.x;Vector3 center=pot.TransformPoint(Vector3.up*.050f);
+                    camera.orthographicSize=.0925f*scale;camera.transform.position=center+new Vector3(0,.050f*scale,.5f);camera.transform.LookAt(center);
+                    camera.Render();RenderTexture.active=target;image.ReadPixels(new Rect(0,0,256,256),0,0);image.Apply();
+                    File.WriteAllBytes(output+"/style-"+station.CookerStyleAt(i)+".png",image.EncodeToPNG());pot.gameObject.SetActive(false);
+                }
+            }
+            finally
+            {
+                for(int i=0;i<transforms.Length;i++){transforms[i].gameObject.SetActive(active[i]);transforms[i].localPosition=positions[i];transforms[i].localRotation=rotations[i];}
+                for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(snapshotActive[i]);
+                camera.transform.SetPositionAndRotation(cameraPosition,cameraRotation);camera.orthographicSize=size;camera.aspect=aspect;camera.targetTexture=previousTarget;RenderTexture.active=previousActive;
+                UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);
             }
         }
         static bool Finite(Vector3 p)=>!(float.IsNaN(p.x)||float.IsNaN(p.y)||float.IsNaN(p.z)||float.IsInfinity(p.x)||float.IsInfinity(p.y)||float.IsInfinity(p.z));
