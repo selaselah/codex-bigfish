@@ -103,10 +103,13 @@ static atomic_int ready = 0;
     CGFloat width = MIN(MAX(140, ceil(text) + 48), MAX(140, self.bounds.size.width - 24));
     self.pill.frame = NSMakeRect(floor((self.bounds.size.width-width)/2), 5, width, 40);
     self.backdrop.frame = self.pill.bounds;
-    if (self.liquidGlass) self.glass.frame = self.pill.bounds;
-    self.content.frame = self.pill.bounds;
-    self.dot.frame = NSMakeRect(16, 17, 6, 6);
-    self.caption.frame = NSMakeRect(32, 11, width - 48, 18);
+    // Keep the glass edge half a backing pixel inside the authored capsule.
+    // Text and the activity dot retain their original screen coordinates.
+    CGFloat edgeInset = self.liquidGlass ? .5 / MAX(1, self.window.backingScaleFactor) : 0;
+    if (self.liquidGlass) self.glass.frame = NSInsetRect(self.pill.bounds, edgeInset, 0);
+    self.content.frame = NSMakeRect(0, 0, width - 2 * edgeInset, 40);
+    self.dot.frame = NSMakeRect(16 - edgeInset, 17, 6, 6);
+    self.caption.frame = NSMakeRect(32 - edgeInset, 11, width - 48, 18);
     CGPathRef shadow = CGPathCreateWithRoundedRect(self.pill.bounds, 20, 20, NULL);
     self.pill.layer.shadowPath = shadow;
     CGPathRelease(shadow);
@@ -246,6 +249,8 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
         LayoutStatus();
         atomic_store(&ready, overlay.liquidGlass ? 2 : 1);
         if (created) {
+            NSRect capsule = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+            NSLog(@"Desktop Fish glass geometry: parent=%@ panel=%@ capsule=%@ scale=%g", NSStringFromRect(petWindow.frame), NSStringFromRect(statusPanel.frame), NSStringFromRect(capsule), statusPanel.backingScaleFactor);
             NSLog(@"Desktop Fish original material restored: NSGlassEffectView.clear tint=nil; HUD alpha=.58; shadow=.12/4/-1.5; height=40 radius=20; activePainting=1");
             NSLog(@"Desktop Fish original glass initial focus: appActive=%d petKey=%d panelKey=%d actualPanelKey=%d; forceSelector=%d refreshSelector=%d",
                 NSApp.active, petWindow.keyWindow, statusPanel.keyWindow, NSApp.keyWindow == statusPanel,

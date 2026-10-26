@@ -32,6 +32,7 @@ namespace DesktopFish
         int activeCount;
         string stateSource = "", notice = "";
         bool showStatus = true;
+        bool nativeWindowPlaced;
         FishStatusGlass statusGlass;
         Font menuFont;
         UniWindowController.MouseButton previousButtons;
@@ -93,6 +94,7 @@ namespace DesktopFish
             if (monitor.width > 0 && size.x > 0)
                 window.windowPosition = new Vector2(
                     Mathf.Max(monitor.xMin, monitor.xMax - size.x - 40), monitor.yMin + 60);
+            nativeWindowPlaced = true;
             Debug.Log("Desktop Fish window: " + window.windowSize + "; monitor: " + monitor +
                 "; transparent: " + window.isTransparent + "; topmost: " + window.isTopmost);
         }
@@ -253,6 +255,9 @@ namespace DesktopFish
 
         void DrawStatus(float scale)
         {
+            // Create glass after UniWinC finishes the final native size and
+            // position. A splash-sized/offscreen window can leave stale clipping.
+            if (!Application.isEditor && !nativeWindowPlaced) return;
             if (!showStatus) { statusGlass?.Hide(); return; }
             if (statusGlass == null) statusGlass = new FishStatusGlass();
             double now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
