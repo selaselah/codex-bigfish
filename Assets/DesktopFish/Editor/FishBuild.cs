@@ -98,6 +98,8 @@ namespace DesktopFish.Editor
             var companion = pivot.AddComponent<FishCompanion>();
             companion.model = model.transform;
             companion.view = camera;
+            companion.workPropShader = AssetDatabase.LoadAssetAtPath<Shader>(
+                "Assets/DesktopFish/Shaders/WorkProps.shader");
             companion.face = model.GetComponentsInChildren<SkinnedMeshRenderer>()
                 .OrderByDescending(r => r.name=="Face").ThenByDescending(r => r.sharedMesh ? r.sharedMesh.blendShapeCount : 0).FirstOrDefault();
             new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));

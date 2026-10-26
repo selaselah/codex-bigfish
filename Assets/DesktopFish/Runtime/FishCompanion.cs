@@ -15,7 +15,9 @@ namespace DesktopFish
         public Transform model;
         public SkinnedMeshRenderer face;
         public Camera view;
+        public Shader workPropShader;
         FishMotion motion;
+        FishWorkStation workStation;
         sealed class ShapeBinding { public SkinnedMeshRenderer renderer; public int index; }
         readonly Dictionary<string, List<ShapeBinding>> shapes = new Dictionary<string, List<ShapeBinding>>();
         readonly Dictionary<string, float> expressions = new Dictionary<string, float>();
@@ -59,6 +61,7 @@ namespace DesktopFish
             menuFont = Font.CreateDynamicFontFromOSFont(new[] { "PingFang SC", "Arial Unicode MS", "Arial" }, 14);
             showStatus = PlayerPrefs.GetInt("showStatus", 1) != 0;
             motion = new FishMotion(model);
+            workStation = new FishWorkStation(model, workPropShader);
             foreach(var renderer in model.GetComponentsInChildren<SkinnedMeshRenderer>())
                 for(int i=0;i<renderer.sharedMesh.blendShapeCount;i++) {
                     string name=renderer.sharedMesh.GetBlendShapeName(i);
@@ -154,6 +157,7 @@ namespace DesktopFish
                 previousMotionState = state;
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
+            workStation.Tick(t, motion.WorkWeight, state == "working" ? activeCount : 0);
             float blinkTime = t - blinkStart;
             float visibleJoy=Expression("Fcl_ALL_Joy", motion.Joy);
             // ALL_Joy already closes the eyes. Add only the requested excess.
@@ -269,7 +273,7 @@ namespace DesktopFish
             statusGlass.Draw(label, noticeUntil > now ? "complete" : state, scale, menuFont);
         }
 
-        void OnDestroy() { statusGlass?.Dispose(); }
+        void OnDestroy() { statusGlass?.Dispose(); workStation?.Dispose(); }
 
         void CloseMenu()
         {
