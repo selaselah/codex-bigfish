@@ -18,6 +18,7 @@ namespace DesktopFish.Editor
             public float maxGeneratorFloorDrift, maxWorkingYawError, maxNonWorkYaw, maxNonWorkCameraDifference;
             public float maxFootDrift,maxLegLengthChange,minKneeFlex=180,maxKneeFlex;
             public float minChestPitch=180,maxChestPitch,minRootY=100,maxRootY=-100,minRightFacing=1;
+            public float minForearmAxisDistance=100,crankCenterHeight,measuredCrankRadius;
             public float maxForearmTwist,maxRightGraspError,maxLeftGraspError,minGraspSeparation=100;
             public float maxGraspCenterError,maxGraspAxisError,minShoulderPlaneDistance=100,maxHandAngularStep;
             public string minimumMarginContext;
@@ -39,8 +40,13 @@ namespace DesktopFish.Editor
 
         public static void RenderTwoHandCrank() => Render("work/two-hand-crank-165",true);
 
+        public static void RenderLowerWideCrank() => Render("work/lower-wide-crank-166",true);
+
         static void Render(string output,bool savedScene=false)
         {
+            bool twoHand=output.EndsWith("165")||output.EndsWith("166");
+            bool refined=twoHand||output.EndsWith("164");
+            bool fullBody=refined||output.EndsWith("163");
             Directory.CreateDirectory(output+"/frames");
             FishBuild.UseRebuilt=true;
             if(savedScene)EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");
@@ -143,6 +149,7 @@ namespace DesktopFish.Editor
                         Vector3 grasp=ka+(Vector3.Cross(normal,ab)*ac.sqrMagnitude+Vector3.Cross(ac,normal)*ab.sqrMagnitude)/(2*normal.sqrMagnitude);
                         graspCenters[handIndex]=grasp;
                         Vector3 targetGrip=actualGrip.position+actualGrip.up*(side=="L"?1:-1)*FishWorkStation.HandSpacing*.5f;
+                        report.minForearmAxisDistance=Mathf.Min(report.minForearmAxisDistance,Vector3.ProjectOnPlane(targetGrip-bones[prefix+"LowerArm"].position,actualGrip.up).magnitude);
                         float error=Vector3.Distance(grasp,targetGrip);
                         if(side=="L")report.maxLeftGraspError=Mathf.Max(report.maxLeftGraspError,error);else report.maxRightGraspError=Mathf.Max(report.maxRightGraspError,error);
                         report.maxGraspCenterError=Mathf.Max(report.maxGraspCenterError,error);
@@ -151,6 +158,8 @@ namespace DesktopFish.Editor
                         report.minShoulderPlaneDistance=Mathf.Min(report.minShoulderPlaneDistance,Vector3.ProjectOnPlane(bones[prefix+"UpperArm"].position-station.Root.TransformPoint(FishWorkStation.CrankCenter),actualGrip.up).magnitude);
                         if(f>0)report.maxHandAngularStep=Mathf.Max(report.maxHandAngularStep,Quaternion.Angle(previousPalms[handIndex],bones[prefix+"Hand"].rotation));previousPalms[handIndex]=bones[prefix+"Hand"].rotation;
                     }
+                    report.crankCenterHeight=station.Root.Find("Hand crank").localPosition.y;
+                    report.measuredCrankRadius=Vector3.ProjectOnPlane(actualGrip.position-station.Root.Find("Hand crank").position,actualGrip.up).magnitude;
                     report.minGraspSeparation=Mathf.Min(report.minGraspSeparation,Vector3.Distance(graspCenters[0],graspCenters[1]));
                     var wobble=station.Root.Find("Rice cooker 1/Cooker wobble");
                     report.maxCookerRockDegrees=Mathf.Max(report.maxCookerRockDegrees,Quaternion.Angle(wobble.localRotation,Quaternion.identity));
@@ -183,10 +192,10 @@ namespace DesktopFish.Editor
                         float flex=Vector3.Angle(knee.position-hip.position,foot.position-knee.position);report.minKneeFlex=Mathf.Min(report.minKneeFlex,flex);report.maxKneeFlex=Mathf.Max(report.maxKneeFlex,flex);
                     }
                     capture("frames/frame"+f.ToString("D3"));report.sampledFrames++;
-                    if((output.EndsWith("163")||output.EndsWith("164")||output.EndsWith("165"))&&new[]{0,9,17,26}.Contains(f)) {station.Root.gameObject.SetActive(false);capture("body-only-"+f);station.Root.gameObject.SetActive(true);}
-                    if((output.EndsWith("164")||output.EndsWith("165"))&&new[]{0,9,17,26}.Contains(f))RenderCrankDetail(camera,station,bones["J_Bip_L_LowerArm"],output,f);
+                    if(fullBody&&new[]{0,9,17,26}.Contains(f)) {station.Root.gameObject.SetActive(false);capture("body-only-"+f);station.Root.gameObject.SetActive(true);}
+                    if(refined&&new[]{0,9,17,26}.Contains(f))RenderCrankDetail(camera,station,bones["J_Bip_L_LowerArm"],output,f);
                 }
-                if((output.EndsWith("164")||output.EndsWith("165")))foreach(float time in new[]{60f,3600f,86400f,172800f}) {
+                if(refined)foreach(float time in new[]{60f,3600f,86400f,172800f}) {
                     motion.Tick(time,1,0,0,"working",false);station.Tick(time,1,3);
                     var knob=station.Root.Find("Hand crank/Crank grip");
                     report.maxCrankPhaseError=Mathf.Max(report.maxCrankPhaseError,Vector3.Distance(station.Root.InverseTransformPoint(knob.position),FishWorkStation.CrankGrip(time)));
@@ -246,13 +255,21 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
-                if((output.EndsWith("163")||output.EndsWith("164")||output.EndsWith("165"))&&(report.maxFootDrift>.00001f||report.maxLegLengthChange>.000001f||report.maxChestPitch-report.minChestPitch<40||report.maxRootY-report.minRootY<.025f||report.maxKneeFlex-report.minKneeFlex<15||report.minRightFacing<.3f))
+                if(fullBody&&(report.maxFootDrift>.00001f||report.maxLegLengthChange>.000001f||report.maxChestPitch-report.minChestPitch<40||report.maxRootY-report.minRootY<.025f||report.maxKneeFlex-report.minKneeFlex<15||report.minRightFacing<.3f))
                     throw new InvalidOperationException("Whole-body effort or planted stance validation failed: "+JsonUtility.ToJson(report));
-                if((output.EndsWith("164")||output.EndsWith("165"))&&report.activeBoundsMeshesChecked<500)
+                if(refined&&report.activeBoundsMeshesChecked<500)
                     throw new InvalidOperationException("Visible work equipment was not checked for frame bounds");
-                if((output.EndsWith("164")||output.EndsWith("165"))&&(report.maxGraspCenterError>.0002f||report.maxGraspAxisError>.1f||report.maxForearmTwist>85||report.maxHandAngularStep>15||report.minShoulderPlaneDistance<FishWorkStation.CrankRadius+.015f))
+                if(refined&&(report.maxGraspCenterError>.0002f||report.maxGraspAxisError>.1f||report.maxForearmTwist>85||report.maxHandAngularStep>15))
                     throw new InvalidOperationException("Actual finger grip is not on the visible shaft: "+JsonUtility.ToJson(report));
-                if(output.EndsWith("165")&&report.minGraspSeparation<.055f)throw new InvalidOperationException("Two hands overlap on the crank grip");
+                // The larger orbit moves the torso with the crank. A shoulder
+                // can enter that orbit without an IK singularity. Keep the old
+                // static-envelope gate for its original previews; the moving
+                // case checks the actual elbow-to-grip radial vector instead.
+                if(refined&&!output.EndsWith("166")&&report.minShoulderPlaneDistance<FishWorkStation.CrankRadius+.015f)
+                    throw new InvalidOperationException("Shoulder entered the static crank envelope");
+                if(output.EndsWith("166")&&report.minForearmAxisDistance<.04f)
+                    throw new InvalidOperationException("Forearm approached a singular shaft alignment");
+                if(twoHand&&report.minGraspSeparation<.055f)throw new InvalidOperationException("Two hands overlap on the crank grip");
                 if(report.maxGeneratorFloorDrift>.000001f||report.maxWorkingYawError>.001f||report.maxNonWorkYaw>.001f||report.maxNonWorkCameraDifference>.00001f)
                     throw new InvalidOperationException("Generator floor frame or actor turn validation failed: "+JsonUtility.ToJson(report));
                 if(report.maxRightWristError>.0002f||report.maxLeftWristError>.0002f||report.maxArmLengthChange>.000001f||
@@ -282,7 +299,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=output.EndsWith("165")?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

@@ -165,7 +165,11 @@ namespace DesktopFish
             head=Vector3.Lerp(head,new Vector3(-4+10*Mathf.Sin(crankPhase-.65f)-40*Mathf.Max(0,drive),
                 -7+4*Mathf.Cos(crankPhase),-4*drive),workBlend);
             chest+=new Vector3(9+25*drive,12*Mathf.Cos(crankPhase),3*drive)*workBlend;
-            rootY+=(-.008f-.032f*compression)*workBlend;
+            // Follow the added part of the physical crank orbit with the
+            // hips; lowering only the hands would overextend the arms.
+            float orbitGrowth=FishWorkStation.CrankRadius-.085f;
+            float pivotShift=FishWorkStation.CrankCenter.y-.457f;
+            rootY+=(-.008f-.032f*compression+pivotShift+orbitGrowth*Mathf.Cos(crankPhase))*workBlend;
             lean+=3*drive*workBlend;
             switch (gesture)
             {
@@ -232,6 +236,7 @@ namespace DesktopFish
                 rootY = 0.012f;
             }
             Vector3 rock=Quaternion.Euler(0,WorkingYaw,0)*Vector3.forward*(.035f*drive*workBlend);
+            rock+=FishWorkStation.GeneratorRotation*Vector3.forward*(orbitGrowth*drive*workBlend);
             Vector3 sideLoad=Vector3.right*(.010f*(1-drive)*workBlend);
             model.localPosition=restPosition+Vector3.up*rootY+WorkingOffset*workBlend+rock+sideLoad;
             model.localRotation = restRotation * Quaternion.Euler(0, WorkingYawAt(now) * workBlend, lean);

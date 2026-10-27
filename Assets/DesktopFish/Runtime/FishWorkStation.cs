@@ -14,14 +14,14 @@ namespace DesktopFish
         public static readonly Vector3 GeneratorPosition = new Vector3(-.401f, .295f, .030f);
         public static readonly Quaternion GeneratorRotation = Quaternion.Euler(0,-36,0);
         public static readonly Vector3 BraceWrist = new Vector3(.125f,.425f,.105f);
-        public const float CrankRadius = .085f;
+        public const float CrankRadius = .110f;
         public static readonly Vector3 CookerPort = new Vector3(.046f,.038f,-.012f);
         public enum CookerStyle { ClassicWhite, RetroGold, CoralMetal, ModernCream, SlateBlue }
         public const int CookerStyleCount = 5;
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
-        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.162f,-.030f));
+        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.127f,-.030f));
         public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.130f,.116f));
         public static float CrankAngle(float time) => Mathf.Repeat(time*4.4f,Mathf.PI*2);
         public const float GripCenter = .135f;
@@ -115,7 +115,7 @@ namespace DesktopFish
                 var o=Part(machine,"Output terminal",port);o.localPosition=new Vector3(x,-.130f,.108f);o.localRotation=Quaternion.Euler(90,0,0);
             }
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
-            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.162f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
+            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.127f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
             var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
             current=Part(machine,"Charge light",lamp);current.localPosition=new Vector3(.078f,.122f,.105f);current.localRotation=Quaternion.Euler(90,0,0);
             crank=Child(root,"Hand crank");crank.localPosition=CrankCenter;
