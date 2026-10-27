@@ -18,6 +18,8 @@ namespace DesktopFish
         public Shader workPropShader;
         FishMotion motion;
         FishWorkStation workStation;
+        float restingViewSize;
+        Vector3 restingViewPosition;
         sealed class ShapeBinding { public SkinnedMeshRenderer renderer; public int index; }
         readonly Dictionary<string, List<ShapeBinding>> shapes = new Dictionary<string, List<ShapeBinding>>();
         readonly Dictionary<string, float> expressions = new Dictionary<string, float>();
@@ -62,6 +64,7 @@ namespace DesktopFish
             showStatus = PlayerPrefs.GetInt("showStatus", 1) != 0;
             motion = new FishMotion(model);
             workStation = new FishWorkStation(model, workPropShader);
+            restingViewSize=view.orthographicSize;restingViewPosition=view.transform.position;
             foreach(var renderer in model.GetComponentsInChildren<SkinnedMeshRenderer>())
                 for(int i=0;i<renderer.sharedMesh.blendShapeCount;i++) {
                     string name=renderer.sharedMesh.GetBlendShapeName(i);
@@ -158,6 +161,7 @@ namespace DesktopFish
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
             workStation.Tick(t, motion.WorkWeight, state == "working" ? activeCount : 0);
+            FishWorkStation.FrameWorkingCamera(view,restingViewSize,restingViewPosition,motion.WorkWeight);
             float blinkTime = t - blinkStart;
             float visibleJoy=Expression("Fcl_ALL_Joy", motion.Joy);
             // ALL_Joy already closes the eyes. Add only the requested excess.

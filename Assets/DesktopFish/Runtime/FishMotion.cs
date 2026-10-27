@@ -24,6 +24,8 @@ namespace DesktopFish
         float lookX, lookY;
         float workBlend;
         public float WorkWeight => workBlend;
+        public const float WorkingYaw=35;
+        public static readonly Vector3 WorkingOffset=new Vector3(.065f,0,-.025f);
         int previousRandom = -1;
         public bool randomActions = true;
         public float ClosedEyes { get; private set; }
@@ -118,10 +120,10 @@ namespace DesktopFish
             ClosedEyes = 0;
             SmileEyes = 0;
             Joy = state == "complete" ? 65 : state == "idle" ? 8 : 0;
-            // Keep the generator steady; the right hand follows its crank and
-            // the left hand braces the housing instead of swaying independently.
-            head = Vector3.Lerp(head, new Vector3(10 + Mathf.Sin(now * 4.4f) * 1.3f,
-                -3, -1), workBlend);
+            // Turn toward the floor equipment; its independent scene frame stays
+            // fixed while the right hand follows the side crank.
+            head = Vector3.Lerp(head, new Vector3(4 + Mathf.Sin(now * 4.4f) * 1.3f,
+                7, -1), workBlend);
             chest.x += 4 * workBlend;
             switch (gesture)
             {
@@ -187,8 +189,8 @@ namespace DesktopFish
                 leftLeg = 6; rightLeg = -6;
                 rootY = 0.012f;
             }
-            model.localPosition = restPosition + Vector3.up * rootY;
-            model.localRotation = restRotation * Quaternion.Euler(0, 0, lean);
+            model.localPosition = restPosition + Vector3.up * rootY + WorkingOffset * workBlend;
+            model.localRotation = restRotation * Quaternion.Euler(0, WorkingYaw * workBlend, lean);
             model.localScale = Vector3.Scale(restScale, new Vector3(1 / Mathf.Sqrt(squash), squash, 1));
             Rotate("J_Bip_C_Head", head);
             Rotate("J_Bip_C_Chest", chest);
@@ -229,7 +231,10 @@ namespace DesktopFish
             RelaxFingers("R", -1, fingerRelax);
             if (workBlend > .0001f)
             {
-                WorkArm("R", 1, FishWorkStation.CrankGrip(now) + Vector3.up * .025f, workBlend);
+                Vector3 stationGrip=FishWorkStation.CrankGrip(now)+Vector3.up*.025f;
+                Vector3 fixedTarget=restPosition+restRotation*Vector3.Scale(restScale,stationGrip);
+                Vector3 worldTarget=model.parent?model.parent.TransformPoint(fixedTarget):fixedTarget;
+                WorkArm("R",1,model.InverseTransformPoint(worldTarget),workBlend);
                 WorkArm("L", -1, FishWorkStation.BraceWrist, workBlend);
                 GripFingers("R", -1, workBlend);
                 GripFingers("L", 1, workBlend * .65f);

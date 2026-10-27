@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using UnityEngine;
+using UnityEditor.SceneManagement;
 
 namespace DesktopFish.Editor
 {
@@ -9,9 +10,11 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int transitionFrames;
             public int sampledFrames, countTransitions, maxCookers, avatarTriangles, maxPropTriangles;
             public float maxRightWristError, maxLeftWristError, maxArmLengthChange, maxCrankPhaseError, maxCableEndpointError;
             public float maxCookerRockDegrees, maxLidLift, maxSteamAlpha, maxSteamTravel, maxCookerPhaseDifference;
+            public float maxGeneratorFloorDrift, maxWorkingYawError, maxNonWorkYaw, maxNonWorkCameraDifference;
             public float minimumOpaqueAlpha=1;
             public float minimumViewportMargin=1;
             public bool passed, allJobsRepresented;
@@ -23,14 +26,18 @@ namespace DesktopFish.Editor
         public static void RenderCartoonCookers() => Render("work/cartoon-cookers-158");
         public static void RenderCookerVariants() => Render("work/cooker-variants-159");
         public static void RenderCookerHandles() => Render("work/cooker-handles-160");
+        public static void RenderFloorGenerator() => Render("work/floor-generator-162",true);
 
-        static void Render(string output)
+        static void Render(string output,bool savedScene=false)
         {
             Directory.CreateDirectory(output+"/frames");
-            FishBuild.UseRebuilt=true;FishBuild.CreateScene();
+            FishBuild.UseRebuilt=true;
+            if(savedScene)EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");
+            else FishBuild.CreateScene();
             var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
             var model=companion.model;var motion=new FishMotion(model){randomActions=false};
             var camera=companion.view;camera.backgroundColor=Color.white;
+            float restingViewSize=camera.orthographicSize;Vector3 restingViewPosition=camera.transform.position;
             var skins=model.GetComponentsInChildren<SkinnedMeshRenderer>();
             var snapshots=new MeshFilter[skins.Length];
             var bones=model.GetComponentsInChildren<Transform>().ToDictionary(t=>t.name);
@@ -56,6 +63,7 @@ namespace DesktopFish.Editor
             {
                 camera.targetTexture=target;
                 Action<string> capture=path=>{
+                    FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     FishBuild.ApplyMotionExpressions(companion,motion);
                     foreach(var skin in skins) {
                         int fun=skin.sharedMesh.GetBlendShapeIndex("Fcl_ALL_Fun");
@@ -99,11 +107,13 @@ namespace DesktopFish.Editor
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
                     if(station.CookerCount!=3||!station.Visible)throw new InvalidOperationException("Missing job cooker.");
                     for(int i=0;i<3;i++){if(station.CookerStyleAt(i)!=initialStyles[i])throw new InvalidOperationException("Cooker appearance changed while working.");report.stableStyleChecks++;}
-                    Vector3 right=model.InverseTransformPoint(bones["J_Bip_R_Hand"].position),left=model.InverseTransformPoint(bones["J_Bip_L_Hand"].position);
+                    Vector3 right=station.Root.InverseTransformPoint(bones["J_Bip_R_Hand"].position),left=model.InverseTransformPoint(bones["J_Bip_L_Hand"].position);
+                    report.maxGeneratorFloorDrift=Mathf.Max(report.maxGeneratorFloorDrift,station.Root.localPosition.magnitude,Quaternion.Angle(station.Root.localRotation,Quaternion.identity));
+                    report.maxWorkingYawError=Mathf.Max(report.maxWorkingYawError,Mathf.Abs(Mathf.DeltaAngle(model.localEulerAngles.y,FishMotion.WorkingYaw)));
                     report.maxRightWristError=Mathf.Max(report.maxRightWristError,Vector3.Distance(right,FishWorkStation.CrankGrip(time)+Vector3.up*.025f));
                     report.maxLeftWristError=Mathf.Max(report.maxLeftWristError,Vector3.Distance(left,FishWorkStation.BraceWrist));
                     var actualGrip=station.Root.Find("Hand crank/Crank grip");
-                    report.maxCrankPhaseError=Mathf.Max(report.maxCrankPhaseError,Vector3.Distance(model.InverseTransformPoint(actualGrip.position),FishWorkStation.CrankGrip(time)));
+                    report.maxCrankPhaseError=Mathf.Max(report.maxCrankPhaseError,Vector3.Distance(station.Root.InverseTransformPoint(actualGrip.position),FishWorkStation.CrankGrip(time)));
                     var wobble=station.Root.Find("Rice cooker 1/Cooker wobble");
                     report.maxCookerRockDegrees=Mathf.Max(report.maxCookerRockDegrees,Quaternion.Angle(wobble.localRotation,Quaternion.identity));
                     report.maxLidLift=Mathf.Max(report.maxLidLift,wobble.Find("Bouncing lid").localPosition.y);
@@ -153,6 +163,9 @@ namespace DesktopFish.Editor
                 foreach(string state in new[]{"waiting","complete","idle","error"})
                 {
                     for(int i=0;i<90;i++)motion.Tick(3+i/30f,1/30f,0,0,state,false);
+                    report.maxNonWorkYaw=Mathf.Max(report.maxNonWorkYaw,Quaternion.Angle(model.localRotation,Quaternion.identity));
+                    FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
+                    report.maxNonWorkCameraDifference=Mathf.Max(report.maxNonWorkCameraDifference,Mathf.Abs(camera.orthographicSize-restingViewSize),Vector3.Distance(camera.transform.position,restingViewPosition));
                     station.Tick(6,motion.WorkWeight,0);if(station.Visible)throw new InvalidOperationException("Work props persist after work.");
                 }
                 for(int i=0;i<90;i++)motion.Tick(6+i/30f,1/30f,0,0,"working",true);
@@ -162,6 +175,16 @@ namespace DesktopFish.Editor
                 {probe.Tick(.5f,1,5);orders.Add(string.Join(",",Enumerable.Range(0,5).Select(i=>probe.CookerStyleAt(i).ToString())));}
                 report.distinctRandomOrders=orders.Count;
                 if(report.distinctRandomOrders<2)throw new InvalidOperationException("Cooker order is fixed instead of randomized.");
+                if(savedScene) {
+                    Directory.CreateDirectory(output+"/transition-in");Directory.CreateDirectory(output+"/transition-out");
+                    foreach(bool entering in new[]{true,false})for(int i=0;i<30;i++) {
+                        float time=10+i*.04f;motion.Tick(time,.04f,0,0,entering?"working":"idle",false);
+                        station.Tick(time,motion.WorkWeight,entering?3:0);
+                        capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
+                    }
+                }
+                if(report.maxGeneratorFloorDrift>.000001f||report.maxWorkingYawError>.001f||report.maxNonWorkYaw>.001f||report.maxNonWorkCameraDifference>.00001f)
+                    throw new InvalidOperationException("Generator floor frame or actor turn validation failed: "+JsonUtility.ToJson(report));
                 if(report.maxRightWristError>.0002f||report.maxLeftWristError>.0002f||report.maxArmLengthChange>.000001f||
                     report.maxCrankPhaseError>.000001f||report.maxCableEndpointError>.000001f||report.minimumViewportMargin<.02f)
                     throw new InvalidOperationException("Crank contact or arm length validation failed: "+JsonUtility.ToJson(report));
