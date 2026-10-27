@@ -9,8 +9,8 @@ namespace DesktopFish
     // Crank and hand use the same phase and contact point, so they cannot drift.
     public sealed class FishWorkStation : IDisposable
     {
-        // Scene coordinates belong to the stationary floor equipment, not to
-        // the turning avatar. Both IK and visible shaft use this one frame.
+        // Floor equipment has its own frame. The machine rocks within it;
+        // hands, crank and plug use exactly the same moving machine pose.
         public static readonly Vector3 GeneratorPosition = new Vector3(-.401f, .295f, .030f);
         public static readonly Quaternion GeneratorRotation = Quaternion.Euler(0,-36,0);
         public static readonly Vector3 BraceWrist = new Vector3(.125f,.425f,.105f);
@@ -20,15 +20,36 @@ namespace DesktopFish
         public const int CookerStyleCount = 5;
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
+        public static readonly Vector3 LocalCrankCenter=new Vector3(.135f,.127f,-.030f);
+        static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.146f);
+        static readonly Vector3[] Feet={new Vector3(-.075f,-.228f,-.055f),new Vector3(-.075f,-.228f,.055f),new Vector3(.075f,-.228f,-.055f),new Vector3(.075f,-.228f,.055f)};
+        static readonly Vector3 FootSize=new Vector3(.033f,.024f,.036f);
+        static readonly Vector3[] FootSupports=MakeFootSupports();
+        public const float GeneratorFloorHeight=.055f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
-        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.127f,-.030f));
-        public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.145f,.146f));
+        public static Vector3 CrankCenter => GeneratorPoint(LocalCrankCenter);
+        public static Vector3 PowerOutlet => GeneratorPoint(LocalPowerOutlet);
         public static float CrankAngle(float time) => Mathf.Repeat(time*4.4f,Mathf.PI*2);
         public const float GripCenter = .135f;
         public const float HandSpacing = .190f;
-        public static Vector3 HandGrip(float time,string side) => CrankGrip(time)+GeneratorRotation*Vector3.right*(side=="L"?-HandSpacing*.5f:HandSpacing*.5f);
-        public static Vector3 CrankGrip(float time) => CrankCenter + GeneratorRotation *
-            new Vector3(GripCenter,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
+        static Vector3 LocalGrip(float time) => LocalCrankCenter+new Vector3(GripCenter,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
+        static void AddFeet(Shape shape,Color color){foreach(var foot in Feet)shape.RoundedBlock(foot,FootSize,.006f,color);}
+        static Vector3[] MakeFootSupports(){var shape=new Shape();AddFeet(shape,Color.white);return shape.Positions();}
+        public static Pose GeneratorPoseAt(float time,float weight=1) {
+            float phase=CrankAngle(time);
+            Quaternion rotation=GeneratorRotation*Quaternion.Euler(new Vector3(3*Mathf.Sin(phase)+.35f*Mathf.Sin(phase*2),0,1.6f*Mathf.Cos(phase))*Mathf.Clamp01(weight));
+            float lowest=float.PositiveInfinity;
+            foreach(var support in FootSupports)lowest=Mathf.Min(lowest,(rotation*support).y);
+            return new Pose(GeneratorPosition+Vector3.up*(GeneratorFloorHeight-GeneratorPosition.y-lowest),rotation);
+        }
+        public static Vector3 HandGrip(float time,string side,float weight=1) {
+            var pose=GeneratorPoseAt(time,weight);
+            return pose.position+pose.rotation*(LocalGrip(time)+Vector3.right*(side=="L"?-HandSpacing*.5f:HandSpacing*.5f));
+        }
+        public static Vector3 CrankGrip(float time,float weight=1) {
+            var pose=GeneratorPoseAt(time,weight);return pose.position+pose.rotation*LocalGrip(time);
+        }
+        public static Vector3 GripRockOffset(float time,float weight) => CrankGrip(time,weight)-GeneratorPoint(LocalGrip(time));
 
         // The canvas is1.30x larger than the original240x320 window. Matching
         // that padding in all states keeps the original idle pixels per world
@@ -44,9 +65,8 @@ namespace DesktopFish
         static readonly Color Teal = new Color(.27f, .65f, .69f);
         static readonly Color Ivory = new Color(.95f, .96f, .92f);
         static readonly Color Gold = new Color(1f, .76f, .27f);
-        readonly Transform root, crank, gripHandle;
-        readonly Material solid, vapor, electricity, badgeLettering;
-        readonly Font badgeFont;
+        readonly Transform root, machine, crank, gripHandle;
+        readonly Material solid, vapor, electricity;
         readonly Transform[] chargeCells=new Transform[5];
         const int ElectricArcs=8,ElectricNodes=7,ElectricBands=6;
         readonly Mesh electricMesh;
@@ -97,14 +117,13 @@ namespace DesktopFish
             // avatar turns toward the side-mounted crank.
             root = Child(model.parent, "Work station (runtime only)");
             root.localPosition=model.localPosition;root.localRotation=model.localRotation;root.localScale=model.localScale;
-            var machine=Child(root,"Floor generator");
+            machine=Child(root,"Floor generator");
             machine.localPosition=GeneratorPosition;machine.localRotation=GeneratorRotation;
             Color dark=new Color(.16f,.19f,.21f),metal=new Color(.62f,.67f,.69f);
             var housing=new Shape();
             housing.RoundedBlock(Vector3.zero,new Vector3(.220f,.440f,.180f),.012f,Ivory);
             housing.RoundedBlock(new Vector3(0,0,.094f),new Vector3(.198f,.416f,.014f),.009f,new Color(.97f,.97f,.93f));
-            foreach(float x in new[]{-.075f,.075f})foreach(float z in new[]{-.055f,.055f})
-                housing.RoundedBlock(new Vector3(x,-.228f,z),new Vector3(.033f,.024f,.036f),.006f,dark);
+            AddFeet(housing,dark);
             // Rigid bridge carry handle, with an actual open center.
             housing.RoundedBlock(new Vector3(-.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
@@ -127,16 +146,7 @@ namespace DesktopFish
             mark.Polygon(new[]{new Vector3(.013f,.027f,.120f),new Vector3(-.024f,-.012f,.120f),new Vector3(.003f,-.012f,.120f)},Gold);
             mark.Polygon(new[]{new Vector3(-.013f,-.055f,.120f),new Vector3(.025f,-.002f,.120f),new Vector3(-.004f,-.002f,.120f)},Gold);
             mark.Box(new Vector3(-.0005f,-.007f,.120f),new Vector3(.007f,.010f,.001f),Gold);
-            Part(machine,"Large yellow power bolt",mark);
-            badgeFont=Font.CreateDynamicFontFromOSFont("Heiti SC",128);
-            badgeFont.RequestCharactersInTexture("发电",128,FontStyle.Bold);
-            var label=Child(machine,"Yellow power label");label.localPosition=new Vector3(0,-.077f,.123f);label.localRotation=Quaternion.Euler(0,180,0);
-            var lettering=label.gameObject.AddComponent<TextMesh>();lettering.font=badgeFont;lettering.fontSize=128;lettering.characterSize=.0026f;lettering.fontStyle=FontStyle.Bold;
-            lettering.anchor=TextAnchor.MiddleCenter;lettering.alignment=TextAlignment.Center;lettering.color=Gold;lettering.text="发电";
-            var textShader=Resources.Load<Shader>("WorkBadgeText");
-            if(!textShader)throw new InvalidOperationException("Power-badge lettering shader is missing");
-            badgeLettering=new Material(textShader){name="Yellow power badge lettering",mainTexture=badgeFont.material.mainTexture};
-            label.GetComponent<MeshRenderer>().sharedMaterial=badgeLettering;
+            var bolt=Part(machine,"Large yellow power bolt",mark);bolt.localPosition=Vector3.down*.016f;
             for(int i=0;i<4;i++)housing.Box(new Vector3(-.112f,.060f-i*.022f,0),new Vector3(.004f,.008f,.060f),dark);
             Part(machine,"Generator housing",housing);
             foreach(float x in new[]{-.086f,.086f})foreach(float y in new[]{-.190f,.190f}) {
@@ -185,7 +195,11 @@ namespace DesktopFish
             if (!visible) return;
             int count = Mathf.Max(0, activeCount);
             if (count != pots.Count) Arrange(count);
-            crank.localRotation = GeneratorRotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
+            var pose=GeneratorPoseAt(time,weight);
+            machine.localPosition=pose.position;machine.localRotation=pose.rotation;
+            crank.localPosition=pose.position+pose.rotation*LocalCrankCenter;
+            crank.localRotation = pose.rotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
+            Vector3 liveOutlet=pose.position+pose.rotation*LocalPowerOutlet;
             // The grip has a free bearing; it does not drag the fist around the shaft.
             gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
             current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
@@ -193,7 +207,6 @@ namespace DesktopFish
             float charge=Mathf.PingPong(time*4.4f/(2*Mathf.PI),1);
             int filled=Mathf.Clamp(Mathf.FloorToInt(charge*6),0,5);
             for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
-            if(badgeLettering.mainTexture!=badgeFont.material.mainTexture)badgeLettering.mainTexture=badgeFont.material.mainTexture;
             UpdateElectricity(time,weight);
             for(int i=0;i<pots.Count;i++)
             {
@@ -206,6 +219,7 @@ namespace DesktopFish
                 float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*weight;
                 p.lid.localPosition=Vector3.up*(pressure*.0045f);
                 p.lid.localRotation=Quaternion.Euler(0,0,Mathf.Sin(time*21+seed)*pressure*1.7f);
+                p.cableStart=liveOutlet;
                 UpdateCable(p);
                 float phase=Mathf.Repeat(time*.55f-i*.19f,1);
                 p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase)));
@@ -486,11 +500,12 @@ namespace DesktopFish
         Mesh Own(Mesh mesh){meshes.Add(mesh);return mesh;}
         static Transform Child(Transform parent,string name){var t=new GameObject(name).transform;t.SetParent(parent,false);return t;}
         static void Release(UnityEngine.Object value){if(!value)return;if(Application.isPlaying)UnityEngine.Object.Destroy(value);else UnityEngine.Object.DestroyImmediate(value);}
-        public void Dispose(){if(disposed)return;disposed=true;if(root)Release(root.gameObject);foreach(var mesh in meshes)Release(mesh);meshes.Clear();Release(solid);Release(vapor);Release(electricity);Release(badgeLettering);Release(badgeFont);}
+        public void Dispose(){if(disposed)return;disposed=true;if(root)Release(root.gameObject);foreach(var mesh in meshes)Release(mesh);meshes.Clear();Release(solid);Release(vapor);Release(electricity);}
 
         sealed class Shape
         {
             readonly List<Vector3> points=new List<Vector3>();readonly List<int> triangles=new List<int>();readonly List<Color> colors=new List<Color>();
+            public Vector3[] Positions()=>points.ToArray();
             public void Quad(Vector3 a,Vector3 b,Vector3 c,Vector3 d,Color color){int n=points.Count;points.AddRange(new[]{a,b,c,d});for(int i=0;i<4;i++)colors.Add(color);triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
             public void Box(Vector3 center,Vector3 size,Color color)
             {

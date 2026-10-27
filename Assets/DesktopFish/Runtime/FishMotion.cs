@@ -238,7 +238,10 @@ namespace DesktopFish
             Vector3 rock=Quaternion.Euler(0,WorkingYaw,0)*Vector3.forward*(.035f*drive*workBlend);
             rock+=FishWorkStation.GeneratorRotation*Vector3.forward*(orbitGrowth*drive*workBlend);
             Vector3 sideLoad=Vector3.right*(.010f*(1-drive)*workBlend);
-            model.localPosition=restPosition+Vector3.up*rootY+WorkingOffset*workBlend+rock+sideLoad;
+            // Transfer the small casing motion through the hands and torso.
+            // The feet still use their fixed own sole supports on the floor.
+            Vector3 machineLoad=FishWorkStation.GripRockOffset(now,workBlend)*workBlend;
+            model.localPosition=restPosition+Vector3.up*rootY+WorkingOffset*workBlend+rock+sideLoad+machineLoad;
             model.localRotation = restRotation * Quaternion.Euler(0, WorkingYawAt(now) * workBlend, lean);
             model.localScale = Vector3.Scale(restScale, new Vector3(1 / Mathf.Sqrt(squash), squash, 1));
             Rotate("J_Bip_C_Hips",new Vector3(0,-6*drive,0)*workBlend);
@@ -361,9 +364,11 @@ namespace DesktopFish
             var upper=bones["J_Bip_"+side+"_UpperArm"];var elbow=bones["J_Bip_"+side+"_LowerArm"];var hand=bones["J_Bip_"+side+"_Hand"];
             Quaternion baseUpper=upper.localRotation,baseElbow=elbow.localRotation,baseHand=hand.rotation;
             float a=Vector3.Distance(upper.position,elbow.position),b=Vector3.Distance(elbow.position,hand.position);
-            Vector3 grip=WorkFramePoint(FishWorkStation.HandGrip(time,side));
-            Vector3 shaft=(WorkFramePoint(FishWorkStation.HandGrip(time,side)+FishWorkStation.GeneratorRotation*Vector3.right)-grip).normalized;
-            Vector3 caseForward=(WorkFramePoint(FishWorkStation.GeneratorRotation*Vector3.forward)-WorkFramePoint(Vector3.zero)).normalized;
+            var machine=FishWorkStation.GeneratorPoseAt(time,weight);
+            Vector3 targetGrip=FishWorkStation.HandGrip(time,side,weight);
+            Vector3 grip=WorkFramePoint(targetGrip);
+            Vector3 shaft=(WorkFramePoint(targetGrip+machine.rotation*Vector3.right)-grip).normalized;
+            Vector3 caseForward=(WorkFramePoint(machine.rotation*Vector3.forward)-WorkFramePoint(Vector3.zero)).normalized;
             Quaternion palm=baseHand;
             for(int pass=0;pass<4;pass++) {
                 Vector3 reach=grip-(pass==0?upper.position:elbow.position);

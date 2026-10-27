@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public float maxMachineRockDegrees,maxMachineFloorError,maxCrankMountError,maxOrbitRadiusError,maxCookerPlacementDrift;
+            public int machineLabelCount;
             public int chargeStateCount,chargeRises,chargeFalls,minChargeCells=5,maxChargeCells,socketCount;
             public float maxElectricAlpha,minElectricSampleAlpha=1,maxElectricSampleAlpha,maxElectricTravel,maxCableSourceError;
             public float maxCharacterPixelScaleError,scenePixelScaleVsPreviousWork;
@@ -50,9 +52,12 @@ namespace DesktopFish.Editor
 
         public static void RenderElectricGenerator() => Render("work/electric-generator-168",true);
 
+        public static void RenderRockingGenerator() => Render("work/rocking-generator-169",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool electricReview=output.EndsWith("168");
+            bool rockReview=output.EndsWith("169");
+            bool electricReview=output.EndsWith("168")||rockReview;
             bool fullSize=output.EndsWith("167")||electricReview;
             bool movingOrbit=output.EndsWith("166")||fullSize;
             bool twoHand=output.EndsWith("165")||movingOrbit;
@@ -149,10 +154,25 @@ namespace DesktopFish.Editor
                 capture("all-five-styles");RenderCatalog(camera,station,snapshots,output);
                 var initialStyles=Enumerable.Range(0,3).Select(i=>station.CookerStyleAt(i)).ToArray();
                 Vector3 firstSteam=Vector3.zero;Quaternion[] previousPalms={Quaternion.identity,Quaternion.identity};
+                Vector3[] cookerPositions=new Vector3[3];
                 var chargeStates=new System.Collections.Generic.HashSet<int>();int lastCharge=-1;Vector3 firstElectric=Vector3.zero;
                 for(int f=0;f<(electricReview?72:48);f++)
                 {
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
+                    if(rockReview) {
+                        var machine=station.Root.Find("Floor generator");
+                        report.maxMachineRockDegrees=Mathf.Max(report.maxMachineRockDegrees,Quaternion.Angle(machine.localRotation,FishWorkStation.GeneratorRotation));
+                        float floor=float.PositiveInfinity;
+                        foreach(var point in machine.Find("Generator housing").GetComponent<MeshFilter>().sharedMesh.vertices)if(point.y<-.220f)
+                            floor=Mathf.Min(floor,station.Root.InverseTransformPoint(machine.TransformPoint(point)).y);
+                        report.maxMachineFloorError=Mathf.Max(report.maxMachineFloorError,Mathf.Abs(floor-FishWorkStation.GeneratorFloorHeight));
+                        report.maxCrankMountError=Mathf.Max(report.maxCrankMountError,Vector3.Distance(station.Root.Find("Hand crank").position,machine.TransformPoint(FishWorkStation.LocalCrankCenter)));
+                        report.machineLabelCount=machine.GetComponentsInChildren<TextMesh>(true).Length;
+                        for(int i=0;i<3;i++) {
+                            Vector3 point=station.Root.Find("Rice cooker "+(i+1)).localPosition;
+                            if(f==0)cookerPositions[i]=point;report.maxCookerPlacementDrift=Mathf.Max(report.maxCookerPlacementDrift,Vector3.Distance(point,cookerPositions[i]));
+                        }
+                    }
                     if(electricReview) {
                         var generator=station.Root.Find("Floor generator");int charge=0;
                         for(int cell=0;cell<5;cell++)if(generator.Find("Charge cell "+cell).gameObject.activeSelf)charge++;
@@ -192,11 +212,12 @@ namespace DesktopFish.Editor
                         report.maxGraspCenterError=Mathf.Max(report.maxGraspCenterError,error);
                         report.maxGraspAxisError=Mathf.Max(report.maxGraspAxisError,Mathf.Acos(Mathf.Clamp01(Mathf.Abs(Vector3.Dot(normal.normalized,actualGrip.up))))*Mathf.Rad2Deg);
                         report.maxForearmTwist=Mathf.Max(report.maxForearmTwist,Mathf.Abs(motion.CrankTwist(side)));
-                        report.minShoulderPlaneDistance=Mathf.Min(report.minShoulderPlaneDistance,Vector3.ProjectOnPlane(bones[prefix+"UpperArm"].position-station.Root.TransformPoint(FishWorkStation.CrankCenter),actualGrip.up).magnitude);
+                        report.minShoulderPlaneDistance=Mathf.Min(report.minShoulderPlaneDistance,Vector3.ProjectOnPlane(bones[prefix+"UpperArm"].position-station.Root.Find("Hand crank").position,actualGrip.up).magnitude);
                         if(f>0)report.maxHandAngularStep=Mathf.Max(report.maxHandAngularStep,Quaternion.Angle(previousPalms[handIndex],bones[prefix+"Hand"].rotation));previousPalms[handIndex]=bones[prefix+"Hand"].rotation;
                     }
                     report.crankCenterHeight=station.Root.Find("Hand crank").localPosition.y;
                     report.measuredCrankRadius=Vector3.ProjectOnPlane(actualGrip.position-station.Root.Find("Hand crank").position,actualGrip.up).magnitude;
+                    report.maxOrbitRadiusError=Mathf.Max(report.maxOrbitRadiusError,Mathf.Abs(report.measuredCrankRadius-FishWorkStation.CrankRadius));
                     report.minGraspSeparation=Mathf.Min(report.minGraspSeparation,Vector3.Distance(graspCenters[0],graspCenters[1]));
                     var wobble=station.Root.Find("Rice cooker 1/Cooker wobble");
                     report.maxCookerRockDegrees=Mathf.Max(report.maxCookerRockDegrees,Quaternion.Angle(wobble.localRotation,Quaternion.identity));
@@ -293,6 +314,8 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(rockReview&&(report.machineLabelCount!=0||report.maxMachineRockDegrees<2||report.maxMachineFloorError>.00001f||report.maxCrankMountError>.000001f||report.maxOrbitRadiusError>.000001f||report.maxCookerPlacementDrift>.000001f))
+                    throw new InvalidOperationException("Whole generator rocking, floor support or no-label validation failed: "+JsonUtility.ToJson(report));
                 if(electricReview) {
                     report.chargeStateCount=chargeStates.Count;
                     if(report.chargeStateCount!=6||report.minChargeCells!=0||report.maxChargeCells!=5||report.chargeRises<5||report.chargeFalls<5||report.socketCount!=2||report.maxElectricAlpha<.5f||report.maxElectricSampleAlpha-report.minElectricSampleAlpha<.1f||report.maxElectricTravel<.002f||report.maxCableSourceError>.000001f)
@@ -344,7 +367,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
