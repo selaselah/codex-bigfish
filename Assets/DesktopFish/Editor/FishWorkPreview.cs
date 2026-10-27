@@ -10,6 +10,7 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public float maxBaseVertexDrift,maxBaseRotationDegrees,maxFootMountError,minFootMountLength=1,maxFootMountLength,maxMachinePivotError;
             public float maxMachineRockDegrees,maxMachineFloorError,maxCrankMountError,maxOrbitRadiusError,maxCookerPlacementDrift;
             public int machineLabelCount;
             public int chargeStateCount,chargeRises,chargeFalls,minChargeCells=5,maxChargeCells,socketCount;
@@ -54,9 +55,12 @@ namespace DesktopFish.Editor
 
         public static void RenderRockingGenerator() => Render("work/rocking-generator-169",true);
 
+        public static void RenderFixedGeneratorFeet() => Render("work/fixed-generator-feet-170",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool rockReview=output.EndsWith("169");
+            bool fixedFeetReview=output.EndsWith("170");
+            bool rockReview=output.EndsWith("169")||fixedFeetReview;
             bool electricReview=output.EndsWith("168")||rockReview;
             bool fullSize=output.EndsWith("167")||electricReview;
             bool movingOrbit=output.EndsWith("166")||fullSize;
@@ -99,7 +103,14 @@ namespace DesktopFish.Editor
             try
             {
                 camera.targetTexture=target;
+                Vector3[] fixedPadVertices=null;
                 Action<string> capture=path=>{
+                    if(fixedFeetReview) {
+                        var footing=station.Root.Find("Generator base");var pads=footing.Find("Fixed generator feet").GetComponent<MeshFilter>();var points=pads.sharedMesh.vertices;
+                        if(fixedPadVertices==null)fixedPadVertices=points.Select(p=>pads.transform.TransformPoint(p)).ToArray();
+                        for(int i=0;i<points.Length;i++)report.maxBaseVertexDrift=Mathf.Max(report.maxBaseVertexDrift,Vector3.Distance(pads.transform.TransformPoint(points[i]),fixedPadVertices[i]));
+                        report.maxBaseRotationDegrees=Mathf.Max(report.maxBaseRotationDegrees,Quaternion.Angle(footing.localRotation,FishWorkStation.GeneratorRotation));
+                    }
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     if(fullSize) {
                         Vector3 p=camera.transform.position+camera.transform.forward;
@@ -163,8 +174,18 @@ namespace DesktopFish.Editor
                         var machine=station.Root.Find("Floor generator");
                         report.maxMachineRockDegrees=Mathf.Max(report.maxMachineRockDegrees,Quaternion.Angle(machine.localRotation,FishWorkStation.GeneratorRotation));
                         float floor=float.PositiveInfinity;
-                        foreach(var point in machine.Find("Generator housing").GetComponent<MeshFilter>().sharedMesh.vertices)if(point.y<-.220f)
-                            floor=Mathf.Min(floor,station.Root.InverseTransformPoint(machine.TransformPoint(point)).y);
+                        var support=fixedFeetReview?station.Root.Find("Generator base/Fixed generator feet"):machine.Find("Generator housing");
+                        foreach(var point in support.GetComponent<MeshFilter>().sharedMesh.vertices)if(fixedFeetReview||point.y<-.220f)
+                            floor=Mathf.Min(floor,station.Root.InverseTransformPoint(support.TransformPoint(point)).y);
+                        if(fixedFeetReview) {
+                            var footing=station.Root.Find("Generator base");
+                            report.maxMachinePivotError=Mathf.Max(report.maxMachinePivotError,Vector3.Distance(machine.TransformPoint(FishWorkStation.MachinePivot),footing.TransformPoint(FishWorkStation.MachinePivot)));
+                            for(int i=0;i<4;i++) {
+                                var mount=footing.Find("Flexible foot mount "+i);Vector3 lower=footing.Find("Fixed foot joint "+i).position,upper=machine.Find("Body foot joint "+i).position;
+                                report.maxFootMountError=Mathf.Max(report.maxFootMountError,Vector3.Distance(mount.TransformPoint(Vector3.down*.5f),lower),Vector3.Distance(mount.TransformPoint(Vector3.up*.5f),upper));
+                                report.minFootMountLength=Mathf.Min(report.minFootMountLength,Vector3.Distance(lower,upper));report.maxFootMountLength=Mathf.Max(report.maxFootMountLength,Vector3.Distance(lower,upper));
+                            }
+                        }
                         report.maxMachineFloorError=Mathf.Max(report.maxMachineFloorError,Mathf.Abs(floor-FishWorkStation.GeneratorFloorHeight));
                         report.maxCrankMountError=Mathf.Max(report.maxCrankMountError,Vector3.Distance(station.Root.Find("Hand crank").position,machine.TransformPoint(FishWorkStation.LocalCrankCenter)));
                         report.machineLabelCount=machine.GetComponentsInChildren<TextMesh>(true).Length;
@@ -314,6 +335,8 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(fixedFeetReview&&(report.maxBaseVertexDrift>.000001f||report.maxBaseRotationDegrees>.001f||report.maxFootMountError>.000001f||report.maxMachinePivotError>.000001f||report.minFootMountLength<.002f))
+                    throw new InvalidOperationException("Fixed foot pads or casing support joints moved: "+JsonUtility.ToJson(report));
                 if(rockReview&&(report.machineLabelCount!=0||report.maxMachineRockDegrees<2||report.maxMachineFloorError>.00001f||report.maxCrankMountError>.000001f||report.maxOrbitRadiusError>.000001f||report.maxCookerPlacementDrift>.000001f))
                     throw new InvalidOperationException("Whole generator rocking, floor support or no-label validation failed: "+JsonUtility.ToJson(report));
                 if(electricReview) {
@@ -367,7 +390,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
@@ -386,7 +409,7 @@ namespace DesktopFish.Editor
             var rt=RenderTexture.GetTemporary(480,640,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Default,4);var image=new Texture2D(480,640,TextureFormat.RGBA32,false);
             try {
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
-                foreach(var child in children)child.gameObject.SetActive(child.name=="Floor generator"||child.name=="Hand crank");
+                foreach(var child in children)child.gameObject.SetActive(child.name=="Floor generator"||child.name=="Hand crank"||child.name=="Generator base");
                 camera.targetTexture=rt;camera.aspect=.75f;camera.orthographicSize=.39f;
                 Vector3 focus=station.Root.TransformPoint(FishWorkStation.GeneratorPosition+FishWorkStation.GeneratorRotation*Vector3.right*.14f+Vector3.up*.04f);
                 Vector3 forward=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.forward);

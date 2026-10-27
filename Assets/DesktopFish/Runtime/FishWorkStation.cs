@@ -24,7 +24,7 @@ namespace DesktopFish
         static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.146f);
         static readonly Vector3[] Feet={new Vector3(-.075f,-.228f,-.055f),new Vector3(-.075f,-.228f,.055f),new Vector3(.075f,-.228f,-.055f),new Vector3(.075f,-.228f,.055f)};
         static readonly Vector3 FootSize=new Vector3(.033f,.024f,.036f);
-        static readonly Vector3[] FootSupports=MakeFootSupports();
+        public static readonly Vector3 MachinePivot=new Vector3(0,-.216f,0);
         public const float GeneratorFloorHeight=.055f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
         public static Vector3 CrankCenter => GeneratorPoint(LocalCrankCenter);
@@ -34,13 +34,12 @@ namespace DesktopFish
         public const float HandSpacing = .190f;
         static Vector3 LocalGrip(float time) => LocalCrankCenter+new Vector3(GripCenter,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
         static void AddFeet(Shape shape,Color color){foreach(var foot in Feet)shape.RoundedBlock(foot,FootSize,.006f,color);}
-        static Vector3[] MakeFootSupports(){var shape=new Shape();AddFeet(shape,Color.white);return shape.Positions();}
         public static Pose GeneratorPoseAt(float time,float weight=1) {
             float phase=CrankAngle(time);
             Quaternion rotation=GeneratorRotation*Quaternion.Euler(new Vector3(3*Mathf.Sin(phase)+.35f*Mathf.Sin(phase*2),0,1.6f*Mathf.Cos(phase))*Mathf.Clamp01(weight));
-            float lowest=float.PositiveInfinity;
-            foreach(var support in FootSupports)lowest=Mathf.Min(lowest,(rotation*support).y);
-            return new Pose(GeneratorPosition+Vector3.up*(GeneratorFloorHeight-GeneratorPosition.y-lowest),rotation);
+            // The upper housing pivots above a separate stationary footing.
+            // Short mounts bridge the small gap while all four pads stay fixed.
+            return new Pose(GeneratorPoint(MachinePivot)-rotation*MachinePivot,rotation);
         }
         public static Vector3 HandGrip(float time,string side,float weight=1) {
             var pose=GeneratorPoseAt(time,weight);
@@ -65,7 +64,8 @@ namespace DesktopFish
         static readonly Color Teal = new Color(.27f, .65f, .69f);
         static readonly Color Ivory = new Color(.95f, .96f, .92f);
         static readonly Color Gold = new Color(1f, .76f, .27f);
-        readonly Transform root, machine, crank, gripHandle;
+        readonly Transform root, machine, footing, crank, gripHandle;
+        readonly Transform[] footMounts=new Transform[4],lowerFootJoints=new Transform[4],upperFootJoints=new Transform[4];
         readonly Material solid, vapor, electricity;
         readonly Transform[] chargeCells=new Transform[5];
         const int ElectricArcs=8,ElectricNodes=7,ElectricBands=6;
@@ -120,10 +120,17 @@ namespace DesktopFish
             machine=Child(root,"Floor generator");
             machine.localPosition=GeneratorPosition;machine.localRotation=GeneratorRotation;
             Color dark=new Color(.16f,.19f,.21f),metal=new Color(.62f,.67f,.69f);
+            footing=Child(root,"Generator base");footing.localPosition=GeneratorPosition;footing.localRotation=GeneratorRotation;
+            var pads=new Shape();AddFeet(pads,dark);Part(footing,"Fixed generator feet",pads);
+            for(int i=0;i<Feet.Length;i++) {
+                lowerFootJoints[i]=Child(footing,"Fixed foot joint "+i);lowerFootJoints[i].localPosition=Feet[i]+Vector3.up*.005f;
+                upperFootJoints[i]=Child(machine,"Body foot joint "+i);upperFootJoints[i].localPosition=new Vector3(Feet[i].x,-.214f,Feet[i].z);
+                var neck=new Shape();neck.Lathe(new[]{new Vector2(.0105f,-.5f),new Vector2(.0105f,.5f)},12,dark);
+                footMounts[i]=Part(footing,"Flexible foot mount "+i,neck);
+            }
             var housing=new Shape();
             housing.RoundedBlock(Vector3.zero,new Vector3(.220f,.440f,.180f),.012f,Ivory);
             housing.RoundedBlock(new Vector3(0,0,.094f),new Vector3(.198f,.416f,.014f),.009f,new Color(.97f,.97f,.93f));
-            AddFeet(housing,dark);
             // Rigid bridge carry handle, with an actual open center.
             housing.RoundedBlock(new Vector3(-.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
@@ -197,6 +204,12 @@ namespace DesktopFish
             if (count != pots.Count) Arrange(count);
             var pose=GeneratorPoseAt(time,weight);
             machine.localPosition=pose.position;machine.localRotation=pose.rotation;
+            for(int i=0;i<footMounts.Length;i++) {
+                Vector3 lower=lowerFootJoints[i].localPosition,upper=footing.InverseTransformPoint(upperFootJoints[i].position),delta=upper-lower;
+                footMounts[i].localPosition=(lower+upper)*.5f;
+                footMounts[i].localRotation=Quaternion.FromToRotation(Vector3.up,delta);
+                footMounts[i].localScale=new Vector3(1,delta.magnitude,1);
+            }
             crank.localPosition=pose.position+pose.rotation*LocalCrankCenter;
             crank.localRotation = pose.rotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
             Vector3 liveOutlet=pose.position+pose.rotation*LocalPowerOutlet;
@@ -505,7 +518,6 @@ namespace DesktopFish
         sealed class Shape
         {
             readonly List<Vector3> points=new List<Vector3>();readonly List<int> triangles=new List<int>();readonly List<Color> colors=new List<Color>();
-            public Vector3[] Positions()=>points.ToArray();
             public void Quad(Vector3 a,Vector3 b,Vector3 c,Vector3 d,Color color){int n=points.Count;points.AddRange(new[]{a,b,c,d});for(int i=0;i<4;i++)colors.Add(color);triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
             public void Box(Vector3 center,Vector3 size,Color color)
             {
