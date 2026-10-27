@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int crackleActiveCountStates,minActiveArcs=8,maxActiveArcs,arcZeroBursts,arcZeroSilentFrames,arcZeroActiveFrames,maxArcZeroRun,maxActiveBranches;
+            public float maxSparkAlpha;
             public float maxBaseVertexDrift,maxBaseRotationDegrees,maxFootMountError,minFootMountLength=1,maxFootMountLength,maxMachinePivotError;
             public float maxMachineRockDegrees,maxMachineFloorError,maxCrankMountError,maxOrbitRadiusError,maxCookerPlacementDrift;
             public int machineLabelCount;
@@ -57,9 +59,12 @@ namespace DesktopFish.Editor
 
         public static void RenderFixedGeneratorFeet() => Render("work/fixed-generator-feet-170",true);
 
+        public static void RenderCracklingElectricity() => Render("work/crackling-electricity-171",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool fixedFeetReview=output.EndsWith("170");
+            bool crackleReview=output.EndsWith("171");
+            bool fixedFeetReview=output.EndsWith("170")||crackleReview;
             bool rockReview=output.EndsWith("169")||fixedFeetReview;
             bool electricReview=output.EndsWith("168")||rockReview;
             bool fullSize=output.EndsWith("167")||electricReview;
@@ -165,6 +170,7 @@ namespace DesktopFish.Editor
                 capture("all-five-styles");RenderCatalog(camera,station,snapshots,output);
                 var initialStyles=Enumerable.Range(0,3).Select(i=>station.CookerStyleAt(i)).ToArray();
                 Vector3 firstSteam=Vector3.zero;Quaternion[] previousPalms={Quaternion.identity,Quaternion.identity};
+                var crackleCounts=new System.Collections.Generic.HashSet<int>();bool arcZeroWasActive=false;int arcZeroRun=0;
                 Vector3[] cookerPositions=new Vector3[3];
                 var chargeStates=new System.Collections.Generic.HashSet<int>();int lastCharge=-1;Vector3 firstElectric=Vector3.zero;
                 for(int f=0;f<(electricReview?72:48);f++)
@@ -200,6 +206,20 @@ namespace DesktopFish.Editor
                         chargeStates.Add(charge);report.minChargeCells=Mathf.Min(report.minChargeCells,charge);report.maxChargeCells=Mathf.Max(report.maxChargeCells,charge);
                         if(lastCharge>=0){if(charge>lastCharge)report.chargeRises++;if(charge<lastCharge)report.chargeFalls++;}lastCharge=charge;
                         var lightning=generator.Find("Generator electricity").GetComponent<MeshFilter>().sharedMesh;
+                        if(crackleReview) {
+                            var colors=lightning.colors;const int pathSize=42;int active=0,branches=0;
+                            for(int path=0;path<24;path++) {
+                                float alpha=colors.Skip(path*pathSize).Take(pathSize).Max(c=>c.a);bool on=alpha>.05f;
+                                if(path<8&&on)active++;if(path>=8&&on)branches++;
+                                if(path==0) {
+                                    if(on){report.arcZeroActiveFrames++;arcZeroRun++;if(!arcZeroWasActive)report.arcZeroBursts++;}
+                                    else {report.arcZeroSilentFrames++;arcZeroRun=0;}
+                                    report.maxArcZeroRun=Mathf.Max(report.maxArcZeroRun,arcZeroRun);arcZeroWasActive=on;
+                                }
+                            }
+                            crackleCounts.Add(active);report.minActiveArcs=Mathf.Min(report.minActiveArcs,active);report.maxActiveArcs=Mathf.Max(report.maxActiveArcs,active);report.maxActiveBranches=Mathf.Max(report.maxActiveBranches,branches);
+                            report.maxSparkAlpha=Mathf.Max(report.maxSparkAlpha,generator.Find("Generator crackle sparks").GetComponent<MeshFilter>().sharedMesh.colors.Max(c=>c.a));
+                        }
                         report.maxElectricAlpha=Mathf.Max(report.maxElectricAlpha,lightning.colors.Max(c=>c.a));
                         report.minElectricSampleAlpha=Mathf.Min(report.minElectricSampleAlpha,lightning.colors[20].a);report.maxElectricSampleAlpha=Mathf.Max(report.maxElectricSampleAlpha,lightning.colors[20].a);
                         if(f==0)firstElectric=lightning.vertices[20];report.maxElectricTravel=Mathf.Max(report.maxElectricTravel,Vector3.Distance(firstElectric,lightning.vertices[20]));
@@ -335,6 +355,11 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(crackleReview) {
+                    report.crackleActiveCountStates=crackleCounts.Count;
+                    if(report.crackleActiveCountStates<3||report.arcZeroBursts<4||report.arcZeroSilentFrames<12||report.arcZeroActiveFrames<3||report.maxArcZeroRun>6||report.maxActiveBranches<2||report.maxSparkAlpha<.5f)
+                        throw new InvalidOperationException("Electric arcs do not have short staggered strikes, forks and sparks: "+JsonUtility.ToJson(report));
+                }
                 if(fixedFeetReview&&(report.maxBaseVertexDrift>.000001f||report.maxBaseRotationDegrees>.001f||report.maxFootMountError>.000001f||report.maxMachinePivotError>.000001f||report.minFootMountLength<.002f))
                     throw new InvalidOperationException("Fixed foot pads or casing support joints moved: "+JsonUtility.ToJson(report));
                 if(rockReview&&(report.machineLabelCount!=0||report.maxMachineRockDegrees<2||report.maxMachineFloorError>.00001f||report.maxCrankMountError>.000001f||report.maxOrbitRadiusError>.000001f||report.maxCookerPlacementDrift>.000001f))
@@ -390,7 +415,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

@@ -68,14 +68,17 @@ namespace DesktopFish
         readonly Transform[] footMounts=new Transform[4],lowerFootJoints=new Transform[4],upperFootJoints=new Transform[4];
         readonly Material solid, vapor, electricity;
         readonly Transform[] chargeCells=new Transform[5];
-        const int ElectricArcs=8,ElectricNodes=7,ElectricBands=6;
-        readonly Mesh electricMesh;
-        readonly Vector3[] electricVertices=new Vector3[ElectricArcs*ElectricNodes*ElectricBands];
-        readonly Color[] electricColors=new Color[ElectricArcs*ElectricNodes*ElectricBands];
+        const int ElectricArcs=8,ElectricPaths=ElectricArcs*3,ElectricNodes=7,ElectricBands=6,SparksPerArc=3;
+        readonly Mesh electricMesh,sparkMesh;
+        readonly Vector3[] sparkVertices=new Vector3[ElectricArcs*SparksPerArc*4];
+        readonly Color[] sparkColors=new Color[ElectricArcs*SparksPerArc*4];
+        readonly Vector3[] electricPath=new Vector3[ElectricNodes],branchPath=new Vector3[ElectricNodes];
+        readonly Vector3[] electricVertices=new Vector3[ElectricPaths*ElectricNodes*ElectricBands];
+        readonly Color[] electricColors=new Color[ElectricPaths*ElectricNodes*ElectricBands];
         static readonly Vector3[] ArcStart={new Vector3(-.126f,.210f,.123f),new Vector3(.126f,.210f,.123f),new Vector3(-.126f,-.025f,.123f),new Vector3(.126f,-.025f,.123f),new Vector3(-.09f,.236f,.105f),new Vector3(-.09f,-.244f,.105f),new Vector3(-.079f,.264f,.020f),new Vector3(.040f,.316f,.020f)};
         static readonly Vector3[] ArcEnd={new Vector3(-.126f,.065f,.123f),new Vector3(.126f,.065f,.123f),new Vector3(-.126f,-.190f,.123f),new Vector3(.126f,-.190f,.123f),new Vector3(.09f,.236f,.105f),new Vector3(.09f,-.244f,.105f),new Vector3(-.040f,.316f,.020f),new Vector3(.079f,.264f,.020f)};
-        static readonly float[] ElectricWidth={-1,-.50f,-.22f,.22f,.50f,1};
-        static readonly float[] ElectricAlpha={0,.32f,1,1,.32f,0};
+        static readonly float[] ElectricWidth={-1,-.65f,-.17f,.17f,.65f,1};
+        static readonly float[] ElectricAlpha={0,.72f,1,1,.72f,0};
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly List<Pot> pots = new List<Pot>();
         readonly Transform current;
@@ -174,14 +177,18 @@ namespace DesktopFish
             var plugPart=Part(machine,"Mains plug",plug);plugPart.localPosition=new Vector3(-.040f,-.145f,.132f);
             var strain=new Shape();strain.Lathe(new[]{new Vector2(.006f,-.005f),new Vector2(.005f,.005f)},10,Navy);
             var outlet=Part(plugPart,"Cable outlet",strain);outlet.localPosition=new Vector3(0,0,.014f);outlet.localRotation=Quaternion.Euler(90,0,0);
-            electricMesh=Own(new Mesh{name="Soft generator lightning ribbons"});electricMesh.MarkDynamic();electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;
+            electricMesh=Own(new Mesh{name="Crackling branched lightning"});electricMesh.MarkDynamic();electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;
             var electricNormals=new Vector3[electricVertices.Length];for(int i=0;i<electricNormals.Length;i++)electricNormals[i]=Vector3.forward;electricMesh.normals=electricNormals;
             var lightningTriangles=new List<int>();
-            for(int arc=0;arc<ElectricArcs;arc++)for(int node=0;node<ElectricNodes-1;node++)for(int band=0;band<ElectricBands-1;band++) {
+            for(int arc=0;arc<ElectricPaths;arc++)for(int node=0;node<ElectricNodes-1;node++)for(int band=0;band<ElectricBands-1;band++) {
                 int a=(arc*ElectricNodes+node)*ElectricBands+band,b=a+1,c=b+ElectricBands,d=a+ElectricBands;lightningTriangles.AddRange(new[]{a,b,c,a,c,d});
             }
             electricMesh.triangles=lightningTriangles.ToArray();
             var electricPart=Child(machine,"Generator electricity");electricPart.gameObject.AddComponent<MeshFilter>().sharedMesh=electricMesh;electricPart.gameObject.AddComponent<MeshRenderer>().sharedMaterial=electricity;
+            sparkMesh=Own(new Mesh{name="Flying electric sparks"});sparkMesh.MarkDynamic();sparkMesh.vertices=sparkVertices;sparkMesh.colors=sparkColors;
+            var sparkNormals=new Vector3[sparkVertices.Length];for(int i=0;i<sparkNormals.Length;i++)sparkNormals[i]=Vector3.forward;sparkMesh.normals=sparkNormals;
+            var sparkTriangles=new List<int>();for(int i=0;i<ElectricArcs*SparksPerArc;i++){int n=i*4;sparkTriangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}sparkMesh.triangles=sparkTriangles.ToArray();
+            var sparkPart=Child(machine,"Generator crackle sparks");sparkPart.gameObject.AddComponent<MeshFilter>().sharedMesh=sparkMesh;sparkPart.gameObject.AddComponent<MeshRenderer>().sharedMaterial=electricity;
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
             var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.127f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
             var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
@@ -258,28 +265,75 @@ namespace DesktopFish
             }
         }
 
+        static float ElectricHash(int seed) {
+            unchecked {uint x=(uint)seed;x^=x>>16;x*=0x7feb352d;x^=x>>15;x*=0x846ca68b;x^=x>>16;return (x&0xffffff)/16777215f;}
+        }
+        static float StrikePulse(float age,float duration) {
+            if(age<0||age>=duration)return 0;
+            return Mathf.SmoothStep(0,1,age/.012f)*Mathf.Pow(1-age/duration,.55f);
+        }
+        void WriteElectricPath(int path,Vector3[] points,float width,float alpha,Color core) {
+            for(int node=0;node<ElectricNodes;node++) {
+                Vector3 tangent=points[Mathf.Min(ElectricNodes-1,node+1)]-points[Mathf.Max(0,node-1)];
+                Vector3 normal=Vector3.Cross(tangent,Vector3.forward).normalized;
+                float taper=.45f+.55f*Mathf.Sin(node*Mathf.PI/(ElectricNodes-1));
+                for(int band=0;band<ElectricBands;band++) {
+                    int index=(path*ElectricNodes+node)*ElectricBands+band;
+                    electricVertices[index]=points[node]+normal*(ElectricWidth[band]*width);
+                    Color color=band==2||band==3?core:new Color(.015f,.20f,.90f);
+                    color.a=ElectricAlpha[band]*alpha*taper;electricColors[index]=color;
+                }
+            }
+        }
         void UpdateElectricity(float time,float weight) {
-            // Reuse one mesh: soft blue halos, narrow luminous cores and a
-            // travelling highlight. No full-frame flashes or post-process.
+            // Each local strike has a quiet gap, a fresh jagged shape, forks
+            // and a short re-strike. Events are staggered, not whole-box flashes.
             for(int arc=0;arc<ElectricArcs;arc++) {
-                Vector3 along=ArcEnd[arc]-ArcStart[arc],normal=Vector3.Cross(along,Vector3.forward).normalized;
-                float pulse=.45f+.55f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*3+arc*1.9f)),2);
-                float travel=Mathf.Repeat(time*.60f+arc*.17f,1);
+                float period=.36f+.17f*ElectricHash(arc+173);
+                float clock=time+arc*.137f;int strike=Mathf.FloorToInt(clock/period);
+                float age=clock-strike*period;int seed=unchecked(strike*9176+arc*619+171);
+                float duration=.065f+.045f*ElectricHash(seed+1);
+                float envelope=StrikePulse(age,duration)+.58f*StrikePulse(age-duration-.035f,.04f);
+                envelope=Mathf.Clamp01(envelope)*weight;
+                Vector3 line=ArcEnd[arc]-ArcStart[arc],tangent=line.normalized,normal=Vector3.Cross(line,Vector3.forward).normalized;
+                Vector3 outward=arc<4?new Vector3(Mathf.Sign(ArcStart[arc].x),0,0):arc==5?Vector3.down:Vector3.up;
+                float start=.10f*ElectricHash(seed+2),span=.65f+.25f*ElectricHash(seed+3);
                 for(int node=0;node<ElectricNodes;node++) {
                     float t=node/(float)(ElectricNodes-1);
-                    float zigzag=Mathf.Sin(t*Mathf.PI)*(.005f*(node%2==0?1:-1)+.003f*Mathf.Sin(time*7+arc*1.7f+node*2.2f));
-                    Vector3 center=ArcStart[arc]+along*t+normal*zigzag;
-                    float glow=.45f+.55f*Mathf.Exp(-Mathf.Pow((t-travel)*4,2));
-                    for(int band=0;band<ElectricBands;band++) {
-                        int index=(arc*ElectricNodes+node)*ElectricBands+band;
-                        electricVertices[index]=center+normal*(ElectricWidth[band]*.010f);
-                        Color core=arc>=6?new Color(1,.91f,.47f):new Color(.18f,.67f,1);
-                        Color color=Color.Lerp(new Color(.08f,.43f,1),core,1-Mathf.Abs(ElectricWidth[band]));
-                        color.a=ElectricAlpha[band]*pulse*glow*.88f*weight;electricColors[index]=color;
+                    float zigzag=(ElectricHash(seed+node*31+4)*2-1)*.010f*Mathf.Sin(t*Mathf.PI);
+                    electricPath[node]=ArcStart[arc]+line*(start+span*t)+normal*zigzag;
+                }
+                Color core=arc>=6?new Color(1,.82f,.18f):new Color(.20f,.72f,1);
+                WriteElectricPath(arc,electricPath,.0065f+.0015f*ElectricHash(seed+5),envelope*.98f,core);
+                for(int fork=0;fork<2;fork++) {
+                    Vector3 origin=electricPath[fork==0?2:4];
+                    float length=(arc<4?.010f:.016f)+ElectricHash(seed+fork*43+7)*.006f;
+                    Vector3 end=origin+outward*length+tangent*(fork==0?-.022f:.025f);
+                    for(int node=0;node<ElectricNodes;node++) {
+                        float t=node/(float)(ElectricNodes-1);
+                        float zigzag=(ElectricHash(seed+fork*107+node*17+11)*2-1)*.0035f*Mathf.Sin(t*Mathf.PI);
+                        branchPath[node]=Vector3.Lerp(origin,end,t)+normal*zigzag;
                     }
+                    bool visible=ElectricHash(seed+fork*53+13)<(fork==0?.82f:.52f);
+                    WriteElectricPath(ElectricArcs+arc*2+fork,branchPath,.0038f,visible?envelope*.80f:0,core);
+                }
+                for(int spark=0;spark<SparksPerArc;spark++) {
+                    float life=Mathf.Clamp01((age-spark*.012f)/.18f);
+                    float turn=(ElectricHash(seed+spark*73+19)-.5f)*1.8f;
+                    Vector3 direction=(outward+tangent*turn).normalized;
+                    Vector3 center=electricPath[2+spark]+direction*(.003f+.016f*life);
+                    float length=.006f+.006f*ElectricHash(seed+spark*79+23);
+                    Vector3 cross=Vector3.Cross(direction,Vector3.forward).normalized*.0020f;
+                    int n=(arc*SparksPerArc+spark)*4;
+                    sparkVertices[n]=center-direction*length*.5f-cross;sparkVertices[n+1]=center-direction*length*.5f+cross;
+                    sparkVertices[n+2]=center+direction*length*.5f+cross;sparkVertices[n+3]=center+direction*length*.5f-cross;
+                    float alpha=age>=spark*.012f&&age<.18f+spark*.012f?Mathf.Pow(1-life,1.4f)*weight:0;
+                    Color tail=new Color(1,.47f,.035f,alpha*.85f),tip=new Color(1,.96f,.67f,alpha);
+                    sparkColors[n]=tail;sparkColors[n+1]=tail;sparkColors[n+2]=tip;sparkColors[n+3]=tip;
                 }
             }
             electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;electricMesh.RecalculateBounds();
+            sparkMesh.vertices=sparkVertices;sparkMesh.colors=sparkColors;sparkMesh.RecalculateBounds();
         }
 
         void Arrange(int count)
