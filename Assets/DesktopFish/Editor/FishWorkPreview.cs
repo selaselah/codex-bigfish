@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int chargeStateCount,chargeRises,chargeFalls,minChargeCells=5,maxChargeCells,socketCount;
+            public float maxElectricAlpha,minElectricSampleAlpha=1,maxElectricSampleAlpha,maxElectricTravel,maxCableSourceError;
             public float maxCharacterPixelScaleError,scenePixelScaleVsPreviousWork;
             public int canvasWidth,canvasHeight;
             public int longTimeSamples;
@@ -46,9 +48,12 @@ namespace DesktopFish.Editor
 
         public static void RenderFullSizeWorkStage() => Render("work/full-size-work-stage-167",true);
 
+        public static void RenderElectricGenerator() => Render("work/electric-generator-168",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool fullSize=output.EndsWith("167");
+            bool electricReview=output.EndsWith("168");
+            bool fullSize=output.EndsWith("167")||electricReview;
             bool movingOrbit=output.EndsWith("166")||fullSize;
             bool twoHand=output.EndsWith("165")||movingOrbit;
             bool refined=twoHand||output.EndsWith("164");
@@ -144,9 +149,26 @@ namespace DesktopFish.Editor
                 capture("all-five-styles");RenderCatalog(camera,station,snapshots,output);
                 var initialStyles=Enumerable.Range(0,3).Select(i=>station.CookerStyleAt(i)).ToArray();
                 Vector3 firstSteam=Vector3.zero;Quaternion[] previousPalms={Quaternion.identity,Quaternion.identity};
-                for(int f=0;f<48;f++)
+                var chargeStates=new System.Collections.Generic.HashSet<int>();int lastCharge=-1;Vector3 firstElectric=Vector3.zero;
+                for(int f=0;f<(electricReview?72:48);f++)
                 {
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
+                    if(electricReview) {
+                        var generator=station.Root.Find("Floor generator");int charge=0;
+                        for(int cell=0;cell<5;cell++)if(generator.Find("Charge cell "+cell).gameObject.activeSelf)charge++;
+                        chargeStates.Add(charge);report.minChargeCells=Mathf.Min(report.minChargeCells,charge);report.maxChargeCells=Mathf.Max(report.maxChargeCells,charge);
+                        if(lastCharge>=0){if(charge>lastCharge)report.chargeRises++;if(charge<lastCharge)report.chargeFalls++;}lastCharge=charge;
+                        var lightning=generator.Find("Generator electricity").GetComponent<MeshFilter>().sharedMesh;
+                        report.maxElectricAlpha=Mathf.Max(report.maxElectricAlpha,lightning.colors.Max(c=>c.a));
+                        report.minElectricSampleAlpha=Mathf.Min(report.minElectricSampleAlpha,lightning.colors[20].a);report.maxElectricSampleAlpha=Mathf.Max(report.maxElectricSampleAlpha,lightning.colors[20].a);
+                        if(f==0)firstElectric=lightning.vertices[20];report.maxElectricTravel=Mathf.Max(report.maxElectricTravel,Vector3.Distance(firstElectric,lightning.vertices[20]));
+                        report.socketCount=generator.GetComponentsInChildren<Transform>().Count(t=>t.name.StartsWith("AC socket "));
+                        if(generator.Find("Output terminal"))throw new InvalidOperationException("Old output electrodes are still present");
+                        foreach(var wire in station.Root.GetComponentsInChildren<MeshFilter>().Where(m=>m.name=="Power cable")) {
+                            var points=wire.sharedMesh.vertices;Vector3 cableStart=wire.transform.TransformPoint((points[0]+points[1])*.5f);
+                            report.maxCableSourceError=Mathf.Max(report.maxCableSourceError,Vector3.Distance(cableStart,generator.Find("Mains plug/Cable outlet").position));
+                        }
+                    }
                     if(station.CookerCount!=3||!station.Visible)throw new InvalidOperationException("Missing job cooker.");
                     for(int i=0;i<3;i++){if(station.CookerStyleAt(i)!=initialStyles[i])throw new InvalidOperationException("Cooker appearance changed while working.");report.stableStyleChecks++;}
                     Vector3 right=station.Root.InverseTransformPoint(bones["J_Bip_R_Hand"].position),left=station.Root.InverseTransformPoint(bones["J_Bip_L_Hand"].position);
@@ -207,6 +229,7 @@ namespace DesktopFish.Editor
                         float flex=Vector3.Angle(knee.position-hip.position,foot.position-knee.position);report.minKneeFlex=Mathf.Min(report.minKneeFlex,flex);report.maxKneeFlex=Mathf.Max(report.maxKneeFlex,flex);
                     }
                     capture("frames/frame"+f.ToString("D3"));report.sampledFrames++;
+                    if(electricReview)RenderGeneratorDetail(camera,station,snapshots,output,f);
                     if(fullBody&&new[]{0,9,17,26}.Contains(f)) {station.Root.gameObject.SetActive(false);capture("body-only-"+f);station.Root.gameObject.SetActive(true);}
                     if(refined&&new[]{0,9,17,26}.Contains(f))RenderCrankDetail(camera,station,bones["J_Bip_L_LowerArm"],output,f);
                 }
@@ -270,6 +293,11 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(electricReview) {
+                    report.chargeStateCount=chargeStates.Count;
+                    if(report.chargeStateCount!=6||report.minChargeCells!=0||report.maxChargeCells!=5||report.chargeRises<5||report.chargeFalls<5||report.socketCount!=2||report.maxElectricAlpha<.5f||report.maxElectricSampleAlpha-report.minElectricSampleAlpha<.1f||report.maxElectricTravel<.002f||report.maxCableSourceError>.000001f)
+                        throw new InvalidOperationException("Charge loop, electrical flow or actual AC connection failed: "+JsonUtility.ToJson(report));
+                }
                 if(fullBody&&(report.maxFootDrift>.00001f||report.maxLegLengthChange>.000001f||report.maxChestPitch-report.minChestPitch<40||report.maxRootY-report.minRootY<.025f||report.maxKneeFlex-report.minKneeFlex<15||report.minRightFacing<.3f))
                     throw new InvalidOperationException("Whole-body effort or planted stance validation failed: "+JsonUtility.ToJson(report));
                 if(refined&&report.activeBoundsMeshesChecked<500)
@@ -316,13 +344,34 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
                 }
             } finally {
                 for(int i=0;i<steam.Length;i++)steam[i].gameObject.SetActive(active[i]);camera.targetTexture=target;camera.aspect=aspect;camera.orthographicSize=size;camera.transform.SetPositionAndRotation(position,rotation);RenderTexture.active=previous;
+                RenderTexture.ReleaseTemporary(rt);UnityEngine.Object.DestroyImmediate(image);
+            }
+        }
+
+        static void RenderGeneratorDetail(Camera camera,FishWorkStation station,MeshFilter[] snapshots,string output,int frame) {
+            Directory.CreateDirectory(output+"/generator");
+            var children=station.Root.Cast<Transform>().ToArray();var active=children.Select(t=>t.gameObject.activeSelf).ToArray();var visible=snapshots.Select(t=>t.gameObject.activeSelf).ToArray();
+            Vector3 position=camera.transform.position;Quaternion rotation=camera.transform.rotation;float size=camera.orthographicSize,aspect=camera.aspect;
+            var target=camera.targetTexture;var previous=RenderTexture.active;
+            var rt=RenderTexture.GetTemporary(480,640,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Default,4);var image=new Texture2D(480,640,TextureFormat.RGBA32,false);
+            try {
+                foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
+                foreach(var child in children)child.gameObject.SetActive(child.name=="Floor generator"||child.name=="Hand crank");
+                camera.targetTexture=rt;camera.aspect=.75f;camera.orthographicSize=.39f;
+                Vector3 focus=station.Root.TransformPoint(FishWorkStation.GeneratorPosition+FishWorkStation.GeneratorRotation*Vector3.right*.14f+Vector3.up*.04f);
+                Vector3 forward=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.forward);
+                camera.transform.position=focus+forward*.8f;camera.transform.LookAt(focus);
+                camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,480,640),0,0);image.Apply();File.WriteAllBytes(output+"/generator/frame"+frame.ToString("D3")+".png",image.EncodeToPNG());
+            } finally {
+                for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
+                camera.targetTexture=target;camera.aspect=aspect;camera.orthographicSize=size;camera.transform.SetPositionAndRotation(position,rotation);RenderTexture.active=previous;
                 RenderTexture.ReleaseTemporary(rt);UnityEngine.Object.DestroyImmediate(image);
             }
         }

@@ -22,7 +22,7 @@ namespace DesktopFish
         const float StageRevealWeight=.20f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
         public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.127f,-.030f));
-        public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.130f,.116f));
+        public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.145f,.146f));
         public static float CrankAngle(float time) => Mathf.Repeat(time*4.4f,Mathf.PI*2);
         public const float GripCenter = .135f;
         public const float HandSpacing = .190f;
@@ -45,7 +45,17 @@ namespace DesktopFish
         static readonly Color Ivory = new Color(.95f, .96f, .92f);
         static readonly Color Gold = new Color(1f, .76f, .27f);
         readonly Transform root, crank, gripHandle;
-        readonly Material solid, vapor;
+        readonly Material solid, vapor, electricity, badgeLettering;
+        readonly Font badgeFont;
+        readonly Transform[] chargeCells=new Transform[5];
+        const int ElectricArcs=8,ElectricNodes=7,ElectricBands=6;
+        readonly Mesh electricMesh;
+        readonly Vector3[] electricVertices=new Vector3[ElectricArcs*ElectricNodes*ElectricBands];
+        readonly Color[] electricColors=new Color[ElectricArcs*ElectricNodes*ElectricBands];
+        static readonly Vector3[] ArcStart={new Vector3(-.126f,.210f,.123f),new Vector3(.126f,.210f,.123f),new Vector3(-.126f,-.025f,.123f),new Vector3(.126f,-.025f,.123f),new Vector3(-.09f,.236f,.105f),new Vector3(-.09f,-.244f,.105f),new Vector3(-.079f,.264f,.020f),new Vector3(.040f,.316f,.020f)};
+        static readonly Vector3[] ArcEnd={new Vector3(-.126f,.065f,.123f),new Vector3(.126f,.065f,.123f),new Vector3(-.126f,-.190f,.123f),new Vector3(.126f,-.190f,.123f),new Vector3(.09f,.236f,.105f),new Vector3(.09f,-.244f,.105f),new Vector3(-.040f,.316f,.020f),new Vector3(.079f,.264f,.020f)};
+        static readonly float[] ElectricWidth={-1,-.50f,-.22f,.22f,.50f,1};
+        static readonly float[] ElectricAlpha={0,.32f,1,1,.32f,0};
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly List<Pot> pots = new List<Pot>();
         readonly Transform current;
@@ -82,6 +92,7 @@ namespace DesktopFish
             vapor.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             vapor.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
             vapor.SetFloat("_ZWrite", 0);
+            electricity=new Material(vapor){name="Flowing generator electricity",renderQueue=3001};
             // A sibling keeps the generator and pots on the floor while the
             // avatar turns toward the side-mounted crank.
             root = Child(model.parent, "Work station (runtime only)");
@@ -98,23 +109,62 @@ namespace DesktopFish
             housing.RoundedBlock(new Vector3(-.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(0,.287f,0),new Vector3(.148f,.026f,.030f),.006f,dark);
-            // Raised LCD, yellow power mark, screws and low output terminals.
+            // Raised charge meter, round power badge, screws and AC outlets.
             housing.RoundedBlock(new Vector3(0,.120f,.107f),new Vector3(.116f,.071f,.013f),.006f,dark);
             housing.Box(new Vector3(0,.120f,.115f),new Vector3(.091f,.045f,.004f),new Color(.25f,.39f,.38f));
-            for(int i=0;i<5;i++)housing.Box(new Vector3(-.034f+i*.0165f,.119f,.119f),new Vector3(.009f,.023f,.003f),new Color(.62f,.84f,.62f));
+            for(int i=0;i<5;i++) {
+                Vector3 position=new Vector3(-.034f+i*.0165f,.119f,.119f);
+                housing.Box(position,new Vector3(.010f,.024f,.002f),new Color(.12f,.20f,.18f));
+                var cell=new Shape();cell.Box(Vector3.zero,new Vector3(.009f,.023f,.002f),new Color(.62f,.96f,.38f));
+                chargeCells[i]=Part(machine,"Charge cell "+i,cell);chargeCells[i].localPosition=position+Vector3.forward*.0015f;
+            }
             housing.RoundedBlock(new Vector3(0,.177f,.104f),new Vector3(.092f,.021f,.004f),.003f,Gold);
-            housing.Box(new Vector3(0,-.030f,.104f),new Vector3(.126f,.090f,.005f),new Color(.72f,.81f,.84f));
-            housing.Polygon(new[]{new Vector3(.006f,.008f,.109f),new Vector3(-.020f,-.028f,.109f),new Vector3(-.004f,-.028f,.109f),new Vector3(-.011f,-.066f,.109f),new Vector3(.021f,-.018f,.109f),new Vector3(.006f,-.018f,.109f)},Gold);
+            var rim=new Shape();rim.Lathe(new[]{new Vector2(.078f,-.002f),new Vector2(.078f,.002f)},40,Gold);
+            var rimPart=Part(machine,"Round power badge rim",rim);rimPart.localPosition=new Vector3(0,-.030f,.111f);rimPart.localRotation=Quaternion.Euler(90,0,0);
+            var badge=new Shape();badge.Lathe(new[]{new Vector2(.074f,-.002f),new Vector2(.074f,.002f)},40,new Color(.065f,.078f,.09f));
+            var badgePart=Part(machine,"Black round power badge",badge);badgePart.localPosition=new Vector3(0,-.030f,.115f);badgePart.localRotation=Quaternion.Euler(90,0,0);
+            var mark=new Shape();
+            mark.Polygon(new[]{new Vector3(.013f,.027f,.120f),new Vector3(-.024f,-.012f,.120f),new Vector3(.003f,-.012f,.120f)},Gold);
+            mark.Polygon(new[]{new Vector3(-.013f,-.055f,.120f),new Vector3(.025f,-.002f,.120f),new Vector3(-.004f,-.002f,.120f)},Gold);
+            mark.Box(new Vector3(-.0005f,-.007f,.120f),new Vector3(.007f,.010f,.001f),Gold);
+            Part(machine,"Large yellow power bolt",mark);
+            badgeFont=Font.CreateDynamicFontFromOSFont("Heiti SC",128);
+            badgeFont.RequestCharactersInTexture("发电",128,FontStyle.Bold);
+            var label=Child(machine,"Yellow power label");label.localPosition=new Vector3(0,-.077f,.123f);label.localRotation=Quaternion.Euler(0,180,0);
+            var lettering=label.gameObject.AddComponent<TextMesh>();lettering.font=badgeFont;lettering.fontSize=128;lettering.characterSize=.0026f;lettering.fontStyle=FontStyle.Bold;
+            lettering.anchor=TextAnchor.MiddleCenter;lettering.alignment=TextAlignment.Center;lettering.color=Gold;lettering.text="发电";
+            var textShader=Resources.Load<Shader>("WorkBadgeText");
+            if(!textShader)throw new InvalidOperationException("Power-badge lettering shader is missing");
+            badgeLettering=new Material(textShader){name="Yellow power badge lettering",mainTexture=badgeFont.material.mainTexture};
+            label.GetComponent<MeshRenderer>().sharedMaterial=badgeLettering;
             for(int i=0;i<4;i++)housing.Box(new Vector3(-.112f,.060f-i*.022f,0),new Vector3(.004f,.008f,.060f),dark);
             Part(machine,"Generator housing",housing);
             foreach(float x in new[]{-.086f,.086f})foreach(float y in new[]{-.190f,.190f}) {
                 var screw=new Shape();screw.Lathe(new[]{new Vector2(.006f,-.002f),new Vector2(.006f,.002f)},10,metal);
                 var o=Part(machine,"Case screw",screw);o.localPosition=new Vector3(x,y,.104f);o.localRotation=Quaternion.Euler(90,0,0);
             }
-            foreach(float x in new[]{-.040f,.040f}) {
-                var port=new Shape();port.Lathe(new[]{new Vector2(.014f,-.008f),new Vector2(.014f,.008f)},12,x<0?dark:new Color(.65f,.22f,.19f));
-                var o=Part(machine,"Output terminal",port);o.localPosition=new Vector3(x,-.130f,.108f);o.localRotation=Quaternion.Euler(90,0,0);
+            for(int socketIndex=0;socketIndex<2;socketIndex++) {
+                float x=socketIndex==0?-.040f:.040f;var socket=new Shape();
+                socket.RoundedBlock(Vector3.zero,new Vector3(.066f,.060f,.010f),.006f,dark);
+                socket.RoundedBlock(new Vector3(0,0,.007f),new Vector3(.055f,.049f,.006f),.004f,new Color(.85f,.87f,.84f));
+                var socketPart=Part(machine,"AC socket "+(socketIndex+1),socket);socketPart.localPosition=new Vector3(x,-.145f,.109f);
+                for(int slot=0;slot<3;slot++) {
+                    var hole=new Shape();hole.RoundedBlock(Vector3.zero,new Vector3(.0055f,slot==0?.013f:.019f,.002f),.001f,new Color(.06f,.08f,.10f));
+                    var holePart=Part(socketPart,"Socket slot "+slot,hole);holePart.localPosition=new Vector3(slot==0?0:slot==1?-.012f:.012f,slot==0?.013f:-.006f,.011f);holePart.localRotation=Quaternion.Euler(0,0,slot==0?0:slot==1?-28:28);
+                }
             }
+            var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.035f,.033f,.018f),.006f,Navy);
+            var plugPart=Part(machine,"Mains plug",plug);plugPart.localPosition=new Vector3(-.040f,-.145f,.132f);
+            var strain=new Shape();strain.Lathe(new[]{new Vector2(.006f,-.005f),new Vector2(.005f,.005f)},10,Navy);
+            var outlet=Part(plugPart,"Cable outlet",strain);outlet.localPosition=new Vector3(0,0,.014f);outlet.localRotation=Quaternion.Euler(90,0,0);
+            electricMesh=Own(new Mesh{name="Soft generator lightning ribbons"});electricMesh.MarkDynamic();electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;
+            var electricNormals=new Vector3[electricVertices.Length];for(int i=0;i<electricNormals.Length;i++)electricNormals[i]=Vector3.forward;electricMesh.normals=electricNormals;
+            var lightningTriangles=new List<int>();
+            for(int arc=0;arc<ElectricArcs;arc++)for(int node=0;node<ElectricNodes-1;node++)for(int band=0;band<ElectricBands-1;band++) {
+                int a=(arc*ElectricNodes+node)*ElectricBands+band,b=a+1,c=b+ElectricBands,d=a+ElectricBands;lightningTriangles.AddRange(new[]{a,b,c,a,c,d});
+            }
+            electricMesh.triangles=lightningTriangles.ToArray();
+            var electricPart=Child(machine,"Generator electricity");electricPart.gameObject.AddComponent<MeshFilter>().sharedMesh=electricMesh;electricPart.gameObject.AddComponent<MeshRenderer>().sharedMaterial=electricity;
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
             var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.127f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
             var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
@@ -139,6 +189,12 @@ namespace DesktopFish
             // The grip has a free bearing; it does not drag the fist around the shaft.
             gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
             current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
+            // One charge/discharge cycle spans two crank revolutions.
+            float charge=Mathf.PingPong(time*4.4f/(2*Mathf.PI),1);
+            int filled=Mathf.Clamp(Mathf.FloorToInt(charge*6),0,5);
+            for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
+            if(badgeLettering.mainTexture!=badgeFont.material.mainTexture)badgeLettering.mainTexture=badgeFont.material.mainTexture;
+            UpdateElectricity(time,weight);
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
@@ -173,6 +229,30 @@ namespace DesktopFish
                 }
                 p.steam.vertices=p.steamVertices;p.steam.colors=p.steamColors;p.steam.RecalculateBounds();
             }
+        }
+
+        void UpdateElectricity(float time,float weight) {
+            // Reuse one mesh: soft blue halos, narrow luminous cores and a
+            // travelling highlight. No full-frame flashes or post-process.
+            for(int arc=0;arc<ElectricArcs;arc++) {
+                Vector3 along=ArcEnd[arc]-ArcStart[arc],normal=Vector3.Cross(along,Vector3.forward).normalized;
+                float pulse=.45f+.55f*Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*3+arc*1.9f)),2);
+                float travel=Mathf.Repeat(time*.60f+arc*.17f,1);
+                for(int node=0;node<ElectricNodes;node++) {
+                    float t=node/(float)(ElectricNodes-1);
+                    float zigzag=Mathf.Sin(t*Mathf.PI)*(.005f*(node%2==0?1:-1)+.003f*Mathf.Sin(time*7+arc*1.7f+node*2.2f));
+                    Vector3 center=ArcStart[arc]+along*t+normal*zigzag;
+                    float glow=.45f+.55f*Mathf.Exp(-Mathf.Pow((t-travel)*4,2));
+                    for(int band=0;band<ElectricBands;band++) {
+                        int index=(arc*ElectricNodes+node)*ElectricBands+band;
+                        electricVertices[index]=center+normal*(ElectricWidth[band]*.010f);
+                        Color core=arc>=6?new Color(1,.91f,.47f):new Color(.18f,.67f,1);
+                        Color color=Color.Lerp(new Color(.08f,.43f,1),core,1-Mathf.Abs(ElectricWidth[band]));
+                        color.a=ElectricAlpha[band]*pulse*glow*.88f*weight;electricColors[index]=color;
+                    }
+                }
+            }
+            electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;electricMesh.RecalculateBounds();
         }
 
         void Arrange(int count)
@@ -406,7 +486,7 @@ namespace DesktopFish
         Mesh Own(Mesh mesh){meshes.Add(mesh);return mesh;}
         static Transform Child(Transform parent,string name){var t=new GameObject(name).transform;t.SetParent(parent,false);return t;}
         static void Release(UnityEngine.Object value){if(!value)return;if(Application.isPlaying)UnityEngine.Object.Destroy(value);else UnityEngine.Object.DestroyImmediate(value);}
-        public void Dispose(){if(disposed)return;disposed=true;if(root)Release(root.gameObject);foreach(var mesh in meshes)Release(mesh);meshes.Clear();Release(solid);Release(vapor);}
+        public void Dispose(){if(disposed)return;disposed=true;if(root)Release(root.gameObject);foreach(var mesh in meshes)Release(mesh);meshes.Clear();Release(solid);Release(vapor);Release(electricity);Release(badgeLettering);Release(badgeFont);}
 
         sealed class Shape
         {
