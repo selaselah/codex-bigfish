@@ -21,9 +21,11 @@ namespace DesktopFish
         readonly Dictionary<string, Vector3> restPositions = new Dictionary<string, Vector3>();
         readonly Dictionary<string,Vector3> workFeet=new Dictionary<string,Vector3>();
         readonly Dictionary<string,Vector3> soleInFoot=new Dictionary<string,Vector3>();
-        readonly Vector3 gripInHand,balanceInChest;
-        public Vector3 CrankWristPosition {get;private set;}
-        public float CrankForearmTwist {get;private set;}
+        readonly Dictionary<string,Vector3> gripInHand=new Dictionary<string,Vector3>();
+        readonly Dictionary<string,Vector3> crankWrists=new Dictionary<string,Vector3>();
+        readonly Dictionary<string,float> crankTwists=new Dictionary<string,float>();
+        public Vector3 CrankWrist(string side)=>crankWrists[side];
+        public float CrankTwist(string side)=>crankTwists[side];
         Gesture gesture;
         float started, duration, nextAction, bounceStart = -10;
         float lookX, lookY;
@@ -31,10 +33,6 @@ namespace DesktopFish
         public float WorkWeight => workBlend;
         public const float WorkingYaw=-35;
         public static float WorkingYawAt(float time)=>WorkingYaw+5*Mathf.Sin(FishWorkStation.CrankAngle(time));
-        public Vector3 BalanceWristPosition(float time) {
-            var chest=bones["J_Bip_C_Chest"];
-            return chest.TransformPoint(balanceInChest+new Vector3(0,.010f*Mathf.Sin(FishWorkStation.CrankAngle(time)),.010f*Mathf.Cos(FishWorkStation.CrankAngle(time))));
-        }
         public static readonly Vector3 WorkingOffset=new Vector3(-.065f,0,-.025f);
         int previousRandom = -1;
         public bool randomActions = true;
@@ -61,17 +59,21 @@ namespace DesktopFish
                 worldRest.Add(bone.name, Quaternion.Inverse(target.rotation) * bone.rotation);
                 restPositions.Add(bone.name, bone.localPosition);
             }
-            var palm=bones["J_Bip_L_Hand"];var m1=bones["J_Bip_L_Middle1"];var m2=bones["J_Bip_L_Middle2"];var m3=bones["J_Bip_L_Middle3"];
-            var saved=new[]{m1.localRotation,m2.localRotation,m3.localRotation};
-            try {
-                m1.localRotation=rest[m1.name]*Quaternion.Euler(0,0,40);
-                m2.localRotation=rest[m2.name]*Quaternion.Euler(0,0,62);
-                m3.localRotation=rest[m3.name]*Quaternion.Euler(0,0,40);
-                Vector3 a=palm.InverseTransformPoint(m1.position),ab=palm.InverseTransformPoint(m2.position)-a,ac=palm.InverseTransformPoint(m3.position)-a,n=Vector3.Cross(ab,ac);
-                if(n.sqrMagnitude<1e-14f)throw new System.InvalidOperationException("Singular own grip calibration");
-                gripInHand=a+(Vector3.Cross(n,ab)*ac.sqrMagnitude+Vector3.Cross(ac,n)*ab.sqrMagnitude)/(2*n.sqrMagnitude);
-            }finally{m1.localRotation=saved[0];m2.localRotation=saved[1];m3.localRotation=saved[2];}
-            balanceInChest=bones["J_Bip_C_Chest"].InverseTransformPoint(model.TransformPoint(FishWorkStation.BraceWrist));
+            // Calibrate each closed hand independently in its own mirrored
+            // bind frame, then restore every joint before normal evaluation.
+            foreach(string side in new[]{"L","R"}) {
+                float sign=side=="L"?1:-1;
+                var palm=bones["J_Bip_"+side+"_Hand"];var m1=bones["J_Bip_"+side+"_Middle1"];var m2=bones["J_Bip_"+side+"_Middle2"];var m3=bones["J_Bip_"+side+"_Middle3"];
+                var saved=new[]{m1.localRotation,m2.localRotation,m3.localRotation};
+                try {
+                    m1.localRotation=rest[m1.name]*Quaternion.Euler(0,0,sign*40);
+                    m2.localRotation=rest[m2.name]*Quaternion.Euler(0,0,sign*54);
+                    m3.localRotation=rest[m3.name]*Quaternion.Euler(0,0,sign*40);
+                    Vector3 a=palm.InverseTransformPoint(m1.position),ab=palm.InverseTransformPoint(m2.position)-a,ac=palm.InverseTransformPoint(m3.position)-a,n=Vector3.Cross(ab,ac);
+                    if(n.sqrMagnitude<1e-14f)throw new System.InvalidOperationException("Singular own grip calibration");
+                    gripInHand[side]=a+(Vector3.Cross(n,ab)*ac.sqrMagnitude+Vector3.Cross(ac,n)*ab.sqrMagnitude)/(2*n.sqrMagnitude);
+                }finally{m1.localRotation=saved[0];m2.localRotation=saved[1];m3.localRotation=saved[2];}
+            }
             // Use an actual own rigid sole vertex as the support point. This
             // lets the heel rise with the shin without separating sock and shoe.
             foreach(string side in new[]{"L","R"})if(bones.TryGetValue("J_Bip_"+side+"_Foot",out var foot)) {
@@ -160,7 +162,7 @@ namespace DesktopFish
             // knees, press through the waist, twist the shoulders, recover.
             float crankPhase=FishWorkStation.CrankAngle(now);
             float drive=Mathf.Sin(crankPhase),compression=(1-Mathf.Cos(crankPhase))*.5f;
-            head=Vector3.Lerp(head,new Vector3(-4+10*Mathf.Sin(crankPhase-.65f),
+            head=Vector3.Lerp(head,new Vector3(-4+10*Mathf.Sin(crankPhase-.65f)-40*Mathf.Max(0,drive),
                 -7+4*Mathf.Cos(crankPhase),-4*drive),workBlend);
             chest+=new Vector3(9+25*drive,12*Mathf.Cos(crankPhase),3*drive)*workBlend;
             rootY+=(-.008f-.032f*compression)*workBlend;
@@ -273,15 +275,15 @@ namespace DesktopFish
             if (gesture == Gesture.Wave) fingerRelax = 1 - 0.88f * weight;
             RelaxFingers("L", 1, fingerRelax);
             RelaxFingers("R", -1, fingerRelax);
-            for(int j=1;j<=3;j++)Rotate("J_Bip_L_Thumb"+j,Vector3.zero);
-            if(workBlend>.0001f) {
-                GripFingers("L",1,workBlend);
-                SolveCrankArm(now,workBlend);
-                WorkArm("R",1,model.InverseTransformPoint(BalanceWristPosition(now)),workBlend);
-                GripFingers("R",-1,workBlend*.25f);
+            foreach(string side in new[]{"L","R"}) {
+                float sign=side=="L"?1:-1;
+                for(int j=1;j<=3;j++)Rotate("J_Bip_"+side+"_Thumb"+j,Vector3.zero);
+                if(workBlend<=.0001f)continue;
+                GripFingers(side,sign,workBlend);
+                SolveCrankArm(side,now,workBlend);
                 for(int j=1;j<=3;j++) {
-                    string n="J_Bip_L_Thumb"+j;
-                    Quaternion closed=rest[n]*Quaternion.Euler(0,j==1?-55:j==2?-18:-10,j==1?-12:0);
+                    string n="J_Bip_"+side+"_Thumb"+j;
+                    Quaternion closed=rest[n]*Quaternion.Euler(0,sign*(j==1?-55:j==2?-18:-10),sign*(j==1?-12:0));
                     bones[n].localRotation=Quaternion.Slerp(rest[n],closed,workBlend);
                 }
             }
@@ -350,21 +352,21 @@ namespace DesktopFish
         // Solve the actual closed-finger grip center, rather than placing the
         // wrist at an arbitrary offset. The freely turning cylindrical grip
         // lets the palm follow the forearm while staying on the shaft axis.
-        void SolveCrankArm(float time,float weight) {
-            var upper=bones["J_Bip_L_UpperArm"];var elbow=bones["J_Bip_L_LowerArm"];var hand=bones["J_Bip_L_Hand"];
+        void SolveCrankArm(string side,float time,float weight) {
+            var upper=bones["J_Bip_"+side+"_UpperArm"];var elbow=bones["J_Bip_"+side+"_LowerArm"];var hand=bones["J_Bip_"+side+"_Hand"];
             Quaternion baseUpper=upper.localRotation,baseElbow=elbow.localRotation,baseHand=hand.rotation;
             float a=Vector3.Distance(upper.position,elbow.position),b=Vector3.Distance(elbow.position,hand.position);
-            Vector3 grip=WorkFramePoint(FishWorkStation.CrankGrip(time));
-            Vector3 shaft=(WorkFramePoint(FishWorkStation.CrankGrip(time)+FishWorkStation.GeneratorRotation*Vector3.right)-grip).normalized;
+            Vector3 grip=WorkFramePoint(FishWorkStation.HandGrip(time,side));
+            Vector3 shaft=(WorkFramePoint(FishWorkStation.HandGrip(time,side)+FishWorkStation.GeneratorRotation*Vector3.right)-grip).normalized;
             Vector3 caseForward=(WorkFramePoint(FishWorkStation.GeneratorRotation*Vector3.forward)-WorkFramePoint(Vector3.zero)).normalized;
             Quaternion palm=baseHand;
             for(int pass=0;pass<4;pass++) {
                 Vector3 reach=grip-(pass==0?upper.position:elbow.position);
                 Vector3 radial=Vector3.ProjectOnPlane(reach,shaft).normalized;
                 if(radial.sqrMagnitude<.5f)radial=Vector3.ProjectOnPlane(Vector3.down,shaft).normalized;
-                palm=Quaternion.LookRotation(-shaft,Vector3.Cross(-shaft,-radial));
-                CrankWristPosition=grip-palm*gripInHand;
-                Vector3 delta=CrankWristPosition-upper.position;
+                palm=Quaternion.LookRotation(shaft*(side=="L"?-1:1),Vector3.Cross(shaft,radial));
+                crankWrists[side]=grip-palm*gripInHand[side];
+                Vector3 delta=crankWrists[side]-upper.position;
                 float length=Mathf.Clamp(delta.magnitude,Mathf.Abs(a-b)+.001f,(a+b)*.995f);
                 Vector3 direction=delta.normalized;
                 Vector3 pole=Vector3.ProjectOnPlane(Vector3.down*.8f-caseForward*.6f+shaft*.15f,direction).normalized;
@@ -377,34 +379,11 @@ namespace DesktopFish
             // this rotates the cuff without moving the contact point.
             Vector3 axis=(hand.position-elbow.position).normalized;
             Vector3 from=Vector3.ProjectOnPlane(elbow.up,axis),to=Vector3.ProjectOnPlane(palm*Vector3.up,axis);
-            CrankForearmTwist=from.sqrMagnitude>1e-8f&&to.sqrMagnitude>1e-8f?Vector3.SignedAngle(from,to,axis):0;
-            elbow.rotation=Quaternion.AngleAxis(CrankForearmTwist,axis)*elbow.rotation;
+            crankTwists[side]=from.sqrMagnitude>1e-8f&&to.sqrMagnitude>1e-8f?Vector3.SignedAngle(from,to,axis):0;
+            elbow.rotation=Quaternion.AngleAxis(crankTwists[side],axis)*elbow.rotation;
             Quaternion solvedUpper=upper.localRotation,solvedElbow=elbow.localRotation;
             upper.localRotation=Quaternion.Slerp(baseUpper,solvedUpper,weight);elbow.localRotation=Quaternion.Slerp(baseElbow,solvedElbow,weight);
             hand.rotation=Quaternion.Slerp(baseHand,palm,weight);
-        }
-
-        void WorkArm(string side, float sign, Vector3 localTarget, float weight)
-        {
-            if (!bones.TryGetValue("J_Bip_" + side + "_UpperArm", out Transform upper) ||
-                !bones.TryGetValue("J_Bip_" + side + "_LowerArm", out Transform elbow) ||
-                !bones.TryGetValue("J_Bip_" + side + "_Hand", out Transform hand)) return;
-            Quaternion baseUpper = upper.localRotation, baseElbow = elbow.localRotation, baseHand = hand.rotation;
-            float a = Vector3.Distance(upper.position, elbow.position), b = Vector3.Distance(elbow.position, hand.position);
-            Vector3 delta = model.TransformPoint(localTarget) - upper.position;
-            float distance = Mathf.Clamp(delta.magnitude, Mathf.Abs(a - b) + .001f, (a + b) * .995f);
-            Vector3 direction = delta.normalized;
-            Quaternion frame=bones["J_Bip_C_Chest"].rotation;
-            Vector3 pole=Vector3.ProjectOnPlane(frame*new Vector3(sign,-.6f,.35f),direction).normalized;
-            float along = (a * a - b * b + distance * distance) / (2 * distance);
-            Vector3 elbowTarget = upper.position + direction * along + pole * Mathf.Sqrt(Mathf.Max(0, a * a - along * along));
-            upper.rotation = Quaternion.FromToRotation(elbow.position - upper.position, elbowTarget - upper.position) * upper.rotation;
-            elbow.rotation = Quaternion.FromToRotation(hand.position - elbow.position, upper.position + direction * distance - elbow.position) * elbow.rotation;
-            Quaternion solvedUpper = upper.localRotation, solvedElbow = elbow.localRotation;
-            upper.localRotation = Quaternion.Slerp(baseUpper, solvedUpper, weight);
-            elbow.localRotation = Quaternion.Slerp(baseElbow, solvedElbow, weight);
-            Quaternion palm=frame*Quaternion.LookRotation(sign>0?Vector3.left:Vector3.right,Vector3.forward);
-            hand.rotation = Quaternion.Slerp(baseHand, palm, weight);
         }
 
         void GripFingers(string side, float sign, float weight)
@@ -416,7 +395,7 @@ namespace DesktopFish
                 {
                     string name = "J_Bip_" + side + "_" + finger + joint;
                     if (!bones.TryGetValue(name, out Transform bone)) continue;
-                    Quaternion grip = rest[name] * Quaternion.Euler(0, 0, sign * (joint == 2 ? 62 : 40));
+                    Quaternion grip = rest[name] * Quaternion.Euler(0, 0, sign * (joint == 2 ? 54 : 40));
                     bone.localRotation = Quaternion.Slerp(bone.localRotation, grip, weight);
                 }
             }

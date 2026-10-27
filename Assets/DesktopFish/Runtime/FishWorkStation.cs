@@ -11,8 +11,8 @@ namespace DesktopFish
     {
         // Scene coordinates belong to the stationary floor equipment, not to
         // the turning avatar. Both IK and visible shaft use this one frame.
-        public static readonly Vector3 GeneratorPosition = new Vector3(-.407f, .295f, -.050f);
-        public static readonly Quaternion GeneratorRotation = Quaternion.Euler(0,-30,0);
+        public static readonly Vector3 GeneratorPosition = new Vector3(-.401f, .295f, .030f);
+        public static readonly Quaternion GeneratorRotation = Quaternion.Euler(0,-36,0);
         public static readonly Vector3 BraceWrist = new Vector3(.125f,.425f,.105f);
         public const float CrankRadius = .085f;
         public static readonly Vector3 CookerPort = new Vector3(.046f,.038f,-.012f);
@@ -21,11 +21,14 @@ namespace DesktopFish
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
-        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.065f,-.030f));
+        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.162f,-.030f));
         public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.130f,.116f));
         public static float CrankAngle(float time) => Mathf.Repeat(time*4.4f,Mathf.PI*2);
+        public const float GripCenter = .135f;
+        public const float HandSpacing = .190f;
+        public static Vector3 HandGrip(float time,string side) => CrankGrip(time)+GeneratorRotation*Vector3.right*(side=="L"?-HandSpacing*.5f:HandSpacing*.5f);
         public static Vector3 CrankGrip(float time) => CrankCenter + GeneratorRotation *
-            new Vector3(.048f,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
+            new Vector3(GripCenter,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
 
         // A small, blended stage reframe keeps the turned long hair and floor
         // machine inside the existing window. Other states return exactly.
@@ -112,14 +115,14 @@ namespace DesktopFish
                 var o=Part(machine,"Output terminal",port);o.localPosition=new Vector3(x,-.130f,.108f);o.localRotation=Quaternion.Euler(90,0,0);
             }
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
-            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.065f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
+            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.162f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
             var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
             current=Part(machine,"Charge light",lamp);current.localPosition=new Vector3(.078f,.122f,.105f);current.localRotation=Quaternion.Euler(90,0,0);
             crank=Child(root,"Hand crank");crank.localPosition=CrankCenter;
             var arm=new Shape();arm.RoundedBlock(new Vector3(0,CrankRadius*.5f,0),new Vector3(.014f,CrankRadius+.019f,.017f),.003f,metal);
             Part(crank,"Crank arm",arm);
-            var grip=new Shape();grip.Lathe(new[]{new Vector2(.0075f,-.035f),new Vector2(.0085f,-.026f),new Vector2(.0085f,.026f),new Vector2(.0075f,.035f)},12,dark);
-            var knob=Part(crank,"Crank grip",grip);knob.localPosition=new Vector3(.048f,CrankRadius,0);knob.localRotation=Quaternion.Euler(0,0,90);gripHandle=knob;
+            var grip=new Shape();grip.Lathe(new[]{new Vector2(.009f,-.135f),new Vector2(.0105f,-.123f),new Vector2(.0105f,.123f),new Vector2(.009f,.135f)},12,dark);
+            var knob=Part(crank,"Crank grip",grip);knob.localPosition=new Vector3(GripCenter,CrankRadius,0);knob.localRotation=Quaternion.Euler(0,0,90);gripHandle=knob;
             root.gameObject.SetActive(false);
         }
 
