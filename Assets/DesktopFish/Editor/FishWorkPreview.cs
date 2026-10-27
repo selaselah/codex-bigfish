@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public float maxCharacterPixelScaleError,scenePixelScaleVsPreviousWork;
+            public int canvasWidth,canvasHeight;
             public int longTimeSamples;
             public int transitionFrames,activeBoundsMeshesChecked,hiddenBoundsMeshesSkipped;
             public int sampledFrames, countTransitions, maxCookers, avatarTriangles, maxPropTriangles;
@@ -42,9 +44,13 @@ namespace DesktopFish.Editor
 
         public static void RenderLowerWideCrank() => Render("work/lower-wide-crank-166",true);
 
+        public static void RenderFullSizeWorkStage() => Render("work/full-size-work-stage-167",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool twoHand=output.EndsWith("165")||output.EndsWith("166");
+            bool fullSize=output.EndsWith("167");
+            bool movingOrbit=output.EndsWith("166")||fullSize;
+            bool twoHand=output.EndsWith("165")||movingOrbit;
             bool refined=twoHand||output.EndsWith("164");
             bool fullBody=refined||output.EndsWith("163");
             Directory.CreateDirectory(output+"/frames");
@@ -70,8 +76,10 @@ namespace DesktopFish.Editor
             }
             var report=new Report{allJobsRepresented=true,avatarTriangles=skins.Sum(s=>s.sharedMesh.triangles.Length/3)};
             var previous=RenderTexture.active;
-            var target=new RenderTexture(480,640,24,RenderTextureFormat.ARGB32){antiAliasing=4};
-            var image=new Texture2D(480,640,TextureFormat.RGBA32,false);
+            int previewWidth=fullSize?FishCompanion.NativeWidth*2:480,previewHeight=fullSize?FishCompanion.NativeHeight*2:640;
+            report.canvasWidth=previewWidth;report.canvasHeight=previewHeight;
+            var target=new RenderTexture(previewWidth,previewHeight,24,RenderTextureFormat.ARGB32){antiAliasing=4};
+            var image=new Texture2D(previewWidth,previewHeight,TextureFormat.RGBA32,false);
             for(int s=0;s<skins.Length;s++)
             {
                 var go=new GameObject("Generator preview snapshot");go.transform.SetParent(skins[s].transform,false);
@@ -83,6 +91,13 @@ namespace DesktopFish.Editor
                 camera.targetTexture=target;
                 Action<string> capture=path=>{
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
+                    if(fullSize) {
+                        Vector3 p=camera.transform.position+camera.transform.forward;
+                        float pixels=Mathf.Abs(camera.WorldToViewportPoint(p+camera.transform.up*.1f).y-camera.WorldToViewportPoint(p).y)*previewHeight;
+                        float originalIdlePixels=.1f*640/(2*restingViewSize);
+                        report.maxCharacterPixelScaleError=Mathf.Max(report.maxCharacterPixelScaleError,Mathf.Abs(pixels/originalIdlePixels-1));
+                        report.scenePixelScaleVsPreviousWork=pixels/(originalIdlePixels/1.30f);
+                    }
                     FishBuild.ApplyMotionExpressions(companion,motion);
                     foreach(var skin in skins) {
                         int fun=skin.sharedMesh.GetBlendShapeIndex("Fcl_ALL_Fun");
@@ -110,7 +125,7 @@ namespace DesktopFish.Editor
                             if(margin<report.minimumViewportMargin){report.minimumViewportMargin=margin;report.minimumMarginContext=path+" prop "+filter.name+" rootActive "+station.Root.gameObject.activeInHierarchy+" camera "+camera.orthographicSize+" viewport "+v;}
                         }
                     }
-                    camera.Render();RenderTexture.active=target;image.ReadPixels(new Rect(0,0,480,640),0,0);image.Apply();
+                    camera.Render();RenderTexture.active=target;image.ReadPixels(new Rect(0,0,previewWidth,previewHeight),0,0);image.Apply();
                     foreach(var pixel in image.GetPixels32())report.minimumOpaqueAlpha=Mathf.Min(report.minimumOpaqueAlpha,pixel.a/255f);
                     File.WriteAllBytes(output+"/"+path+".png",image.EncodeToPNG());
                 };
@@ -237,7 +252,7 @@ namespace DesktopFish.Editor
                     for(int i=0;i<90;i++)motion.Tick(3+i/30f,1/30f,0,0,state,false);
                     report.maxNonWorkYaw=Mathf.Max(report.maxNonWorkYaw,Quaternion.Angle(model.localRotation,Quaternion.identity));
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
-                    report.maxNonWorkCameraDifference=Mathf.Max(report.maxNonWorkCameraDifference,Mathf.Abs(camera.orthographicSize-restingViewSize),Vector3.Distance(camera.transform.position,restingViewPosition));
+                    report.maxNonWorkCameraDifference=Mathf.Max(report.maxNonWorkCameraDifference,Mathf.Abs(camera.orthographicSize-restingViewSize*(fullSize?1.30f:1)),Vector3.Distance(camera.transform.position,restingViewPosition));
                     station.Tick(6,motion.WorkWeight,0);if(station.Visible)throw new InvalidOperationException("Work props persist after work.");
                 }
                 for(int i=0;i<90;i++)motion.Tick(6+i/30f,1/30f,0,0,"working",true);
@@ -265,10 +280,12 @@ namespace DesktopFish.Editor
                 // can enter that orbit without an IK singularity. Keep the old
                 // static-envelope gate for its original previews; the moving
                 // case checks the actual elbow-to-grip radial vector instead.
-                if(refined&&!output.EndsWith("166")&&report.minShoulderPlaneDistance<FishWorkStation.CrankRadius+.015f)
+                if(refined&&!movingOrbit&&report.minShoulderPlaneDistance<FishWorkStation.CrankRadius+.015f)
                     throw new InvalidOperationException("Shoulder entered the static crank envelope");
-                if(output.EndsWith("166")&&report.minForearmAxisDistance<.04f)
+                if(movingOrbit&&report.minForearmAxisDistance<.04f)
                     throw new InvalidOperationException("Forearm approached a singular shaft alignment");
+                if(fullSize&&(report.maxCharacterPixelScaleError>.00001f||Mathf.Abs(report.scenePixelScaleVsPreviousWork-1.30f)>.00001f))
+                    throw new InvalidOperationException("Working stage shrank the original character pixel scale");
                 if(twoHand&&report.minGraspSeparation<.055f)throw new InvalidOperationException("Two hands overlap on the crank grip");
                 if(report.maxGeneratorFloorDrift>.000001f||report.maxWorkingYawError>.001f||report.maxNonWorkYaw>.001f||report.maxNonWorkCameraDifference>.00001f)
                     throw new InvalidOperationException("Generator floor frame or actor turn validation failed: "+JsonUtility.ToJson(report));
@@ -299,7 +316,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

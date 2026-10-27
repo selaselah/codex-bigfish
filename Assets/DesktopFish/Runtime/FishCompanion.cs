@@ -11,7 +11,9 @@ namespace DesktopFish
     // It does not require the VRChat client, avatar descriptor, or FX controller.
     public sealed class FishCompanion : MonoBehaviour
     {
-        public const int NativeWidth = 240, NativeHeight = 320;
+        // Keep the original character pixel scale while giving the work
+        // equipment its own surrounding transparent space.
+        public const int NativeWidth = 312, NativeHeight = 416;
         public Transform model;
         public SkinnedMeshRenderer face;
         public Camera view;

@@ -30,12 +30,13 @@ namespace DesktopFish
         public static Vector3 CrankGrip(float time) => CrankCenter + GeneratorRotation *
             new Vector3(GripCenter,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
 
-        // A small, blended stage reframe keeps the turned long hair and floor
-        // machine inside the existing window. Other states return exactly.
+        // The canvas is1.30x larger than the original240x320 window. Matching
+        // that padding in all states keeps the original idle pixels per world
+        // unit, without zooming the character out when work begins.
         public static void FrameWorkingCamera(Camera camera,float size,Vector3 position,float weight)
         {
             float framing=Mathf.SmoothStep(0,1,Mathf.Clamp01(weight/StageRevealWeight));
-            camera.orthographicSize=size*Mathf.Lerp(1,1.30f,framing);
+            camera.orthographicSize=size*1.30f;
             camera.transform.position=position+new Vector3(.015f,0,0)*framing;
         }
 
