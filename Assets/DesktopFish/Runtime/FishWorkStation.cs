@@ -11,18 +11,19 @@ namespace DesktopFish
     {
         // Scene coordinates belong to the stationary floor equipment, not to
         // the turning avatar. Both IK and visible shaft use this one frame.
-        public static readonly Vector3 GeneratorPosition = new Vector3(-.290f, .295f, -.050f);
+        public static readonly Vector3 GeneratorPosition = new Vector3(-.407f, .295f, -.050f);
         public static readonly Quaternion GeneratorRotation = Quaternion.Euler(0,-30,0);
-        public static readonly Vector3 BraceWrist = new Vector3(.115f,.410f,.105f);
+        public static readonly Vector3 BraceWrist = new Vector3(.125f,.425f,.105f);
         public const float CrankRadius = .085f;
         public static readonly Vector3 CookerPort = new Vector3(.046f,.038f,-.012f);
         public enum CookerStyle { ClassicWhite, RetroGold, CoralMetal, ModernCream, SlateBlue }
         public const int CookerStyleCount = 5;
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
+        const float StageRevealWeight=.20f;
         public static Vector3 GeneratorPoint(Vector3 local) => GeneratorPosition + GeneratorRotation * local;
-        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.140f,-.030f));
+        public static Vector3 CrankCenter => GeneratorPoint(new Vector3(.135f,.065f,-.030f));
         public static Vector3 PowerOutlet => GeneratorPoint(new Vector3(-.040f,-.130f,.116f));
-        public static float CrankAngle(float time) => time * 4.4f;
+        public static float CrankAngle(float time) => Mathf.Repeat(time*4.4f,Mathf.PI*2);
         public static Vector3 CrankGrip(float time) => CrankCenter + GeneratorRotation *
             new Vector3(.048f,Mathf.Cos(CrankAngle(time))*CrankRadius,Mathf.Sin(CrankAngle(time))*CrankRadius);
 
@@ -30,15 +31,16 @@ namespace DesktopFish
         // machine inside the existing window. Other states return exactly.
         public static void FrameWorkingCamera(Camera camera,float size,Vector3 position,float weight)
         {
-            camera.orthographicSize=size*Mathf.Lerp(1,1.22f,weight);
-            camera.transform.position=position+new Vector3(.030f,0,0)*weight;
+            float framing=Mathf.SmoothStep(0,1,Mathf.Clamp01(weight/StageRevealWeight));
+            camera.orthographicSize=size*Mathf.Lerp(1,1.30f,framing);
+            camera.transform.position=position+new Vector3(.015f,0,0)*framing;
         }
 
         static readonly Color Navy = new Color(.15f, .23f, .36f);
         static readonly Color Teal = new Color(.27f, .65f, .69f);
         static readonly Color Ivory = new Color(.95f, .96f, .92f);
         static readonly Color Gold = new Color(1f, .76f, .27f);
-        readonly Transform root, crank;
+        readonly Transform root, crank, gripHandle;
         readonly Material solid, vapor;
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly List<Pot> pots = new List<Pot>();
@@ -110,27 +112,29 @@ namespace DesktopFish
                 var o=Part(machine,"Output terminal",port);o.localPosition=new Vector3(x,-.130f,.108f);o.localRotation=Quaternion.Euler(90,0,0);
             }
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
-            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.140f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
+            var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.065f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
             var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
             current=Part(machine,"Charge light",lamp);current.localPosition=new Vector3(.078f,.122f,.105f);current.localRotation=Quaternion.Euler(90,0,0);
             crank=Child(root,"Hand crank");crank.localPosition=CrankCenter;
             var arm=new Shape();arm.RoundedBlock(new Vector3(0,CrankRadius*.5f,0),new Vector3(.014f,CrankRadius+.019f,.017f),.003f,metal);
             Part(crank,"Crank arm",arm);
-            var grip=new Shape();grip.Lathe(new[]{new Vector2(.012f,-.035f),new Vector2(.014f,-.026f),new Vector2(.014f,.026f),new Vector2(.012f,.035f)},12,dark);
-            var knob=Part(crank,"Crank grip",grip);knob.localPosition=new Vector3(.048f,CrankRadius,0);knob.localRotation=Quaternion.Euler(0,0,90);
+            var grip=new Shape();grip.Lathe(new[]{new Vector2(.0075f,-.035f),new Vector2(.0085f,-.026f),new Vector2(.0085f,.026f),new Vector2(.0075f,.035f)},12,dark);
+            var knob=Part(crank,"Crank grip",grip);knob.localPosition=new Vector3(.048f,CrankRadius,0);knob.localRotation=Quaternion.Euler(0,0,90);gripHandle=knob;
             root.gameObject.SetActive(false);
         }
 
         public void Tick(float time, float weight, int activeCount)
         {
             if (disposed) return;
-            bool visible = weight > .015f;
+            bool visible = weight > StageRevealWeight;
             root.gameObject.SetActive(visible);
             if (!visible) return;
             int count = Mathf.Max(0, activeCount);
             if (count != pots.Count) Arrange(count);
             crank.localRotation = GeneratorRotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
-            current.localScale = Vector3.one * (1 + Mathf.Sin(time*4.4f)*.10f);
+            // The grip has a free bearing; it does not drag the fist around the shaft.
+            gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
+            current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
