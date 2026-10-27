@@ -19,13 +19,17 @@ namespace DesktopFish
         readonly Dictionary<string, Quaternion> rest = new Dictionary<string, Quaternion>();
         readonly Dictionary<string, Quaternion> worldRest = new Dictionary<string, Quaternion>();
         readonly Dictionary<string, Vector3> restPositions = new Dictionary<string, Vector3>();
+        readonly Dictionary<string,Vector3> workFeet=new Dictionary<string,Vector3>();
+        readonly Dictionary<string,Vector3> soleInFoot=new Dictionary<string,Vector3>();
         Gesture gesture;
         float started, duration, nextAction, bounceStart = -10;
         float lookX, lookY;
         float workBlend;
         public float WorkWeight => workBlend;
-        public const float WorkingYaw=35;
-        public static readonly Vector3 WorkingOffset=new Vector3(.065f,0,-.025f);
+        public const float WorkingYaw=-35;
+        public static float WorkingYawAt(float time)=>WorkingYaw+5*Mathf.Sin(FishWorkStation.CrankAngle(time));
+        public static Vector3 BalanceWristAt(float time)=>FishWorkStation.BraceWrist+new Vector3(0,.025f*Mathf.Sin(FishWorkStation.CrankAngle(time)),.025f*Mathf.Cos(FishWorkStation.CrankAngle(time)));
+        public static readonly Vector3 WorkingOffset=new Vector3(-.065f,0,-.025f);
         int previousRandom = -1;
         public bool randomActions = true;
         public float ClosedEyes { get; private set; }
@@ -50,6 +54,21 @@ namespace DesktopFish
                 rest.Add(bone.name, bone.localRotation);
                 worldRest.Add(bone.name, Quaternion.Inverse(target.rotation) * bone.rotation);
                 restPositions.Add(bone.name, bone.localPosition);
+            }
+            // Use an actual own rigid sole vertex as the support point. This
+            // lets the heel rise with the shin without separating sock and shoe.
+            foreach(string side in new[]{"L","R"})if(bones.TryGetValue("J_Bip_"+side+"_Foot",out var foot)) {
+                Vector3 contact=model.InverseTransformPoint(foot.position);float floor=float.PositiveInfinity,front=float.NegativeInfinity;
+                foreach(var skin in target.GetComponentsInChildren<SkinnedMeshRenderer>()) {
+                    int owner=System.Array.IndexOf(skin.bones,foot);if(owner<0)continue;
+                    var positions=skin.sharedMesh.vertices;var weights=skin.sharedMesh.boneWeights;
+                    for(int i=0;i<positions.Length;i++)if(weights[i].boneIndex0==owner&&weights[i].weight0>.99999f) {
+                        Vector3 q=model.InverseTransformPoint(skin.transform.TransformPoint(positions[i]));
+                        if(q.y<floor-.00001f){floor=q.y;front=q.z;contact=q;}
+                        else if(Mathf.Abs(q.y-floor)<.00001f&&q.z>front){front=q.z;contact=q;}
+                    }
+                }
+                workFeet[side]=contact;soleInFoot[side]=foot.InverseTransformPoint(model.TransformPoint(contact));
             }
             if (articulatedHands) {
                 // Keep bind frames neutral while evaluating the same arm start
@@ -120,11 +139,15 @@ namespace DesktopFish
             ClosedEyes = 0;
             SmileEyes = 0;
             Joy = state == "complete" ? 65 : state == "idle" ? 8 : 0;
-            // Turn toward the floor equipment; its independent scene frame stays
-            // fixed while the right hand follows the side crank.
-            head = Vector3.Lerp(head, new Vector3(4 + Mathf.Sin(now * 4.4f) * 1.3f,
-                7, -1), workBlend);
-            chest.x += 4 * workBlend;
+            // One shared crank phase drives the whole effort: sit into bent
+            // knees, press through the waist, twist the shoulders, recover.
+            float crankPhase=FishWorkStation.CrankAngle(now);
+            float drive=Mathf.Sin(crankPhase),compression=(1-Mathf.Cos(crankPhase))*.5f;
+            head=Vector3.Lerp(head,new Vector3(-4+10*Mathf.Sin(crankPhase-.65f),
+                -7+4*Mathf.Cos(crankPhase),-4*drive),workBlend);
+            chest+=new Vector3(9+25*drive,12*Mathf.Cos(crankPhase),3*drive)*workBlend;
+            rootY-=(.020f+.032f*compression)*workBlend;
+            lean+=3*drive*workBlend;
             switch (gesture)
             {
                 case Gesture.Wave:
@@ -189,9 +212,12 @@ namespace DesktopFish
                 leftLeg = 6; rightLeg = -6;
                 rootY = 0.012f;
             }
-            model.localPosition = restPosition + Vector3.up * rootY + WorkingOffset * workBlend;
-            model.localRotation = restRotation * Quaternion.Euler(0, WorkingYaw * workBlend, lean);
+            Vector3 rock=Quaternion.Euler(0,WorkingYaw,0)*Vector3.forward*(.035f*drive*workBlend);
+            model.localPosition=restPosition+Vector3.up*rootY+WorkingOffset*workBlend+rock;
+            model.localRotation = restRotation * Quaternion.Euler(0, WorkingYawAt(now) * workBlend, lean);
             model.localScale = Vector3.Scale(restScale, new Vector3(1 / Mathf.Sqrt(squash), squash, 1));
+            Rotate("J_Bip_C_Hips",new Vector3(0,-6*drive,0)*workBlend);
+            Rotate("J_Bip_C_Spine",new Vector3(3+5*drive,-6*Mathf.Cos(crankPhase),0)*workBlend);
             Rotate("J_Bip_C_Head", head);
             Rotate("J_Bip_C_Chest", chest);
             LiftShoulder("L", gesture == Gesture.Wave ? weight : 0);
@@ -232,17 +258,17 @@ namespace DesktopFish
             if (workBlend > .0001f)
             {
                 Vector3 stationGrip=FishWorkStation.CrankGrip(now)+Vector3.up*.025f;
-                Vector3 fixedTarget=restPosition+restRotation*Vector3.Scale(restScale,stationGrip);
-                Vector3 worldTarget=model.parent?model.parent.TransformPoint(fixedTarget):fixedTarget;
-                WorkArm("R",1,model.InverseTransformPoint(worldTarget),workBlend);
-                WorkArm("L", -1, FishWorkStation.BraceWrist, workBlend);
-                GripFingers("R", -1, workBlend);
-                GripFingers("L", 1, workBlend * .65f);
+                WorkArm("L",-1,model.InverseTransformPoint(WorkFramePoint(stationGrip)),workBlend);
+                WorkArm("R",1,BalanceWristAt(now),workBlend);
+                GripFingers("L",1,workBlend);
+                GripFingers("R",-1,workBlend*.65f);
             }
             Rotate("J_Bip_L_UpperLeg", new Vector3(leftLeg, 0, 0));
             Rotate("J_Bip_R_UpperLeg", new Vector3(rightLeg, 0, 0));
             Rotate("J_Bip_L_LowerLeg", new Vector3(leftKnee, 0, 0));
             Rotate("J_Bip_R_LowerLeg", new Vector3(rightKnee, 0, 0));
+            Rotate("J_Bip_L_Foot",Vector3.zero);Rotate("J_Bip_R_Foot",Vector3.zero);
+            if(workBlend>.0001f){WorkLeg("L",workBlend);WorkLeg("R",workBlend);}
             Rotate("J_Opt_C_FoxTail1_01", new Vector3(0, Mathf.Sin(now * 1.9f) * 5, 0));
             // Gentle authored sway, independent of the unavailable VRChat PhysBone runtime.
             for (int i = 1; i <= 5; i++)
@@ -253,6 +279,42 @@ namespace DesktopFish
                 if (!rebuiltRig && bones.TryGetValue(name, out Transform hair))
                     hair.rotation = Quaternion.Slerp(hair.rotation, model.rotation * worldRest[name], 0.55f);
             }
+        }
+
+        Vector3 WorkFramePoint(Vector3 point) {
+            Vector3 p=restPosition+restRotation*Vector3.Scale(restScale,point);
+            return model.parent?model.parent.TransformPoint(p):p;
+        }
+
+        public Vector3 PlantedFootPosition(string side) {
+            float sign=side=="L"?-1:1;
+            return WorkFramePoint(WorkingOffset+Quaternion.Euler(0,WorkingYaw,0)*
+                (workFeet[side]+new Vector3(sign*.012f,0,0)));
+        }
+
+        public Vector3 SoleContactPosition(string side)=>bones["J_Bip_"+side+"_Foot"].TransformPoint(soleInFoot[side]);
+
+        void WorkLeg(string side,float weight) {
+            if(!bones.TryGetValue("J_Bip_"+side+"_UpperLeg",out var hip)||
+                !bones.TryGetValue("J_Bip_"+side+"_LowerLeg",out var knee)||
+                !bones.TryGetValue("J_Bip_"+side+"_Foot",out var foot))return;
+            Quaternion baseHip=hip.localRotation,baseKnee=knee.localRotation;
+            Vector3 sole=foot.TransformPoint(soleInFoot[side]);
+            float a=Vector3.Distance(hip.position,knee.position),b=Vector3.Distance(knee.position,sole);
+            Vector3 target=PlantedFootPosition(side),delta=target-hip.position;
+            float length=Mathf.Clamp(delta.magnitude,Mathf.Abs(a-b)+.001f,(a+b)*.9999f);
+            Vector3 direction=delta.normalized;
+            Vector3 forward=restRotation*Quaternion.Euler(0,WorkingYaw,0)*Vector3.forward;
+            if(model.parent)forward=model.parent.TransformDirection(forward);
+            Vector3 pole=Vector3.ProjectOnPlane(forward,direction).normalized;
+            float along=(a*a-b*b+length*length)/(2*length);
+            Vector3 kneeTarget=hip.position+direction*along+pole*Mathf.Sqrt(Mathf.Max(0,a*a-along*along));
+            hip.rotation=Quaternion.FromToRotation(knee.position-hip.position,kneeTarget-hip.position)*hip.rotation;
+            knee.rotation=Quaternion.FromToRotation(foot.TransformPoint(soleInFoot[side])-knee.position,hip.position+direction*length-knee.position)*knee.rotation;
+            Quaternion solvedHip=hip.localRotation,solvedKnee=knee.localRotation;
+            hip.localRotation=Quaternion.Slerp(baseHip,solvedHip,weight);knee.localRotation=Quaternion.Slerp(baseKnee,solvedKnee,weight);
+            // Foot local rest frame follows the calf; the selected rigid sole
+            // point stays planted while the heel pumps with the effort.
         }
 
         void Rotate(string name, Vector3 degrees)
