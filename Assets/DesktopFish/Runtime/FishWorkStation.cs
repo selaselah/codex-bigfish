@@ -166,8 +166,13 @@ namespace DesktopFish
             housing.RoundedBlock(new Vector3(0,.287f,0),new Vector3(.148f,.026f,.030f),.006f,dark);
             // One solid dark battery body, with charge cells directly on it.
             // No inset screen/panel and no extra label strip above it.
-            var battery=new Shape();battery.RoundedRectPlate(new Vector2(.006f,.130f),new Vector2(.154f,.086f),.008f,.109f,.006f,new Color(.07f,.10f,.11f));
-            battery.RoundedBlock(new Vector3(-.078f,.130f,.109f),new Vector3(.014f,.026f,.006f),.002f,new Color(.07f,.10f,.11f));
+            // One continuous silhouette rounds the terminal's inward shoulders too.
+            var battery=new Shape();battery.FilletedPlate(new[]{
+                new Vector2(.083f,.173f),new Vector2(-.071f,.173f),
+                new Vector2(-.071f,.143f),new Vector2(-.085f,.143f),
+                new Vector2(-.085f,.117f),new Vector2(-.071f,.117f),
+                new Vector2(-.071f,.087f),new Vector2(.083f,.087f)
+            },new[]{.020f,.020f,.005f,.005f,.005f,.005f,.020f,.020f},.109f,.006f,new Color(.07f,.10f,.11f));
             Part(machine,"Battery body",battery);
             var slots=new Shape();
             for(int i=0;i<5;i++) {
@@ -793,6 +798,24 @@ namespace DesktopFish
                 }
             }
             static float Cross2(Vector2 a,Vector2 b)=>a.x*b.y-a.y*b.x;
+            public void FilletedPlate(Vector2[] outline,float[] radii,float z,float depth,Color color) {
+                if(outline.Length!=radii.Length)throw new ArgumentException("Each plate corner needs a radius.");
+                var boundary=new List<Vector2>();
+                for(int i=0;i<outline.Length;i++) {
+                    int next=(i+1)%outline.Length;
+                    Vector2 p=outline[i],incoming=(p-outline[(i+outline.Length-1)%outline.Length]).normalized,outgoing=(outline[next]-p).normalized;
+                    float radius=radii[i];
+                    if(radius<=0||Mathf.Abs(Vector2.Dot(incoming,outgoing))>1e-5f||radius+radii[next]>=Vector2.Distance(p,outline[next]))
+                        throw new ArgumentException("Filleted plate requires nonoverlapping right-angle corners.");
+                    Vector2 a=p-incoming*radius,b=p+outgoing*radius,center=a+outgoing*radius;
+                    float angle=Mathf.Atan2(a.y-center.y,a.x-center.x),turn=Mathf.Sign(Cross2(incoming,outgoing))*Mathf.PI*.5f;
+                    for(int j=0;j<=8;j++) {
+                        float t=angle+turn*j/8f;
+                        boundary.Add(j==0?a:j==8?b:center+new Vector2(Mathf.Cos(t),Mathf.Sin(t))*radius);
+                    }
+                }
+                ExtrudedGlyph(boundary,depth*.5f,color,z);
+            }
             public void RoundedGlyph(Vector2[] outline,float cut,float halfDepth,Color color) {
                 var boundary=new List<Vector2>();
                 for(int i=0;i<outline.Length;i++) {
@@ -801,6 +824,9 @@ namespace DesktopFish
                     Vector2 a=p+(before-p).normalized*trim,b=p+(after-p).normalized*trim;
                     for(int j=0;j<=4;j++){float t=j/4f,u=1-t;boundary.Add(u*u*a+2*u*t*p+t*t*b);}
                 }
+                ExtrudedGlyph(boundary,halfDepth,color);
+            }
+            void ExtrudedGlyph(List<Vector2> boundary,float halfDepth,Color color,float z=0) {
                 float signed=0;for(int i=0;i<boundary.Count;i++)signed+=Cross2(boundary[i],boundary[(i+1)%boundary.Count]);if(signed<0)boundary.Reverse();
                 var remaining=new List<int>();for(int i=0;i<boundary.Count;i++)remaining.Add(i);
                 var faces=new List<int>();int guard=boundary.Count*boundary.Count;
@@ -820,11 +846,11 @@ namespace DesktopFish
                 if(remaining.Count!=3)throw new InvalidOperationException("Rounded glyph triangulation did not finish.");faces.AddRange(remaining);
                 for(int i=0;i<faces.Count;i+=3) {
                     Vector2 a=boundary[faces[i]],b=boundary[faces[i+1]],c=boundary[faces[i+2]];
-                    Polygon(new[]{new Vector3(a.x,a.y,halfDepth),new Vector3(b.x,b.y,halfDepth),new Vector3(c.x,c.y,halfDepth)},color);
-                    Polygon(new[]{new Vector3(c.x,c.y,-halfDepth),new Vector3(b.x,b.y,-halfDepth),new Vector3(a.x,a.y,-halfDepth)},color);
+                    Polygon(new[]{new Vector3(a.x,a.y,z+halfDepth),new Vector3(b.x,b.y,z+halfDepth),new Vector3(c.x,c.y,z+halfDepth)},color);
+                    Polygon(new[]{new Vector3(c.x,c.y,z-halfDepth),new Vector3(b.x,b.y,z-halfDepth),new Vector3(a.x,a.y,z-halfDepth)},color);
                 }
                 for(int i=0;i<boundary.Count;i++) {
-                    Vector2 a=boundary[i],b=boundary[(i+1)%boundary.Count];Quad(new Vector3(a.x,a.y,halfDepth),new Vector3(a.x,a.y,-halfDepth),new Vector3(b.x,b.y,-halfDepth),new Vector3(b.x,b.y,halfDepth),color);
+                    Vector2 a=boundary[i],b=boundary[(i+1)%boundary.Count];Quad(new Vector3(a.x,a.y,z+halfDepth),new Vector3(a.x,a.y,z-halfDepth),new Vector3(b.x,b.y,z-halfDepth),new Vector3(b.x,b.y,z+halfDepth),color);
                 }
             }
             public void Polygon(Vector3[] p,Color color){int n=points.Count;points.AddRange(p);foreach(var unused in p)colors.Add(color);for(int i=1;i<p.Length-1;i++)triangles.AddRange(new[]{n,n+i,n+i+1});}
