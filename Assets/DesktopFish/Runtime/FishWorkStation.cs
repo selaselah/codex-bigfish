@@ -21,7 +21,7 @@ namespace DesktopFish
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
         public static readonly Vector3 LocalCrankCenter=new Vector3(.135f,.127f,-.030f);
-        static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.1205f);
+        static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.146f);
         static readonly Vector3[] Feet={new Vector3(-.075f,-.228f,-.055f),new Vector3(-.075f,-.228f,.055f),new Vector3(.075f,-.228f,-.055f),new Vector3(.075f,-.228f,.055f)};
         static readonly Vector3 FootSize=new Vector3(.033f,.024f,.036f);
         public static readonly Vector3 MachinePivot=new Vector3(0,-.216f,0);
@@ -81,20 +81,31 @@ namespace DesktopFish
         static readonly float[] ElectricAlpha={0,.72f,1,1,.72f,0};
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly List<Pot> pots = new List<Pot>();
+        readonly List<Supply> supplies=new List<Supply>();
+        readonly Transform[] generatorPlugs=new Transform[2],generatorOutlets=new Transform[2];
+        readonly bool persistPowerUpgrades;
+        const string PowerUpgradeKey="RebuiltBigFish.PowerStripUpgradeMask.v1";
+        int powerUpgradeMask;
         readonly Transform current;
         readonly System.Random styleRandom;
         readonly int[] styleOrder = new int[CookerStyleCount];
         int nextStyle = CookerStyleCount, lastStyle = -1;
-        bool disposed;
+        bool disposed,workingShown;
         public int CookerCount => pots.Count;
-        public Transform AdapterAt(int index) => pots[index].adapter;
+        public Transform CookerSourceAt(int index) => pots[index].source;
+        public int PowerUpgradeMask => powerUpgradeMask;
+        public int SupplyCount => supplies.Count;
+        public int SupplyCapacityAt(int index) => supplies[index].capacity;
+        public Transform SupplyAt(int index) => supplies[index].root;
+        public Transform SupplyFeedSourceAt(int index) => supplies[index].feedSource;
         public bool Visible => root && root.gameObject.activeSelf;
+        public bool WorkingVisible => machine&&machine.gameObject.activeInHierarchy;
         public Transform Root => root;
         public CookerStyle CookerStyleAt(int index) => pots[index].style;
 
         sealed class Pot
         {
-            public Transform root, wobble, lid, spark, adapter, cableOutlet;
+            public Transform root, wobble, lid, spark, source;
             public Mesh steam, cable;
             public Vector3[] steamVertices = new Vector3[SteamPuffs * (1 + 2 * PuffSides)];
             public Color[] steamColors = new Color[SteamPuffs * (1 + 2 * PuffSides)];
@@ -103,11 +114,22 @@ namespace DesktopFish
             public CookerStyle style;
         }
 
-        public FishWorkStation(Transform model, Shader shader, int? cookerSeed = null)
+        sealed class Supply {
+            public Transform root,geometry,inlet,wire,feedSource;
+            public Transform[] plugs,outlets;
+            public Mesh cable;
+            public Vector3[] vertices=new Vector3[CableSteps*4];
+            public int capacity;
+            public bool present;
+        }
+
+        public FishWorkStation(Transform model, Shader shader, int? cookerSeed = null,int initialPowerUpgradeMask=-1)
         {
             // Keep appearance randomness separate from the mascot's blink and
             // gesture RNG. A seed is optional for repeatable editor previews.
             styleRandom = cookerSeed.HasValue ? new System.Random(cookerSeed.Value) : new System.Random();
+            persistPowerUpgrades=!Application.isEditor&&!cookerSeed.HasValue&&initialPowerUpgradeMask<0;
+            powerUpgradeMask=initialPowerUpgradeMask>=0?initialPowerUpgradeMask:(persistPowerUpgrades?PlayerPrefs.GetInt(PowerUpgradeKey,0):0);
             if (!shader) shader = Shader.Find("DesktopFish/WorkProps");
             if (!shader) throw new InvalidOperationException("Work-prop shader is missing from the player.");
             solid = new Material(shader) { name = "Generator and rice cookers" };
@@ -174,7 +196,12 @@ namespace DesktopFish
                     var holePart=Part(socketPart,"Socket slot "+slot,hole);holePart.localPosition=new Vector3(slot==0?0:slot==1?-.012f:.012f,slot==0?.013f:-.006f,.011f);holePart.localRotation=Quaternion.Euler(0,0,slot==0?0:slot==1?-28:28);
                 }
             }
-            Child(machine,"Adapter socket contact").localPosition=LocalPowerOutlet;
+            for(int i=0;i<2;i++) {
+                var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.035f,.033f,.018f),.006f,Navy);
+                generatorPlugs[i]=Part(machine,"Generator plug "+i,plug);generatorPlugs[i].localPosition=new Vector3(i==0?-.040f:.040f,-.145f,.132f);
+                var strain=new Shape();strain.Lathe(new[]{new Vector2(.006f,-.005f),new Vector2(.005f,.005f)},10,Navy);
+                generatorOutlets[i]=Part(generatorPlugs[i],"Cable outlet",strain);generatorOutlets[i].localPosition=new Vector3(0,0,.014f);generatorOutlets[i].localRotation=Quaternion.Euler(90,0,0);
+            }
             electricMesh=Own(new Mesh{name="Crackling branched lightning"});electricMesh.MarkDynamic();electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;
             var electricNormals=new Vector3[electricVertices.Length];for(int i=0;i<electricNormals.Length;i++)electricNormals[i]=Vector3.forward;electricMesh.normals=electricNormals;
             var lightningTriangles=new List<int>();
@@ -196,17 +223,28 @@ namespace DesktopFish
             Part(crank,"Crank arm",arm);
             var grip=new Shape();grip.Lathe(new[]{new Vector2(.009f,-.135f),new Vector2(.0105f,-.123f),new Vector2(.0105f,.123f),new Vector2(.009f,.135f)},12,dark);
             var knob=Part(crank,"Crank grip",grip);knob.localPosition=new Vector3(GripCenter,CrankRadius,0);knob.localRotation=Quaternion.Euler(0,0,90);gripHandle=knob;
+            for(int i=0;i<2;i++)supplies.Add(CreateSupply(i,(powerUpgradeMask&(1<<i))!=0?(i==0?8:10):(i==0?4:5)));
             root.gameObject.SetActive(false);
         }
 
         public void Tick(float time, float weight, int activeCount)
         {
             if (disposed) return;
-            bool visible = weight > StageRevealWeight;
-            root.gameObject.SetActive(visible);
-            if (!visible) return;
-            int count = Mathf.Max(0, activeCount);
-            if (count != pots.Count) Arrange(count);
+            bool working=weight>StageRevealWeight,wasWorking=workingShown;workingShown=working;
+            root.gameObject.SetActive(working||powerUpgradeMask!=0);
+            machine.gameObject.SetActive(working);footing.gameObject.SetActive(working);crank.gameObject.SetActive(working);
+            foreach(var p in pots)p.root.gameObject.SetActive(working);
+            if(!working) {
+                if(activeCount==0&&pots.Count>0)Arrange(0);
+                for(int i=0;i<supplies.Count;i++) {
+                    var supply=supplies[i];supply.present=false;
+                    supply.root.gameObject.SetActive(i<2&&(powerUpgradeMask&(1<<i))!=0);supply.wire.gameObject.SetActive(false);
+                    foreach(var plug in supply.plugs)plug.gameObject.SetActive(false);
+                }
+                return;
+            }
+            int count=Mathf.Max(0,activeCount);
+            if(count!=pots.Count||!wasWorking)Arrange(count);
             var pose=GeneratorPoseAt(time,weight);
             machine.localPosition=pose.position;machine.localRotation=pose.rotation;
             for(int i=0;i<footMounts.Length;i++) {
@@ -225,6 +263,8 @@ namespace DesktopFish
             int filled=Mathf.Clamp(Mathf.FloorToInt(charge*6),0,5);
             for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
             UpdateElectricity(time,weight);
+            foreach(var supply in supplies)if(supply.present)
+                UpdateCord(supply.cable,supply.vertices,supply.wire,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position));
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
@@ -236,7 +276,7 @@ namespace DesktopFish
                 float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*weight;
                 p.lid.localPosition=Vector3.up*(pressure*.0045f);
                 p.lid.localRotation=Quaternion.Euler(0,0,Mathf.Sin(time*21+seed)*pressure*1.7f);
-                p.cableStart=root.InverseTransformPoint(p.cableOutlet.position);
+                p.cableStart=root.InverseTransformPoint(p.source.position);
                 UpdateCable(p);
                 float phase=Mathf.Repeat(time*.55f-i*.19f,1);
                 p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase)));
@@ -335,16 +375,14 @@ namespace DesktopFish
 
         void Arrange(int count)
         {
-            // One pot, one cord and one direct-plug one-to-two adapter per job.
-            // The continuation socket feeds the next adapter without a wire.
+            // Two generator outlets feed direct cookers first, then power strips.
+            // Upgraded eight/ten-way strips remain even after job counts fall.
             // Additional rows scale together; no jobs are silently omitted.
             while(pots.Count>count)
             {
                 var p=pots[pots.Count-1];
                 p.root.gameObject.SetActive(false);
                 foreach(var f in p.root.GetComponentsInChildren<MeshFilter>(true)) { meshes.Remove(f.sharedMesh); Release(f.sharedMesh); }
-                foreach(var f in p.adapter.GetComponentsInChildren<MeshFilter>(true)) { meshes.Remove(f.sharedMesh); Release(f.sharedMesh); }
-                p.adapter.gameObject.SetActive(false);Release(p.adapter.gameObject);
                 Release(p.root.gameObject);pots.RemoveAt(pots.Count-1);
             }
             while(pots.Count<count) pots.Add(CreatePot(pots.Count));
@@ -352,54 +390,104 @@ namespace DesktopFish
             // Make a few cookers substantially larger; only shrink when their
             // combined footprint needs to fit the available width or height.
             float size=Mathf.Min(1.75f,.90f/(.137f+(columns-1)*.155f),.26f/(.10f+Mathf.Max(0,rows-1)*.085f));
-            float adapterScale=Mathf.Min(1,.46f/(.048f+Mathf.Max(0,count-1)*.055f));
             for(int i=0;i<count;i++)
             {
                 int row=i/columns,column=i%columns,inRow=Mathf.Min(columns,count-row*columns);
                 var p=pots[i];
                 p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size,.085f+row*.085f*size,.430f-row*.025f);
                 p.root.localScale=Vector3.one*size;
-                p.adapter.localScale=Vector3.one*adapterScale;
-                p.adapter.localPosition=LocalPowerOutlet+new Vector3(i*.055f,0,.031f)*adapterScale;
-                p.cableStart=root.InverseTransformPoint(p.cableOutlet.position);
-                UpdateCable(p);
                 // Electric pulse travels in station coordinates, independent of pot scaling.
                 p.spark.localScale=Vector3.one/size;
             }
+            PlanPower(count);
+            foreach(var p in pots){p.cableStart=root.InverseTransformPoint(p.source.position);UpdateCable(p);}
         }
 
-        Transform CreateAdapter(int index)
-        {
-            var adapter=Child(machine,"One-to-two adapter "+(index+1));
-            Color trim=new Color(.44f,.64f,.65f),dark=new Color(.10f,.16f,.22f);
-            var body=new Shape();body.RoundedBlock(Vector3.zero,new Vector3(.048f,.046f,.039f),.005f,Ivory);
-            body.Box(new Vector3(0,-.016f,.020f),new Vector3(.034f,.002f,.001f),trim);
-            Part(adapter,"Adapter body",body);
-            // Two real output faces: the cooker plugs into the front;
-            // the next adapter plugs straight into the right-hand face.
-            foreach(bool continuation in new[]{false,true}) {
-                var face=Child(adapter,continuation?"Continuation socket":"Cooker socket");
-                face.localPosition=continuation?new Vector3(.0245f,0,0):new Vector3(0,0,.020f);
-                face.localRotation=continuation?Quaternion.Euler(0,90,0):Quaternion.identity;
-                var plate=new Shape();plate.RoundedBlock(Vector3.zero,new Vector3(.033f,.034f,.002f),.002f,new Color(.83f,.89f,.87f));
-                Part(face,"Socket plate",plate);
-                for(int slot=0;slot<3;slot++) {
-                    var hole=new Shape();hole.RoundedBlock(Vector3.zero,new Vector3(.003f,slot==0?.008f:.011f,.001f),.0004f,dark);
-                    var h=Part(face,"Socket slot "+slot,hole);h.localPosition=new Vector3(slot==0?0:slot==1?-.008f:.008f,slot==0?.008f:-.004f,.0018f);
-                    h.localRotation=Quaternion.Euler(0,0,slot==0?0:slot==1?-28:28);
-                }
+        void PlanPower(int count) {
+            int extra=Mathf.Max(0,Mathf.CeilToInt((count-18)/9f));
+            int a=Mathf.Min(8,(count+1)/2),b=Mathf.Min(extra>0?9:10,count-a),before=powerUpgradeMask;
+            if(a>=4)powerUpgradeMask|=1;if(b>=5)powerUpgradeMask|=2;
+            if(before!=powerUpgradeMask&&persistPowerUpgrades){PlayerPrefs.SetInt(PowerUpgradeKey,powerUpgradeMask);PlayerPrefs.Save();}
+            while(supplies.Count<2+extra)supplies.Add(CreateSupply(supplies.Count,10));
+            for(int i=0;i<supplies.Count;i++) {
+                var supply=supplies[i];int capacity=i==0?((powerUpgradeMask&1)!=0?8:4):i==1?((powerUpgradeMask&2)!=0?10:5):10;
+                if(supply.capacity!=capacity)BuildSupply(supply,i,capacity);
+                supply.present=i<2?((i==0?a:b)>1||(powerUpgradeMask&(1<<i))!=0):i<2+extra;
+                supply.root.gameObject.SetActive(supply.present);supply.wire.gameObject.SetActive(supply.present);
+                foreach(var plug in supply.plugs)plug.gameObject.SetActive(false);
+                supply.feedSource=i<2?generatorOutlets[i]:supplies[i-1].outlets[9];
+                if(i>1&&supply.present)supplies[i-1].plugs[9].gameObject.SetActive(true);
             }
-            var input=new Shape();
-            if(index==0)input.RoundedBlock(new Vector3(0,0,-.025f),new Vector3(.026f,.027f,.012f),.002f,trim);
-            else input.RoundedBlock(new Vector3(-.02675f,0,0),new Vector3(.0055f,.026f,.027f),.001f,trim);
-            Part(adapter,"Inserted adapter plug",input);
-            Child(adapter,"Adapter input").localPosition=index==0?new Vector3(0,0,-.031f):new Vector3(-.0295f,0,0);
-            Child(adapter,"Continuation contact").localPosition=new Vector3(.0255f,0,0);
-            var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.024f,.026f,.014f),.003f,Navy);
-            var cookerPlug=Part(adapter,"Cooker plug",plug);cookerPlug.localPosition=new Vector3(0,0,.029f);
-            var strain=new Shape();strain.Lathe(new[]{new Vector2(.0045f,-.004f),new Vector2(.004f,.004f)},10,Navy);
-            var outlet=Part(cookerPlug,"Cable outlet",strain);outlet.localPosition=new Vector3(0,0,.011f);outlet.localRotation=Quaternion.Euler(90,0,0);
-            return adapter;
+            for(int i=0;i<2;i++)generatorPlugs[i].gameObject.SetActive((i==0?a:b)>0||supplies[i].present);
+            // Keep each strip's cookers on its side of the stage, instead of
+            // alternating far-left/far-right cords across the whole scene.
+            var ordered=new List<Pot>(pots);
+            ordered.Sort((left,right)=>{int x=right.root.localPosition.x.CompareTo(left.root.localPosition.x);return x!=0?x:left.root.GetSiblingIndex().CompareTo(right.root.GetSiblingIndex());});
+            for(int i=0;i<count;i++) {
+                int lane,slot;
+                if(i<a){lane=0;slot=a-1-i;}
+                else if(i<a+b){lane=1;slot=a+b-1-i;}
+                else {
+                    lane=2;slot=i-a-b;
+                    while(lane<1+extra&&slot>=9){slot-=9;lane++;}
+                }
+                var supply=supplies[lane];
+                if(supply.present){supply.plugs[slot].gameObject.SetActive(true);ordered[i].source=supply.outlets[slot];}
+                else ordered[i].source=generatorOutlets[lane];
+            }
+        }
+
+        Supply CreateSupply(int index,int capacity) {
+            var supply=new Supply{root=Child(root,"Power strip "+index)};
+            supply.wire=Child(root,"Supply cable "+index);supply.cable=CreateCord(supply.wire,supply.vertices,"Power strip feed cable");
+            BuildSupply(supply,index,capacity);supply.root.gameObject.SetActive(false);supply.wire.gameObject.SetActive(false);return supply;
+        }
+        void BuildSupply(Supply supply,int index,int capacity) {
+            if(supply.geometry) {
+                supply.geometry.gameObject.SetActive(false);
+                foreach(var f in supply.geometry.GetComponentsInChildren<MeshFilter>(true)){meshes.Remove(f.sharedMesh);Release(f.sharedMesh);}
+                Release(supply.geometry.gameObject);
+            }
+            supply.capacity=capacity;supply.geometry=Child(supply.root,"Geometry");supply.plugs=new Transform[capacity];supply.outlets=new Transform[capacity];
+            int columns=capacity==4||capacity==8?4:5,rows=capacity/columns;
+            float length=.055f+columns*.040f,width=rows==1?.048f:.086f;
+            Color paint=index%2==0?Ivory:new Color(.67f,.81f,.78f),dark=new Color(.15f,.21f,.27f);
+            var body=new Shape();body.RoundedBlock(Vector3.zero,new Vector3(length,width,.016f),.005f,paint);
+            body.RoundedBlock(new Vector3(-length*.5f+.020f,0,.010f),new Vector3(.021f,.027f,.004f),.003f,index%2==0?Teal:Gold);
+            Part(supply.geometry,"Power strip body "+capacity,body);
+            for(int slot=0;slot<capacity;slot++) {
+                int row=slot/columns,column=slot%columns;
+                var socket=Child(supply.geometry,"Socket "+slot);socket.localPosition=new Vector3(-length*.5f+.053f+column*.040f,(row-(rows-1)*.5f)*.038f,.009f);
+                var plate=new Shape();plate.RoundedBlock(Vector3.zero,new Vector3(.032f,.030f,.002f),.003f,new Color(.84f,.89f,.87f));Part(socket,"Socket plate",plate);
+                for(int hole=0;hole<3;hole++) {
+                    var shape=new Shape();shape.RoundedBlock(Vector3.zero,new Vector3(.0028f,hole==0?.008f:.010f,.001f),.0004f,dark);
+                    var h=Part(socket,"Slot "+hole,shape);h.localPosition=new Vector3(hole==0?0:hole==1?-.008f:.008f,hole==0?.008f:-.004f,.002f);h.localRotation=Quaternion.Euler(0,0,hole==0?0:hole==1?-28:28);
+                }
+                var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.023f,.024f,.014f),.003f,Navy);
+                supply.plugs[slot]=Part(socket,"Plug",plug);supply.plugs[slot].localPosition=Vector3.forward*.010f;
+                var strain=new Shape();strain.Lathe(new[]{new Vector2(.0045f,-.004f),new Vector2(.004f,.004f)},10,Navy);
+                supply.outlets[slot]=Part(supply.plugs[slot],"Cable outlet",strain);supply.outlets[slot].localPosition=Vector3.forward*.011f;supply.outlets[slot].localRotation=Quaternion.Euler(90,0,0);
+            }
+            var inlet=new Shape();inlet.RoundedBlock(Vector3.zero,new Vector3(.014f,.018f,.012f),.003f,Navy);
+            supply.inlet=Part(supply.geometry,"Feed inlet",inlet);supply.inlet.localPosition=new Vector3(-length*.5f-.006f,0,0);
+            supply.root.localRotation=Quaternion.Euler(-55,0,0);
+            float elevation=Mathf.Sin(55*Mathf.Deg2Rad)*.008f+Mathf.Cos(55*Mathf.Deg2Rad)*width*.5f;
+            supply.root.localPosition=new Vector3(index%2==0?.170f:-.125f,GeneratorFloorHeight+elevation,.680f+(index/2)*.115f);
+        }
+        Mesh CreateCord(Transform transform,Vector3[] vertices,string name) {
+            var mesh=Own(new Mesh{name=name});mesh.MarkDynamic();mesh.vertices=vertices;
+            var colors=new Color[vertices.Length];var normals=new Vector3[vertices.Length];var triangles=new List<int>();
+            for(int i=0;i<vertices.Length;i++){colors[i]=Navy;normals[i]=Vector3.forward;}
+            for(int j=0;j<CableSteps;j++){int n=j*4;triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
+            mesh.colors=colors;mesh.normals=normals;mesh.triangles=triangles.ToArray();transform.gameObject.AddComponent<MeshFilter>().sharedMesh=mesh;transform.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;return mesh;
+        }
+        void UpdateCord(Mesh mesh,Vector3[] vertices,Transform transform,Vector3 start,Vector3 end) {
+            for(int j=0;j<CableSteps;j++) {
+                Vector3 a=Cable(start,end,j/(float)CableSteps),b=Cable(start,end,(j+1f)/CableSteps),normal=Vector3.Cross(b-a,Vector3.forward).normalized*.0022f;int n=j*4;
+                vertices[n]=transform.InverseTransformPoint(root.TransformPoint(a-normal));vertices[n+1]=transform.InverseTransformPoint(root.TransformPoint(a+normal));
+                vertices[n+2]=transform.InverseTransformPoint(root.TransformPoint(b+normal));vertices[n+3]=transform.InverseTransformPoint(root.TransformPoint(b-normal));
+            }
+            mesh.vertices=vertices;mesh.RecalculateBounds();
         }
 
         void UpdateCable(Pot p)
@@ -407,36 +495,22 @@ namespace DesktopFish
             // Keep the actual plug connected while the cooker rocks. The cable
             // mesh and its buffers are reused, rather than rebuilt each frame.
             p.cableEnd=root.InverseTransformPoint(p.wobble.TransformPoint(CookerPort));
-            for(int j=0;j<CableSteps;j++)
-            {
-                Vector3 a=Cable(p.cableStart,p.cableEnd,j/(float)CableSteps),b=Cable(p.cableStart,p.cableEnd,(j+1f)/CableSteps);
-                Vector3 normal=Vector3.Cross(b-a,Vector3.forward).normalized*.0022f;int n=j*4;
-                p.cableVertices[n]=p.root.InverseTransformPoint(root.TransformPoint(a-normal));
-                p.cableVertices[n+1]=p.root.InverseTransformPoint(root.TransformPoint(a+normal));
-                p.cableVertices[n+2]=p.root.InverseTransformPoint(root.TransformPoint(b+normal));
-                p.cableVertices[n+3]=p.root.InverseTransformPoint(root.TransformPoint(b-normal));
-            }
-            p.cable.vertices=p.cableVertices;p.cable.RecalculateBounds();
+            UpdateCord(p.cable,p.cableVertices,p.root,p.cableStart,p.cableEnd);
         }
 
         static Vector3 Cable(Vector3 start, Vector3 end, float t)
         {
-            Vector3 a=start+new Vector3(-.045f,-.065f,.080f),b=end+new Vector3(.045f,-.025f,.045f);
-            float u=1-t;return u*u*u*start+3*u*u*t*a+3*u*t*t*b+t*t*t*end;
+            Vector3 a=Vector3.Lerp(start,end,.18f)+new Vector3(0,-.035f,.045f),b=Vector3.Lerp(start,end,.82f)+new Vector3(0,-.025f,.030f);
+            float u=1-t;Vector3 point=u*u*u*start+3*u*u*t*a+3*u*t*t*b+t*t*t*end;
+            point.y=Mathf.Max(GeneratorFloorHeight+.002f,point.y);return point;
         }
 
         Pot CreatePot(int index)
         {
             var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle()};
-            p.adapter=CreateAdapter(index);p.cableOutlet=p.adapter.Find("Cooker plug/Cable outlet");
             p.wobble=Child(p.root,"Cooker wobble");
             BuildCooker(p);
-            var wire=Child(p.root,"Power cable");p.cable=Own(new Mesh{name="Connected power cable"});p.cable.MarkDynamic();
-            p.cable.vertices=p.cableVertices;var cableColors=new Color[p.cableVertices.Length];var cableNormals=new Vector3[cableColors.Length];var cableTriangles=new List<int>();
-            for(int j=0;j<cableColors.Length;j++){cableColors[j]=Navy;cableNormals[j]=Vector3.forward;}
-            for(int j=0;j<CableSteps;j++){int n=j*4;cableTriangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
-            p.cable.colors=cableColors;p.cable.normals=cableNormals;p.cable.triangles=cableTriangles.ToArray();
-            wire.gameObject.AddComponent<MeshFilter>().sharedMesh=p.cable;wire.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;
+            var wire=Child(p.root,"Power cable");p.cable=CreateCord(wire,p.cableVertices,"Connected power cable");
             var spark=new Shape();spark.Box(Vector3.zero,new Vector3(.005f,.010f,.005f),Gold);
             p.spark=Part(p.root,"Electric pulse",spark);
             // Steam has its own transparent material and no opaque shadow quads.
