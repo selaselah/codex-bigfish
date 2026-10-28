@@ -96,9 +96,11 @@ namespace DesktopFish.Editor
 
         public static void RenderBlackBatteryCells() => Render("work/black-battery-cells-183",true);
 
+        public static void RenderLightningCircle() => Render("work/lightning-circle-184",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool faceLayout=output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183")))));
+            bool faceLayout=output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184"))))));
             bool solidStrips=output.EndsWith("176")||output.EndsWith("177")||faceLayout;
             bool looseCords=output.EndsWith("175")||solidStrips;
             bool supplyReview=output.EndsWith("174")||looseCords;
@@ -411,7 +413,7 @@ namespace DesktopFish.Editor
                 }
                 if(output.EndsWith("180")&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback<.002f))
                     throw new InvalidOperationException("Battery outer corners or terminal shoulders are not rounded: "+JsonUtility.ToJson(report));
-                if((output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183")))&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback>1e-7f))
+                if((output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184"))))&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback>1e-7f))
                     throw new InvalidOperationException("Rounded battery body or direct terminal join failed: "+JsonUtility.ToJson(report));
                 if(faceLayout&&(report.faceLayoutChecks<100||report.batteryWidth<.16f||report.boltWidth<.064f||report.boltHeight<.10f||report.boltTopArea<.0008f||report.boltAreaMismatch>.001f||!report.batteryFaceFilled))
                     throw new InvalidOperationException("Solid battery body or balanced full rounded lightning failed: "+JsonUtility.ToJson(report));
@@ -620,9 +622,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183"))))))?.25f:.22f;
-                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183"))))))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183"))))))?.45f:.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184")))))))?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184")))))))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184")))))))?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -641,7 +643,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||output.EndsWith("183"))))))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||output.EndsWith("184")))))))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

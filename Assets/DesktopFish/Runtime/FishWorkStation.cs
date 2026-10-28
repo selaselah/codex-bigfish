@@ -182,12 +182,14 @@ namespace DesktopFish
                 chargeCells[i]=Part(machine,"Charge cell "+i,cell);chargeCells[i].localPosition=position+Vector3.forward*.0015f;
             }
             Part(machine,"Battery cells",slots);
-            var rim=new Shape();rim.Lathe(new[]{new Vector2(.078f,-.002f),new Vector2(.078f,.002f)},40,Gold);
-            var rimPart=Part(machine,"Round power badge rim",rim);rimPart.localPosition=new Vector3(0,-.030f,.111f);rimPart.localRotation=Quaternion.Euler(90,0,0);
-            var badge=new Shape();badge.Lathe(new[]{new Vector2(.069f,-.003f),new Vector2(.075f,0),new Vector2(.074f,.004f),new Vector2(.069f,.007f)},40,new Color(.065f,.078f,.09f));
+            // Reference palette: yellow ground with matching dark ink for circle and bolt.
+            Color iconYellow=new Color32(237,211,71,255),iconInk=new Color32(77,62,46,255);
+            var rim=new Shape();rim.Annulus(.078f,.067f,.003f,64,iconInk);
+            var rimPart=Part(machine,"Round power badge rim",rim);rimPart.localPosition=new Vector3(0,-.030f,.123f);
+            var badge=new Shape();badge.Lathe(new[]{new Vector2(.069f,-.003f),new Vector2(.075f,0),new Vector2(.074f,.004f),new Vector2(.069f,.007f)},40,iconYellow);
             var badgePart=Part(machine,"Black round power badge",badge);badgePart.localPosition=new Vector3(0,-.030f,.113f);badgePart.localRotation=Quaternion.Euler(90,0,0);
             var mark=new Shape();
-            mark.RoundedGlyph(new[]{new Vector2(.018f,.056f),new Vector2(-.038f,-.003f),new Vector2(-.006f,-.003f),new Vector2(-.018f,-.056f),new Vector2(.038f,.003f),new Vector2(.006f,.003f)},.010f,.002f,Gold);
+            mark.SilhouetteGlyph(new[]{new Vector2(0.032719952f,-0.003210629f),new Vector2(0.031819571f,-0.001056994f),new Vector2(0.028452499f,0.002963875f),new Vector2(0.028206802f,0.004181353f),new Vector2(0.025896149f,0.006353128f),new Vector2(0.022939514f,0.011063791f),new Vector2(0.016523424f,0.019159399f),new Vector2(0.015519837f,0.021441836f),new Vector2(0.013612839f,0.023063067f),new Vector2(0.009713665f,0.029274792f),new Vector2(0.007387967f,0.031446255f),new Vector2(0.004382796f,0.036381841f),new Vector2(0.003276036f,0.037027471f),new Vector2(0.002970481f,0.038230364f),new Vector2(-0.001718095f,0.044050362f),new Vector2(-0.003181913f,0.046842141f),new Vector2(-0.008658007f,0.053514002f),new Vector2(-0.008915297f,0.054680233f),new Vector2(-0.010786259f,0.056000000f),new Vector2(-0.014369783f,0.055169257f),new Vector2(-0.015141337f,0.051660996f),new Vector2(-0.013972540f,0.049278511f),new Vector2(-0.012843465f,0.040248957f),new Vector2(-0.011053650f,0.035305418f),new Vector2(-0.010047934f,0.027015771f),new Vector2(-0.008782536f,0.021491882f),new Vector2(-0.008172509f,0.020792579f),new Vector2(-0.008172509f,0.018865544f),new Vector2(-0.007565082f,0.018159863f),new Vector2(-0.006601796f,0.010339700f),new Vector2(-0.007706024f,0.009923761f),new Vector2(-0.029531217f,0.009882314f),new Vector2(-0.032422159f,0.007407759f),new Vector2(-0.032719952f,0.003210629f),new Vector2(-0.031819571f,0.001056994f),new Vector2(-0.028452499f,-0.002963875f),new Vector2(-0.028206802f,-0.004181353f),new Vector2(-0.025896149f,-0.006353128f),new Vector2(-0.022939514f,-0.011063791f),new Vector2(-0.016523424f,-0.019159399f),new Vector2(-0.015519837f,-0.021441836f),new Vector2(-0.013612839f,-0.023063067f),new Vector2(-0.009713665f,-0.029274792f),new Vector2(-0.007387967f,-0.031446255f),new Vector2(-0.004382796f,-0.036381841f),new Vector2(-0.003276036f,-0.037027471f),new Vector2(-0.002970481f,-0.038230364f),new Vector2(0.001718095f,-0.044050362f),new Vector2(0.003181913f,-0.046842141f),new Vector2(0.008658007f,-0.053514002f),new Vector2(0.008915297f,-0.054680233f),new Vector2(0.010786259f,-0.056000000f),new Vector2(0.014369783f,-0.055169257f),new Vector2(0.015141337f,-0.051660996f),new Vector2(0.013972540f,-0.049278511f),new Vector2(0.012843465f,-0.040248957f),new Vector2(0.011053650f,-0.035305418f),new Vector2(0.010047934f,-0.027015771f),new Vector2(0.008782536f,-0.021491882f),new Vector2(0.008172509f,-0.020792579f),new Vector2(0.008172509f,-0.018865544f),new Vector2(0.007565082f,-0.018159863f),new Vector2(0.006601796f,-0.010339700f),new Vector2(0.007706024f,-0.009923761f),new Vector2(0.029531217f,-0.009882314f),new Vector2(0.032422159f,-0.007407759f)},.002f,iconInk);
             var bolt=Part(machine,"Large yellow power bolt",mark);bolt.localPosition=new Vector3(0,-.030f,.123f);
             for(int i=0;i<4;i++)housing.Box(new Vector3(-.112f,.060f-i*.022f,0),new Vector3(.004f,.008f,.060f),dark);
             Part(machine,"Generator housing",housing);
@@ -746,6 +748,17 @@ namespace DesktopFish
         {
             readonly List<Vector3> points=new List<Vector3>();readonly List<int> triangles=new List<int>();readonly List<Color> colors=new List<Color>();
             public void Quad(Vector3 a,Vector3 b,Vector3 c,Vector3 d,Color color){int n=points.Count;points.AddRange(new[]{a,b,c,d});for(int i=0;i<4;i++)colors.Add(color);triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
+            public void Annulus(float outer,float inner,float depth,int segments,Color color) {
+                if(inner<=0||outer<=inner||depth<=0||segments<8)throw new ArgumentException("Invalid circle ring dimensions.");
+                Vector3 back=Vector3.back*depth;
+                for(int i=0;i<segments;i++) {
+                    float a=i*Mathf.PI*2/segments,b=(i+1)*Mathf.PI*2/segments;
+                    Vector3 u=new Vector3(Mathf.Cos(a),Mathf.Sin(a),0),v=new Vector3(Mathf.Cos(b),Mathf.Sin(b),0),front=Vector3.forward*(depth*.5f);
+                    Vector3 p=u*outer+front,q=v*outer+front,r=v*inner+front,s=u*inner+front;
+                    Quad(p,q,r,s,color);Quad(p+back,s+back,r+back,q+back,color);
+                    Quad(p,p+back,q+back,q,color);Quad(s,r,r+back,s+back,color);
+                }
+            }
             public void Box(Vector3 center,Vector3 size,Color color)
             {
                 Vector3 a=size*.5f;Vector3[] v={new Vector3(-a.x,-a.y,-a.z),new Vector3(a.x,-a.y,-a.z),new Vector3(a.x,a.y,-a.z),new Vector3(-a.x,a.y,-a.z),new Vector3(-a.x,-a.y,a.z),new Vector3(a.x,-a.y,a.z),new Vector3(a.x,a.y,a.z),new Vector3(-a.x,a.y,a.z)};
@@ -817,6 +830,7 @@ namespace DesktopFish
                 }
                 ExtrudedGlyph(boundary,depth*.5f,color,z);
             }
+            public void SilhouetteGlyph(Vector2[] outline,float halfDepth,Color color) { ExtrudedGlyph(new List<Vector2>(outline),halfDepth,color); }
             public void RoundedGlyph(Vector2[] outline,float cut,float halfDepth,Color color) {
                 var boundary=new List<Vector2>();
                 for(int i=0;i<outline.Length;i++) {
