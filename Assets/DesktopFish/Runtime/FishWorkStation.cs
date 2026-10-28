@@ -21,7 +21,7 @@ namespace DesktopFish
         const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
         public static readonly Vector3 LocalCrankCenter=new Vector3(.135f,.127f,-.030f);
-        static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.146f);
+        static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.1205f);
         static readonly Vector3[] Feet={new Vector3(-.075f,-.228f,-.055f),new Vector3(-.075f,-.228f,.055f),new Vector3(.075f,-.228f,-.055f),new Vector3(.075f,-.228f,.055f)};
         static readonly Vector3 FootSize=new Vector3(.033f,.024f,.036f);
         public static readonly Vector3 MachinePivot=new Vector3(0,-.216f,0);
@@ -87,13 +87,14 @@ namespace DesktopFish
         int nextStyle = CookerStyleCount, lastStyle = -1;
         bool disposed;
         public int CookerCount => pots.Count;
+        public Transform AdapterAt(int index) => pots[index].adapter;
         public bool Visible => root && root.gameObject.activeSelf;
         public Transform Root => root;
         public CookerStyle CookerStyleAt(int index) => pots[index].style;
 
         sealed class Pot
         {
-            public Transform root, wobble, lid, spark;
+            public Transform root, wobble, lid, spark, adapter, cableOutlet;
             public Mesh steam, cable;
             public Vector3[] steamVertices = new Vector3[SteamPuffs * (1 + 2 * PuffSides)];
             public Color[] steamColors = new Color[SteamPuffs * (1 + 2 * PuffSides)];
@@ -173,10 +174,7 @@ namespace DesktopFish
                     var holePart=Part(socketPart,"Socket slot "+slot,hole);holePart.localPosition=new Vector3(slot==0?0:slot==1?-.012f:.012f,slot==0?.013f:-.006f,.011f);holePart.localRotation=Quaternion.Euler(0,0,slot==0?0:slot==1?-28:28);
                 }
             }
-            var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.035f,.033f,.018f),.006f,Navy);
-            var plugPart=Part(machine,"Mains plug",plug);plugPart.localPosition=new Vector3(-.040f,-.145f,.132f);
-            var strain=new Shape();strain.Lathe(new[]{new Vector2(.006f,-.005f),new Vector2(.005f,.005f)},10,Navy);
-            var outlet=Part(plugPart,"Cable outlet",strain);outlet.localPosition=new Vector3(0,0,.014f);outlet.localRotation=Quaternion.Euler(90,0,0);
+            Child(machine,"Adapter socket contact").localPosition=LocalPowerOutlet;
             electricMesh=Own(new Mesh{name="Crackling branched lightning"});electricMesh.MarkDynamic();electricMesh.vertices=electricVertices;electricMesh.colors=electricColors;
             var electricNormals=new Vector3[electricVertices.Length];for(int i=0;i<electricNormals.Length;i++)electricNormals[i]=Vector3.forward;electricMesh.normals=electricNormals;
             var lightningTriangles=new List<int>();
@@ -219,7 +217,6 @@ namespace DesktopFish
             }
             crank.localPosition=pose.position+pose.rotation*LocalCrankCenter;
             crank.localRotation = pose.rotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
-            Vector3 liveOutlet=pose.position+pose.rotation*LocalPowerOutlet;
             // The grip has a free bearing; it does not drag the fist around the shaft.
             gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
             current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
@@ -239,7 +236,7 @@ namespace DesktopFish
                 float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*weight;
                 p.lid.localPosition=Vector3.up*(pressure*.0045f);
                 p.lid.localRotation=Quaternion.Euler(0,0,Mathf.Sin(time*21+seed)*pressure*1.7f);
-                p.cableStart=liveOutlet;
+                p.cableStart=root.InverseTransformPoint(p.cableOutlet.position);
                 UpdateCable(p);
                 float phase=Mathf.Repeat(time*.55f-i*.19f,1);
                 p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase)));
@@ -338,13 +335,16 @@ namespace DesktopFish
 
         void Arrange(int count)
         {
-            // One physical pot and one connected cable for every active job.
+            // One pot, one cord and one direct-plug one-to-two adapter per job.
+            // The continuation socket feeds the next adapter without a wire.
             // Additional rows scale together; no jobs are silently omitted.
             while(pots.Count>count)
             {
                 var p=pots[pots.Count-1];
                 p.root.gameObject.SetActive(false);
                 foreach(var f in p.root.GetComponentsInChildren<MeshFilter>(true)) { meshes.Remove(f.sharedMesh); Release(f.sharedMesh); }
+                foreach(var f in p.adapter.GetComponentsInChildren<MeshFilter>(true)) { meshes.Remove(f.sharedMesh); Release(f.sharedMesh); }
+                p.adapter.gameObject.SetActive(false);Release(p.adapter.gameObject);
                 Release(p.root.gameObject);pots.RemoveAt(pots.Count-1);
             }
             while(pots.Count<count) pots.Add(CreatePot(pots.Count));
@@ -352,17 +352,54 @@ namespace DesktopFish
             // Make a few cookers substantially larger; only shrink when their
             // combined footprint needs to fit the available width or height.
             float size=Mathf.Min(1.75f,.90f/(.137f+(columns-1)*.155f),.26f/(.10f+Mathf.Max(0,rows-1)*.085f));
+            float adapterScale=Mathf.Min(1,.46f/(.048f+Mathf.Max(0,count-1)*.055f));
             for(int i=0;i<count;i++)
             {
                 int row=i/columns,column=i%columns,inRow=Mathf.Min(columns,count-row*columns);
                 var p=pots[i];
                 p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size,.085f+row*.085f*size,.430f-row*.025f);
                 p.root.localScale=Vector3.one*size;
-                p.cableStart=PowerOutlet;
+                p.adapter.localScale=Vector3.one*adapterScale;
+                p.adapter.localPosition=LocalPowerOutlet+new Vector3(i*.055f,0,.031f)*adapterScale;
+                p.cableStart=root.InverseTransformPoint(p.cableOutlet.position);
                 UpdateCable(p);
                 // Electric pulse travels in station coordinates, independent of pot scaling.
                 p.spark.localScale=Vector3.one/size;
             }
+        }
+
+        Transform CreateAdapter(int index)
+        {
+            var adapter=Child(machine,"One-to-two adapter "+(index+1));
+            Color trim=new Color(.44f,.64f,.65f),dark=new Color(.10f,.16f,.22f);
+            var body=new Shape();body.RoundedBlock(Vector3.zero,new Vector3(.048f,.046f,.039f),.005f,Ivory);
+            body.Box(new Vector3(0,-.016f,.020f),new Vector3(.034f,.002f,.001f),trim);
+            Part(adapter,"Adapter body",body);
+            // Two real output faces: the cooker plugs into the front;
+            // the next adapter plugs straight into the right-hand face.
+            foreach(bool continuation in new[]{false,true}) {
+                var face=Child(adapter,continuation?"Continuation socket":"Cooker socket");
+                face.localPosition=continuation?new Vector3(.0245f,0,0):new Vector3(0,0,.020f);
+                face.localRotation=continuation?Quaternion.Euler(0,90,0):Quaternion.identity;
+                var plate=new Shape();plate.RoundedBlock(Vector3.zero,new Vector3(.033f,.034f,.002f),.002f,new Color(.83f,.89f,.87f));
+                Part(face,"Socket plate",plate);
+                for(int slot=0;slot<3;slot++) {
+                    var hole=new Shape();hole.RoundedBlock(Vector3.zero,new Vector3(.003f,slot==0?.008f:.011f,.001f),.0004f,dark);
+                    var h=Part(face,"Socket slot "+slot,hole);h.localPosition=new Vector3(slot==0?0:slot==1?-.008f:.008f,slot==0?.008f:-.004f,.0018f);
+                    h.localRotation=Quaternion.Euler(0,0,slot==0?0:slot==1?-28:28);
+                }
+            }
+            var input=new Shape();
+            if(index==0)input.RoundedBlock(new Vector3(0,0,-.025f),new Vector3(.026f,.027f,.012f),.002f,trim);
+            else input.RoundedBlock(new Vector3(-.02675f,0,0),new Vector3(.0055f,.026f,.027f),.001f,trim);
+            Part(adapter,"Inserted adapter plug",input);
+            Child(adapter,"Adapter input").localPosition=index==0?new Vector3(0,0,-.031f):new Vector3(-.0295f,0,0);
+            Child(adapter,"Continuation contact").localPosition=new Vector3(.0255f,0,0);
+            var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.024f,.026f,.014f),.003f,Navy);
+            var cookerPlug=Part(adapter,"Cooker plug",plug);cookerPlug.localPosition=new Vector3(0,0,.029f);
+            var strain=new Shape();strain.Lathe(new[]{new Vector2(.0045f,-.004f),new Vector2(.004f,.004f)},10,Navy);
+            var outlet=Part(cookerPlug,"Cable outlet",strain);outlet.localPosition=new Vector3(0,0,.011f);outlet.localRotation=Quaternion.Euler(90,0,0);
+            return adapter;
         }
 
         void UpdateCable(Pot p)
@@ -391,6 +428,7 @@ namespace DesktopFish
         Pot CreatePot(int index)
         {
             var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle()};
+            p.adapter=CreateAdapter(index);p.cableOutlet=p.adapter.Find("Cooker plug/Cable outlet");
             p.wobble=Child(p.root,"Cooker wobble");
             BuildCooker(p);
             var wire=Child(p.root,"Power cable");p.cable=Own(new Mesh{name="Connected power cable"});p.cable.MarkDynamic();

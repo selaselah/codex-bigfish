@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int adapterCountChecks,maxAdapters,adapterSocketChecks;
+            public float maxAdapterInputError,maxAdapterCableError;
             public int crackleActiveCountStates,minActiveArcs=8,maxActiveArcs,arcZeroBursts,arcZeroSilentFrames,arcZeroActiveFrames,maxArcZeroRun,maxActiveBranches;
             public float maxSparkAlpha;
             public float maxBaseVertexDrift,maxBaseRotationDegrees,maxFootMountError,minFootMountLength=1,maxFootMountLength,maxMachinePivotError;
@@ -61,9 +63,12 @@ namespace DesktopFish.Editor
 
         public static void RenderCracklingElectricity() => Render("work/crackling-electricity-171",true);
 
+        public static void RenderSplitterChain() => Render("work/splitter-chain-172",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool crackleReview=output.EndsWith("171");
+            bool splitterReview=output.EndsWith("172");
+            bool crackleReview=output.EndsWith("171")||splitterReview;
             bool fixedFeetReview=output.EndsWith("170")||crackleReview;
             bool rockReview=output.EndsWith("169")||fixedFeetReview;
             bool electricReview=output.EndsWith("168")||rockReview;
@@ -116,6 +121,7 @@ namespace DesktopFish.Editor
                         for(int i=0;i<points.Length;i++)report.maxBaseVertexDrift=Mathf.Max(report.maxBaseVertexDrift,Vector3.Distance(pads.transform.TransformPoint(points[i]),fixedPadVertices[i]));
                         report.maxBaseRotationDegrees=Mathf.Max(report.maxBaseRotationDegrees,Quaternion.Angle(footing.localRotation,FishWorkStation.GeneratorRotation));
                     }
+                    if(splitterReview)CheckAdapters(station,report);
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     if(fullSize) {
                         Vector3 p=camera.transform.position+camera.transform.forward;
@@ -227,7 +233,7 @@ namespace DesktopFish.Editor
                         if(generator.Find("Output terminal"))throw new InvalidOperationException("Old output electrodes are still present");
                         foreach(var wire in station.Root.GetComponentsInChildren<MeshFilter>().Where(m=>m.name=="Power cable")) {
                             var points=wire.sharedMesh.vertices;Vector3 cableStart=wire.transform.TransformPoint((points[0]+points[1])*.5f);
-                            report.maxCableSourceError=Mathf.Max(report.maxCableSourceError,Vector3.Distance(cableStart,generator.Find("Mains plug/Cable outlet").position));
+                            report.maxCableSourceError=Mathf.Max(report.maxCableSourceError,Vector3.Distance(cableStart,(splitterReview?station.AdapterAt(int.Parse(wire.transform.parent.name.Substring("Rice cooker ".Length))-1).Find("Cooker plug/Cable outlet"):generator.Find("Mains plug/Cable outlet")).position));
                         }
                     }
                     if(station.CookerCount!=3||!station.Visible)throw new InvalidOperationException("Missing job cooker.");
@@ -331,6 +337,7 @@ namespace DesktopFish.Editor
                         }
                     }
                     capture("jobs-"+count);
+                    if(splitterReview&&new[]{1,3,5,8}.Contains(count))RenderAdapterDetail(camera,station,snapshots,output,count);
                 }
                 foreach(string state in new[]{"waiting","complete","idle","error"})
                 {
@@ -355,6 +362,8 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(splitterReview&&(report.adapterCountChecks<100||report.maxAdapters!=8||report.maxAdapterInputError>.000001f||report.maxAdapterCableError>.000001f))
+                    throw new InvalidOperationException("Direct splitter chain has a count or contact mismatch: "+JsonUtility.ToJson(report));
                 if(crackleReview) {
                     report.crackleActiveCountStates=crackleCounts.Count;
                     if(report.crackleActiveCountStates<3||report.arcZeroBursts<4||report.arcZeroSilentFrames<12||report.arcZeroActiveFrames<3||report.maxArcZeroRun>6||report.maxActiveBranches<2||report.maxSparkAlpha<.5f)
@@ -402,6 +411,44 @@ namespace DesktopFish.Editor
             {
                 camera.targetTexture=null;RenderTexture.active=previous;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);
                 for(int s=0;s<skins.Length;s++){if(snapshots[s].sharedMesh)UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);UnityEngine.Object.DestroyImmediate(snapshots[s].gameObject);skins[s].enabled=true;}
+            }
+        }
+
+        static void CheckAdapters(FishWorkStation station,Report report) {
+            if(!station.Visible)return;
+            var machine=station.Root.Find("Floor generator");
+            var adapters=machine.Cast<Transform>().Where(t=>t.gameObject.activeSelf&&t.name.StartsWith("One-to-two adapter ")).ToArray();
+            if(adapters.Length!=station.CookerCount)
+                throw new InvalidOperationException("Every cooker must have exactly one direct-plug adapter.");
+            report.adapterCountChecks++;report.maxAdapters=Mathf.Max(report.maxAdapters,adapters.Length);
+            for(int i=0;i<adapters.Length;i++) {
+                var adapter=station.AdapterAt(i);
+                if(!adapter.Find("Cooker socket")||!adapter.Find("Continuation socket"))throw new InvalidOperationException("Adapter is not one-to-two.");
+                report.adapterSocketChecks+=2;
+                Vector3 upstream=i==0?machine.Find("Adapter socket contact").position:station.AdapterAt(i-1).Find("Continuation contact").position;
+                report.maxAdapterInputError=Mathf.Max(report.maxAdapterInputError,Vector3.Distance(adapter.Find("Adapter input").position,upstream));
+                var cable=station.Root.Find("Rice cooker "+(i+1)+"/Power cable").GetComponent<MeshFilter>();var points=cable.sharedMesh.vertices;
+                report.maxAdapterCableError=Mathf.Max(report.maxAdapterCableError,Vector3.Distance(cable.transform.TransformPoint((points[0]+points[1])*.5f),adapter.Find("Cooker plug/Cable outlet").position));
+            }
+        }
+
+        static void RenderAdapterDetail(Camera camera,FishWorkStation station,MeshFilter[] snapshots,string output,int count) {
+            var children=station.Root.GetComponentsInChildren<Transform>(true);var active=children.Select(t=>t.gameObject.activeSelf).ToArray();var visible=snapshots.Select(t=>t.gameObject.activeSelf).ToArray();
+            Vector3 position=camera.transform.position;Quaternion rotation=camera.transform.rotation;float size=camera.orthographicSize,aspect=camera.aspect;
+            var target=camera.targetTexture;var previous=RenderTexture.active;
+            var rt=RenderTexture.GetTemporary(640,320,24,RenderTextureFormat.ARGB32,RenderTextureReadWrite.Default,4);var image=new Texture2D(640,320,TextureFormat.RGBA32,false);
+            try {
+                foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
+                foreach(Transform child in station.Root)child.gameObject.SetActive(child.name=="Floor generator"||child.name=="Generator base"||child.name.StartsWith("Rice cooker "));
+                foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
+                camera.targetTexture=rt;camera.aspect=2;camera.orthographicSize=.16f;
+                var first=station.AdapterAt(0);var last=station.AdapterAt(count-1);Vector3 focus=(first.position+last.position)*.5f;
+                camera.transform.position=focus+first.TransformDirection(new Vector3(.3f,.25f,1)).normalized*.8f;camera.transform.LookAt(focus);
+                camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,320),0,0);image.Apply();File.WriteAllBytes(output+"/adapters-"+count+".png",image.EncodeToPNG());
+            } finally {
+                for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
+                camera.targetTexture=target;camera.aspect=aspect;camera.orthographicSize=size;camera.transform.SetPositionAndRotation(position,rotation);RenderTexture.active=previous;
+                RenderTexture.ReleaseTemporary(rt);UnityEngine.Object.DestroyImmediate(image);
             }
         }
 
