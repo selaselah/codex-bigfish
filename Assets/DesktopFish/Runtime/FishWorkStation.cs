@@ -92,7 +92,14 @@ namespace DesktopFish
         readonly int[] styleOrder = new int[CookerStyleCount];
         int nextStyle = CookerStyleCount, lastStyle = -1;
         bool disposed,workingShown;
+        readonly List<FishRiceBurst> riceBursts=new List<FishRiceBurst>();
+        int riceSequence;
+        bool completionLayoutDirty;
         public int CookerCount => pots.Count;
+        public int RiceBurstCount => riceBursts.Count;
+        public int RiceGrainCount => riceBursts.Count*FishRiceBurst.GrainCount;
+        public Transform RiceBurstAt(int index) => riceBursts[index].Root;
+        public int OwnedMeshCount => meshes.Count;
         public Transform CookerSourceAt(int index) => pots[index].source;
         public int PowerUpgradeMask => powerUpgradeMask;
         public int SupplyCount => supplies.Count;
@@ -240,10 +247,14 @@ namespace DesktopFish
         public void Tick(float time, float weight, int activeCount, bool retainForActiveJobs=false)
         {
             if (disposed) return;
+            for(int i=riceBursts.Count-1;i>=0;i--) {
+                if(time-riceBursts[i].Started>=FishRiceBurst.Duration){ReleaseHierarchy(riceBursts[i].Root);riceBursts.RemoveAt(i);}
+                else riceBursts[i].Tick(time);
+            }
             // A completion gesture pauses cranking, not the remaining jobs.
             bool wasWorking=workingShown;
             bool working=activeCount>0&&(weight>StageRevealWeight||(retainForActiveJobs&&wasWorking));workingShown=working;
-            root.gameObject.SetActive(working||powerUpgradeMask!=0);
+            root.gameObject.SetActive(working||powerUpgradeMask!=0||riceBursts.Count>0);
             machine.gameObject.SetActive(working);footing.gameObject.SetActive(working);crank.gameObject.SetActive(working);
             foreach(var p in pots)p.root.gameObject.SetActive(working);
             if(!working) {
@@ -256,7 +267,7 @@ namespace DesktopFish
                 return;
             }
             int count=Mathf.Max(0,activeCount);
-            if(count!=pots.Count||!wasWorking)Arrange(count);
+            if(count!=pots.Count||!wasWorking||completionLayoutDirty){Arrange(count);completionLayoutDirty=false;}
             var pose=GeneratorPoseAt(time,weight);
             machine.localPosition=pose.position;machine.localRotation=pose.rotation;
             for(int i=0;i<footMounts.Length;i++) {
@@ -385,6 +396,25 @@ namespace DesktopFish
             sparkMesh.vertices=sparkVertices;sparkMesh.colors=sparkColors;sparkMesh.RecalculateBounds();
         }
 
+        public int CompleteCookers(int count,float time)
+        {
+            if(disposed)return 0;
+            int completed=Mathf.Min(Mathf.Max(0,count),pots.Count);
+            for(int i=0;i<completed;i++) {
+                var p=pots[pots.Count-1];
+                riceBursts.Add(new FishRiceBurst(p.root,p.wobble,p.lid,solid,vapor,Own,++riceSequence,time));
+                pots.RemoveAt(pots.Count-1);ReleaseHierarchy(p.root);
+            }
+            completionLayoutDirty|=completed>0;
+            return completed;
+        }
+
+        void ReleaseHierarchy(Transform node)
+        {
+            foreach(var f in node.GetComponentsInChildren<MeshFilter>(true)){meshes.Remove(f.sharedMesh);Release(f.sharedMesh);}
+            Release(node.gameObject);
+        }
+
         void Arrange(int count)
         {
             // Two generator outlets feed direct cookers first, then power strips.
@@ -394,8 +424,7 @@ namespace DesktopFish
             {
                 var p=pots[pots.Count-1];
                 p.root.gameObject.SetActive(false);
-                foreach(var f in p.root.GetComponentsInChildren<MeshFilter>(true)) { meshes.Remove(f.sharedMesh); Release(f.sharedMesh); }
-                Release(p.root.gameObject);pots.RemoveAt(pots.Count-1);
+                ReleaseHierarchy(p.root);pots.RemoveAt(pots.Count-1);
             }
             while(pots.Count<count) pots.Add(CreatePot(pots.Count));
             int columns=Mathf.Min(count<=6?3:4,Mathf.Max(1,count)),rows=Mathf.CeilToInt(count/(float)columns);

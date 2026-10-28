@@ -158,7 +158,7 @@ namespace DesktopFish
             }
             if (state != previousMotionState)
             {
-                if (state == "complete") motion.Play(FishMotion.Gesture.Cheer, t);
+                if (state == "complete") {workStation.CompleteCookers(workStation.CookerCount,t);motion.Play(FishMotion.Gesture.Cheer, t);}
                 previousMotionState = state;
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
@@ -219,6 +219,7 @@ namespace DesktopFish
                 if (message == null || !ValidState(message.state)) return;
                 stateContent = text;
                 stateSource = message.source ?? "manual";
+                int previousActiveCount=activeCount;
                 activeCount = message.active_count;
                 notice = message.notice ?? "";
                 noticeUntil = message.notice_until;
@@ -237,6 +238,8 @@ namespace DesktopFish
                     (message.command_id == 0 || message.command_id != lastCommandId))
                 {
                     lastCommandId = message.command_id;
+                    if(action==FishMotion.Gesture.Cheer&&(state=="complete"||(noticeUntil>now&&!string.IsNullOrEmpty(notice))))
+                        workStation.CompleteCookers(state=="complete"&&activeCount==0?workStation.CookerCount:Mathf.Max(1,previousActiveCount-activeCount),Time.time);
                     motion.Play(action, Time.time);
                     previousMotionState = state;
                     Debug.Log("Desktop Fish gesture: " + action);
