@@ -61,6 +61,8 @@ namespace DesktopFish
         }
 
         static readonly Color Navy = new Color(.15f, .23f, .36f);
+        static readonly Color SupplyWhite=new Color(.94f,.95f,.93f);
+        const int SupplySides=8;
         static readonly Color Teal = new Color(.27f, .65f, .69f);
         static readonly Color Ivory = new Color(.95f, .96f, .92f);
         static readonly Color Gold = new Color(1f, .76f, .27f);
@@ -119,7 +121,7 @@ namespace DesktopFish
             public Transform root,geometry,inlet,wire,feedSource;
             public Transform[] plugs,outlets;
             public Mesh cable;
-            public Vector3[] vertices=new Vector3[CableSteps*4];
+            public Vector3[] vertices=new Vector3[(CableSteps+1)*SupplySides],normals=new Vector3[(CableSteps+1)*SupplySides],points=new Vector3[CableSteps+1];
             public int capacity;
             public float cableSeed;
             public bool present;
@@ -266,7 +268,7 @@ namespace DesktopFish
             for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
             UpdateElectricity(time,weight);
             foreach(var supply in supplies)if(supply.present)
-                UpdateCord(supply.cable,supply.vertices,supply.wire,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position),supply.cableSeed);
+                UpdateSupplyCord(supply,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position));
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
@@ -396,7 +398,7 @@ namespace DesktopFish
             {
                 int row=i/columns,column=i%columns,inRow=Mathf.Min(columns,count-row*columns);
                 var p=pots[i];
-                p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size,.085f+row*.085f*size,.430f-row*.025f);
+                p.root.localPosition=new Vector3((column-(inRow-1)*.5f)*.155f*size+((count>=3||powerUpgradeMask!=0)?.20f:0),.085f+row*.085f*size,.430f-row*.025f);
                 p.root.localScale=Vector3.one*size;
                 // Electric pulse travels in station coordinates, independent of pot scaling.
                 p.spark.localScale=Vector3.one/size;
@@ -416,11 +418,11 @@ namespace DesktopFish
                 if(supply.capacity!=capacity)BuildSupply(supply,i,capacity);
                 supply.present=i<2?((i==0?a:b)>1||(powerUpgradeMask&(1<<i))!=0):i<2+extra;
                 supply.root.gameObject.SetActive(supply.present);supply.wire.gameObject.SetActive(supply.present);
-                foreach(var plug in supply.plugs)plug.gameObject.SetActive(false);
+                foreach(var plug in supply.plugs){plug.gameObject.SetActive(false);TintPlug(plug,Navy);}
                 supply.feedSource=i<2?generatorOutlets[i]:supplies[i-1].outlets[9];
-                if(i>1&&supply.present)supplies[i-1].plugs[9].gameObject.SetActive(true);
+                if(i>1&&supply.present){supplies[i-1].plugs[9].gameObject.SetActive(true);TintPlug(supplies[i-1].plugs[9],SupplyWhite);}
             }
-            for(int i=0;i<2;i++)generatorPlugs[i].gameObject.SetActive((i==0?a:b)>0||supplies[i].present);
+            for(int i=0;i<2;i++){generatorPlugs[i].gameObject.SetActive((i==0?a:b)>0||supplies[i].present);TintPlug(generatorPlugs[i],supplies[i].present?SupplyWhite:Navy);}
             // Keep each strip's cookers on its side of the stage, instead of
             // alternating far-left/far-right cords across the whole scene.
             var ordered=new List<Pot>(pots);
@@ -441,7 +443,7 @@ namespace DesktopFish
 
         Supply CreateSupply(int index,int capacity) {
             var supply=new Supply{root=Child(root,"Power strip "+index),cableSeed=13+index*1.37f};
-            supply.wire=Child(root,"Supply cable "+index);supply.cable=CreateCord(supply.wire,supply.vertices,"Power strip feed cable");
+            supply.wire=Child(root,"Supply cable "+index);supply.cable=CreateSupplyCord(supply);
             BuildSupply(supply,index,capacity);supply.root.gameObject.SetActive(false);supply.wire.gameObject.SetActive(false);return supply;
         }
         void BuildSupply(Supply supply,int index,int capacity) {
@@ -453,33 +455,71 @@ namespace DesktopFish
             supply.capacity=capacity;supply.geometry=Child(supply.root,"Geometry");supply.plugs=new Transform[capacity];supply.outlets=new Transform[capacity];
             int columns=capacity==4||capacity==8?4:5,rows=capacity/columns;
             float length=.055f+columns*.040f,width=rows==1?.048f:.086f;
-            Color paint=index%2==0?Ivory:new Color(.67f,.81f,.78f),dark=new Color(.15f,.21f,.27f);
-            var body=new Shape();body.RoundedBlock(Vector3.zero,new Vector3(length,width,.016f),.005f,paint);
-            body.RoundedBlock(new Vector3(-length*.5f+.020f,0,.010f),new Vector3(.021f,.027f,.004f),.003f,index%2==0?Teal:Gold);
+            Color paint=index%2==0?Ivory:new Color(.75f,.86f,.83f),dark=new Color(.15f,.21f,.27f);
+            Color side=index%2==0?new Color(.63f,.69f,.70f):new Color(.39f,.56f,.54f);
+            // Real stepped upper/lower shells, with a28mm casing instead of
+            // a thin single plate. The darker lower moulding remains visible.
+            var body=new Shape();body.RoundedBlock(new Vector3(0,0,-.003f),new Vector3(length,width,.020f),.005f,side);
+            body.RoundedBlock(new Vector3(0,0,.009f),new Vector3(length-.003f,width-.003f,.012f),.004f,paint);
             var casing=Part(supply.geometry,"Power strip body "+capacity,body);
+            var rocker=new Shape();rocker.RoundedBlock(Vector3.zero,new Vector3(.021f,.027f,.008f),.002f,index%2==0?Teal:Gold);
+            var switchPart=Part(supply.geometry,"Raised rocker switch",rocker);switchPart.localPosition=new Vector3(-length*.5f+.020f,0,.021f);
             for(int slot=0;slot<capacity;slot++) {
                 int row=slot/columns,column=slot%columns;
-                var socket=Child(supply.geometry,"Socket "+slot);socket.localPosition=new Vector3(-length*.5f+.053f+column*.040f,(row-(rows-1)*.5f)*.038f,.009f);
-                var plate=new Shape();plate.RoundedBlock(Vector3.zero,new Vector3(.032f,.030f,.002f),.003f,new Color(.84f,.89f,.87f));Part(socket,"Socket plate",plate);
+                var socket=Child(supply.geometry,"Socket "+slot);socket.localPosition=new Vector3(-length*.5f+.053f+column*.040f,(row-(rows-1)*.5f)*.038f,.016f);
+                var plate=new Shape();plate.RoundedBlock(Vector3.zero,new Vector3(.034f,.032f,.003f),.003f,new Color(.46f,.59f,.58f));
+                plate.RoundedBlock(new Vector3(0,0,.0018f),new Vector3(.030f,.028f,.002f),.002f,new Color(.91f,.94f,.91f));Part(socket,"Socket plate",plate);
                 for(int hole=0;hole<3;hole++) {
                     var shape=new Shape();shape.RoundedBlock(Vector3.zero,new Vector3(.0028f,hole==0?.008f:.010f,.001f),.0004f,dark);
-                    var h=Part(socket,"Slot "+hole,shape);h.localPosition=new Vector3(hole==0?0:hole==1?-.008f:.008f,hole==0?.008f:-.004f,.002f);h.localRotation=Quaternion.Euler(0,0,hole==0?0:hole==1?-28:28);
+                    var h=Part(socket,"Slot "+hole,shape);h.localPosition=new Vector3(hole==0?0:hole==1?-.008f:.008f,hole==0?.008f:-.004f,.0033f);h.localRotation=Quaternion.Euler(0,0,hole==0?0:hole==1?-28:28);
                 }
                 var plug=new Shape();plug.RoundedBlock(Vector3.zero,new Vector3(.023f,.024f,.014f),.003f,Navy);
                 supply.plugs[slot]=Part(socket,"Plug",plug);supply.plugs[slot].localPosition=Vector3.forward*.010f;
                 var strain=new Shape();strain.Lathe(new[]{new Vector2(.0045f,-.004f),new Vector2(.004f,.004f)},10,Navy);
                 supply.outlets[slot]=Part(supply.plugs[slot],"Cable outlet",strain);supply.outlets[slot].localPosition=Vector3.forward*.011f;supply.outlets[slot].localRotation=Quaternion.Euler(90,0,0);
             }
-            var inlet=new Shape();inlet.RoundedBlock(Vector3.zero,new Vector3(.014f,.018f,.012f),.003f,Navy);
+            var inlet=new Shape();inlet.RoundedBlock(Vector3.zero,new Vector3(.014f,.018f,.012f),.003f,SupplyWhite);
             supply.inlet=Part(supply.geometry,"Feed inlet",inlet);supply.inlet.localPosition=new Vector3(-length*.5f-.006f,0,0);
             // Casually set down beside the generator, rather than lined up
             // across the front of the whole cooker row.
             supply.root.localRotation=Quaternion.Euler(index%2==0?-68:-64,index%2==0?18:-24,index%2==0?6:-4);
             float lowest=float.PositiveInfinity;
             foreach(var point in casing.GetComponent<MeshFilter>().sharedMesh.vertices)lowest=Mathf.Min(lowest,(supply.root.localRotation*point).y);
-            float x=index==0?-.420f:index==1?-.420f:(index%2==0?-.250f:-.390f);
-            float z=index==0?.250f:index==1?.430f:.610f+(index-2)*.12f;
+            float x=index==0?-.220f:index==1?-.450f:(index%2==0?-.250f:-.390f);
+            float z=index==0?.430f:index==1?.480f:.610f+(index-2)*.12f;
             supply.root.localPosition=new Vector3(x,GeneratorFloorHeight-lowest,z);
+        }
+        static void TintPlug(Transform plug,Color color) {
+            foreach(var filter in plug.GetComponentsInChildren<MeshFilter>(true)) {
+                var colors=filter.sharedMesh.colors;
+                if(colors.Length>0&&colors[0]==color)continue;
+                for(int i=0;i<colors.Length;i++)colors[i]=color;filter.sharedMesh.colors=colors;
+            }
+        }
+        Mesh CreateSupplyCord(Supply supply) {
+            var mesh=Own(new Mesh{name="White round power strip cord"});mesh.MarkDynamic();mesh.vertices=supply.vertices;
+            var colors=new Color[supply.vertices.Length];for(int i=0;i<colors.Length;i++)colors[i]=SupplyWhite;
+            var triangles=new List<int>();
+            for(int ring=0;ring<CableSteps;ring++)for(int j=0;j<SupplySides;j++) {
+                int a=ring*SupplySides+j,b=ring*SupplySides+(j+1)%SupplySides,c=b+SupplySides,d=a+SupplySides;triangles.AddRange(new[]{a,c,b,a,d,c});
+            }
+            mesh.colors=colors;mesh.normals=supply.normals;mesh.triangles=triangles.ToArray();
+            supply.wire.gameObject.AddComponent<MeshFilter>().sharedMesh=mesh;supply.wire.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;return mesh;
+        }
+        void UpdateSupplyCord(Supply supply,Vector3 start,Vector3 end) {
+            for(int i=0;i<=CableSteps;i++)supply.points[i]=Cable(start,end,i/(float)CableSteps,supply.cableSeed);
+            Vector3 previousSide=Vector3.zero;
+            for(int i=0;i<=CableSteps;i++) {
+                Vector3 tangent=(supply.points[Mathf.Min(CableSteps,i+1)]-supply.points[Mathf.Max(0,i-1)]).normalized;
+                Vector3 side=i==0?Vector3.Cross(tangent,new Vector3(0,.65f,1)):Vector3.ProjectOnPlane(previousSide,tangent);
+                side.Normalize();Vector3 up=Vector3.Cross(side,tangent).normalized;previousSide=side;
+                for(int j=0;j<SupplySides;j++) {
+                    float angle=j*Mathf.PI*2/SupplySides;Vector3 radial=side*Mathf.Cos(angle)+up*Mathf.Sin(angle);int n=i*SupplySides+j;
+                    supply.vertices[n]=supply.wire.InverseTransformPoint(root.TransformPoint(supply.points[i]+radial*.003f));
+                    supply.normals[n]=supply.wire.InverseTransformDirection(root.TransformDirection(radial));
+                }
+            }
+            supply.cable.vertices=supply.vertices;supply.cable.normals=supply.normals;supply.cable.RecalculateBounds();
         }
         Mesh CreateCord(Transform transform,Vector3[] vertices,string name) {
             var mesh=Own(new Mesh{name=name});mesh.MarkDynamic();mesh.vertices=vertices;

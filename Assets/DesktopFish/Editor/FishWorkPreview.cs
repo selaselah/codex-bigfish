@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int shellChecks,dualRowChecks,whiteFeedSamples;
+            public float minShellThickness=1,minStripCaseGap=1,minWhiteFeedRGB=1,minTubeNormalDot=1;
             public int slackCordChecks,groundedCordSamples;
             public float minCordSlackRatio=10,meanCordSlackRatio,minCordFloor=1,maxPrimaryStripDistance;
             public int supplyGraphChecks,lifecycleChecks,maxSupplyCapacityA,maxSupplyCapacityB,maxVisibleSupplies,persistentIdleChecks;
@@ -73,9 +75,12 @@ namespace DesktopFish.Editor
 
         public static void RenderLooseCookerCords() => Render("work/loose-cooker-cords-175",true);
 
+        public static void RenderSolidWhiteCordStrips() => Render("work/solid-white-cord-strips-176",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool looseCords=output.EndsWith("175");
+            bool solidStrips=output.EndsWith("176");
+            bool looseCords=output.EndsWith("175")||solidStrips;
             bool supplyReview=output.EndsWith("174")||looseCords;
             bool splitterReview=output.EndsWith("172");
             bool crackleReview=output.EndsWith("171")||splitterReview||supplyReview;
@@ -133,6 +138,7 @@ namespace DesktopFish.Editor
                     }
                     if(supplyReview)CheckSupply(station,report);
                     if(looseCords)CheckLooseCords(station,report);
+                    if(solidStrips)CheckSolidStrips(station,report);
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     if(fullSize) {
                         Vector3 p=camera.transform.position+camera.transform.forward;
@@ -376,6 +382,8 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(solidStrips&&(report.shellChecks<100||report.dualRowChecks<8||report.whiteFeedSamples<100||report.minShellThickness<.026f||report.minStripCaseGap<.025f||report.minWhiteFeedRGB<.90f||report.minTubeNormalDot<=0))
+                    throw new InvalidOperationException("Solid dual-row strips, white feed or generator clearance failed: "+JsonUtility.ToJson(report));
                 if(looseCords) {
                     report.meanCordSlackRatio/=Mathf.Max(1,report.slackCordChecks);
                     if(report.slackCordChecks<200||report.minCordSlackRatio<1.05f||report.meanCordSlackRatio<1.12f||report.groundedCordSamples<report.slackCordChecks*8||report.minCordFloor<FishWorkStation.GeneratorFloorHeight+.002f||report.maxPrimaryStripDistance>.46f)
@@ -436,6 +444,32 @@ namespace DesktopFish.Editor
             }
         }
 
+        static void CheckSolidStrips(FishWorkStation station,Report report) {
+            if(!station.Visible)return;
+            Bounds generator=new Bounds();bool first=true;
+            var housing=station.Root.Find("Floor generator/Generator housing").GetComponent<MeshFilter>();
+            foreach(var p in housing.sharedMesh.vertices){Vector3 v=station.Root.InverseTransformPoint(housing.transform.TransformPoint(p));if(first){generator=new Bounds(v,Vector3.zero);first=false;}else generator.Encapsulate(v);}
+            for(int i=0;i<station.SupplyCount;i++) {
+                var strip=station.SupplyAt(i);if(!strip.gameObject.activeInHierarchy)continue;
+                var shell=strip.Find("Geometry/Power strip body "+station.SupplyCapacityAt(i)).GetComponent<MeshFilter>();var points=shell.sharedMesh.vertices;
+                report.minShellThickness=Mathf.Min(report.minShellThickness,points.Max(p=>p.z)-points.Min(p=>p.z));report.shellChecks++;
+                var rows=strip.Find("Geometry").Cast<Transform>().Where(t=>t.name.StartsWith("Socket ")).GroupBy(t=>Mathf.RoundToInt(t.localPosition.y*100000)).Select(g=>g.Count()).OrderBy(x=>x).ToArray();
+                int capacity=station.SupplyCapacityAt(i);
+                if(capacity==8||capacity==10){if(rows.Length!=2||rows.Any(n=>n!=capacity/2))throw new InvalidOperationException("Upgraded strip is not2x4/2x5.");report.dualRowChecks++;}
+                Bounds bounds=new Bounds(station.Root.InverseTransformPoint(shell.transform.TransformPoint(points[0])),Vector3.zero);
+                foreach(var p in points)bounds.Encapsulate(station.Root.InverseTransformPoint(shell.transform.TransformPoint(p)));
+                float dx=Mathf.Max(0,generator.min.x-bounds.max.x,bounds.min.x-generator.max.x),dz=Mathf.Max(0,generator.min.z-bounds.max.z,bounds.min.z-generator.max.z);
+                report.minStripCaseGap=Mathf.Min(report.minStripCaseGap,Mathf.Sqrt(dx*dx+dz*dz));
+                if(station.WorkingVisible) {
+                    var cord=station.Root.Find("Supply cable "+i).GetComponent<MeshFilter>().sharedMesh;
+                    if(cord.name!="White round power strip cord"||cord.vertexCount%8!=0)throw new InvalidOperationException("Strip feed is not a round white cable.");
+                    var v=cord.vertices;var normals=cord.normals;var triangles=cord.triangles;
+                    for(int j=0;j<triangles.Length;j+=3){int a=triangles[j],b=triangles[j+1],c=triangles[j+2];Vector3 face=Vector3.Cross(v[b]-v[a],v[c]-v[a]);if(face.sqrMagnitude<1e-18f)throw new InvalidOperationException("Degenerate white cable face.");face/=Mathf.Sqrt(face.sqrMagnitude);report.minTubeNormalDot=Mathf.Min(report.minTubeNormalDot,Vector3.Dot(face,(normals[a]+normals[b]+normals[c]).normalized));}
+                    foreach(var c in cord.colors){report.minWhiteFeedRGB=Mathf.Min(report.minWhiteFeedRGB,c.r,c.g,c.b);report.whiteFeedSamples++;}
+                }
+            }
+        }
+
         static void CheckLooseCords(FishWorkStation station,Report report) {
             if(!station.WorkingVisible)return;
             for(int i=0;i<2;i++) {
@@ -480,7 +514,10 @@ namespace DesktopFish.Editor
                 int capacity=strip.Find("Geometry").Cast<Transform>().Count(t=>t.name.StartsWith("Socket "));
                 if(capacity!=station.SupplyCapacityAt(i))throw new InvalidOperationException("Power strip slot geometry does not match capacity.");
                 var wire=station.Root.Find("Supply cable "+i).GetComponent<MeshFilter>();var p=wire.sharedMesh.vertices;
-                report.maxSupplyFeedError=Mathf.Max(report.maxSupplyFeedError,Vector3.Distance(wire.transform.TransformPoint((p[0]+p[1])*.5f),source.position),Vector3.Distance(wire.transform.TransformPoint((p[p.Length-1]+p[p.Length-2])*.5f),strip.Find("Geometry/Feed inlet").position));
+                Vector3 first=Vector3.zero,last=Vector3.zero;
+                if(wire.sharedMesh.name=="White round power strip cord"){for(int j=0;j<8;j++){first+=p[j]/8;last+=p[p.Length-8+j]/8;}}
+                else {first=(p[0]+p[1])*.5f;last=(p[p.Length-1]+p[p.Length-2])*.5f;}
+                report.maxSupplyFeedError=Mathf.Max(report.maxSupplyFeedError,Vector3.Distance(wire.transform.TransformPoint(first),source.position),Vector3.Distance(wire.transform.TransformPoint(last),strip.Find("Geometry/Feed inlet").position));
             }
             report.maxVisibleSupplies=Mathf.Max(report.maxVisibleSupplies,visible);
             report.maxSupplyCapacityA=Mathf.Max(report.maxSupplyCapacityA,station.SupplyCapacityAt(0));report.maxSupplyCapacityB=Mathf.Max(report.maxSupplyCapacityB,station.SupplyCapacityAt(1));
@@ -518,9 +555,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=output.EndsWith("175")?.25f:.22f;
-                Vector3 focus=station.Root.TransformPoint(output.EndsWith("175")?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,output.EndsWith("175")?.45f:.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176"))?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176"))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176"))?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -539,7 +576,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
