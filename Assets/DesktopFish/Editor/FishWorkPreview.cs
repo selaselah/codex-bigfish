@@ -23,7 +23,8 @@ namespace DesktopFish.Editor
             public float maxBaseVertexDrift,maxBaseRotationDegrees,maxFootMountError,minFootMountLength=1,maxFootMountLength,maxMachinePivotError;
             public float maxMachineRockDegrees,maxMachineFloorError,maxCrankMountError,maxOrbitRadiusError,maxCookerPlacementDrift;
             public int machineLabelCount;
-            public int chargeStateCount,chargeRises,chargeFalls,minChargeCells=5,maxChargeCells,socketCount;
+            public int chargeStateCount,chargeRises,chargeFalls,chargeResets,unexpectedChargeDecreases,unexpectedChargeIncreases,minChargeCells=5,maxChargeCells,socketCount;
+            public int[] chargeSequence;
             public float maxElectricAlpha,minElectricSampleAlpha=1,maxElectricSampleAlpha,maxElectricTravel,maxCableSourceError;
             public float maxCharacterPixelScaleError,scenePixelScaleVsPreviousWork;
             public int canvasWidth,canvasHeight;
@@ -77,9 +78,11 @@ namespace DesktopFish.Editor
 
         public static void RenderSolidWhiteCordStrips() => Render("work/solid-white-cord-strips-176",true);
 
+        public static void RenderFillResetMeter() => Render("work/fill-reset-meter-177",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool solidStrips=output.EndsWith("176");
+            bool solidStrips=output.EndsWith("176")||output.EndsWith("177");
             bool looseCords=output.EndsWith("175")||solidStrips;
             bool supplyReview=output.EndsWith("174")||looseCords;
             bool splitterReview=output.EndsWith("172");
@@ -195,7 +198,7 @@ namespace DesktopFish.Editor
                 Vector3 firstSteam=Vector3.zero;Quaternion[] previousPalms={Quaternion.identity,Quaternion.identity};
                 var crackleCounts=new System.Collections.Generic.HashSet<int>();bool arcZeroWasActive=false;int arcZeroRun=0;
                 Vector3[] cookerPositions=new Vector3[3];
-                var chargeStates=new System.Collections.Generic.HashSet<int>();int lastCharge=-1;Vector3 firstElectric=Vector3.zero;
+                var chargeStates=new System.Collections.Generic.HashSet<int>();var chargeSequence=new System.Collections.Generic.List<int>();int lastCharge=-1;Vector3 firstElectric=Vector3.zero;
                 for(int f=0;f<(electricReview?72:48);f++)
                 {
                     float time=f/24f;motion.Tick(time,1/24f,0,0,"working",false);station.Tick(time,motion.WorkWeight,3);
@@ -227,7 +230,13 @@ namespace DesktopFish.Editor
                         var generator=station.Root.Find("Floor generator");int charge=0;
                         for(int cell=0;cell<5;cell++)if(generator.Find("Charge cell "+cell).gameObject.activeSelf)charge++;
                         chargeStates.Add(charge);report.minChargeCells=Mathf.Min(report.minChargeCells,charge);report.maxChargeCells=Mathf.Max(report.maxChargeCells,charge);
-                        if(lastCharge>=0){if(charge>lastCharge)report.chargeRises++;if(charge<lastCharge)report.chargeFalls++;}lastCharge=charge;
+                        if(lastCharge!=charge)chargeSequence.Add(charge);
+                        if(lastCharge>=0) {
+                            if(charge>lastCharge){report.chargeRises++;if(charge!=lastCharge+1)report.unexpectedChargeIncreases++;}
+                            if(charge<lastCharge){report.chargeFalls++;if(lastCharge==5&&charge==0)report.chargeResets++;else report.unexpectedChargeDecreases++;}
+                        }
+                        for(int cell=0;cell<5;cell++)if(generator.Find("Charge cell "+cell).gameObject.activeSelf!=(cell>=5-charge))throw new InvalidOperationException("Charge cells are not contiguous left-to-right.");
+                        lastCharge=charge;
                         var lightning=generator.Find("Generator electricity").GetComponent<MeshFilter>().sharedMesh;
                         if(crackleReview) {
                             var colors=lightning.colors;const int pathSize=42;int active=0,branches=0;
@@ -404,8 +413,8 @@ namespace DesktopFish.Editor
                 if(rockReview&&(report.machineLabelCount!=0||report.maxMachineRockDegrees<2||report.maxMachineFloorError>.00001f||report.maxCrankMountError>.000001f||report.maxOrbitRadiusError>.000001f||report.maxCookerPlacementDrift>.000001f))
                     throw new InvalidOperationException("Whole generator rocking, floor support or no-label validation failed: "+JsonUtility.ToJson(report));
                 if(electricReview) {
-                    report.chargeStateCount=chargeStates.Count;
-                    if(report.chargeStateCount!=6||report.minChargeCells!=0||report.maxChargeCells!=5||report.chargeRises<5||report.chargeFalls<5||report.socketCount!=2||report.maxElectricAlpha<.5f||report.maxElectricSampleAlpha-report.minElectricSampleAlpha<.1f||report.maxElectricTravel<.002f||report.maxCableSourceError>.000001f)
+                    report.chargeStateCount=chargeStates.Count;report.chargeSequence=chargeSequence.ToArray();
+                    if(report.chargeStateCount!=6||report.minChargeCells!=0||report.maxChargeCells!=5||report.chargeRises<10||report.chargeResets<2||report.chargeFalls!=report.chargeResets||report.unexpectedChargeDecreases!=0||report.unexpectedChargeIncreases!=0||report.socketCount!=2||report.maxElectricAlpha<.5f||report.maxElectricSampleAlpha-report.minElectricSampleAlpha<.1f||report.maxElectricTravel<.002f||report.maxCableSourceError>.000001f)
                         throw new InvalidOperationException("Charge loop, electrical flow or actual AC connection failed: "+JsonUtility.ToJson(report));
                 }
                 if(fullBody&&(report.maxFootDrift>.00001f||report.maxLegLengthChange>.000001f||report.maxChestPitch-report.minChestPitch<40||report.maxRootY-report.minRootY<.025f||report.maxKneeFlex-report.minKneeFlex<15||report.minRightFacing<.3f))
@@ -555,9 +564,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176"))?.25f:.22f;
-                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176"))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176"))?.45f:.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -576,7 +585,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

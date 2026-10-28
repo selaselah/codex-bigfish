@@ -262,8 +262,8 @@ namespace DesktopFish
             // The grip has a free bearing; it does not drag the fist around the shaft.
             gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
             current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
-            // One charge/discharge cycle spans two crank revolutions.
-            float charge=Mathf.PingPong(time*4.4f/(2*Mathf.PI),1);
+            // Fill0..5, then reset directly to0 each revolution.
+            float charge=Mathf.Repeat(time*4.4f/(2*Mathf.PI),1);
             int filled=Mathf.Clamp(Mathf.FloorToInt(charge*6),0,5);
             for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
             UpdateElectricity(time,weight);
