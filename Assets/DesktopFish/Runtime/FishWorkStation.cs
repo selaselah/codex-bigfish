@@ -172,7 +172,7 @@ namespace DesktopFish
                 new Vector2(-.071f,.143f),new Vector2(-.085f,.143f),
                 new Vector2(-.085f,.117f),new Vector2(-.071f,.117f),
                 new Vector2(-.071f,.087f),new Vector2(.083f,.087f)
-            },new[]{.020f,.020f,0f,.005f,.005f,0f,.020f,.020f},.109f,.006f,new Color(.07f,.10f,.11f));
+            },new[]{.020f,.020f,0f,.005f,.005f,0f,.020f,.020f},.109f,.006f,new Color(.045f,.22f,.11f));
             Part(machine,"Battery body",battery);
             var slots=new Shape();
             for(int i=0;i<5;i++) {
