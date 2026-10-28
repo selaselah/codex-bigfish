@@ -166,13 +166,13 @@ namespace DesktopFish
             housing.RoundedBlock(new Vector3(0,.287f,0),new Vector3(.148f,.026f,.030f),.006f,dark);
             // One solid dark battery body, with charge cells directly on it.
             // No inset screen/panel and no extra label strip above it.
-            // One continuous silhouette rounds the terminal's inward shoulders too.
+            // Keep a direct terminal join; round only the body and terminal's outer corners.
             var battery=new Shape();battery.FilletedPlate(new[]{
                 new Vector2(.083f,.173f),new Vector2(-.071f,.173f),
                 new Vector2(-.071f,.143f),new Vector2(-.085f,.143f),
                 new Vector2(-.085f,.117f),new Vector2(-.071f,.117f),
                 new Vector2(-.071f,.087f),new Vector2(.083f,.087f)
-            },new[]{.020f,.020f,.005f,.005f,.005f,.005f,.020f,.020f},.109f,.006f,new Color(.07f,.10f,.11f));
+            },new[]{.020f,.020f,0f,.005f,.005f,0f,.020f,.020f},.109f,.006f,new Color(.07f,.10f,.11f));
             Part(machine,"Battery body",battery);
             var slots=new Shape();
             for(int i=0;i<5;i++) {
@@ -805,8 +805,9 @@ namespace DesktopFish
                     int next=(i+1)%outline.Length;
                     Vector2 p=outline[i],incoming=(p-outline[(i+outline.Length-1)%outline.Length]).normalized,outgoing=(outline[next]-p).normalized;
                     float radius=radii[i];
-                    if(radius<=0||Mathf.Abs(Vector2.Dot(incoming,outgoing))>1e-5f||radius+radii[next]>=Vector2.Distance(p,outline[next]))
+                    if(radius<0||Mathf.Abs(Vector2.Dot(incoming,outgoing))>1e-5f||radius+radii[next]>=Vector2.Distance(p,outline[next]))
                         throw new ArgumentException("Filleted plate requires nonoverlapping right-angle corners.");
+                    if(radius==0){boundary.Add(p);continue;}
                     Vector2 a=p-incoming*radius,b=p+outgoing*radius,center=a+outgoing*radius;
                     float angle=Mathf.Atan2(a.y-center.y,a.x-center.x),turn=Mathf.Sign(Cross2(incoming,outgoing))*Mathf.PI*.5f;
                     for(int j=0;j<=8;j++) {
