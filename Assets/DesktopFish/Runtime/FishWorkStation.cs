@@ -164,15 +164,15 @@ namespace DesktopFish
             housing.RoundedBlock(new Vector3(-.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(0,.287f,0),new Vector3(.148f,.026f,.030f),.006f,dark);
-            // One battery outline, with cells directly on the ivory case.
+            // One solid dark battery body, with charge cells directly on it.
             // No inset screen/panel and no extra label strip above it.
-            var battery=new Shape();battery.RoundedRectRing(new Vector2(.006f,.130f),new Vector2(.154f,.086f),.008f,.005f,.109f,.006f,new Color(.07f,.10f,.11f));
+            var battery=new Shape();battery.RoundedRectPlate(new Vector2(.006f,.130f),new Vector2(.154f,.086f),.008f,.109f,.006f,new Color(.07f,.10f,.11f));
             battery.RoundedBlock(new Vector3(-.078f,.130f,.109f),new Vector3(.014f,.026f,.006f),.002f,new Color(.07f,.10f,.11f));
-            Part(machine,"Battery outline",battery);
+            Part(machine,"Battery body",battery);
             var slots=new Shape();
             for(int i=0;i<5;i++) {
-                Vector3 position=new Vector3(.006f+(i-2)*.025f,.130f,.111f);
-                slots.RoundedBlock(position,new Vector3(.020f,.047f,.0015f),.001f,new Color(.73f,.79f,.75f));
+                Vector3 position=new Vector3(.006f+(i-2)*.025f,.130f,.1128f);
+                slots.RoundedBlock(position,new Vector3(.020f,.047f,.0015f),.001f,new Color(.15f,.21f,.19f));
                 var cell=new Shape();cell.RoundedBlock(Vector3.zero,new Vector3(.020f,.047f,.002f),.001f,new Color(.62f,.96f,.38f));
                 chargeCells[i]=Part(machine,"Charge cell "+i,cell);chargeCells[i].localPosition=position+Vector3.forward*.0015f;
             }
@@ -763,6 +763,19 @@ namespace DesktopFish
                 {
                     int mid=points.Count;points.Add(center+new Vector3(x[end==0?0:3],0,0));colors.Add(color);
                     for(int j=0;j<sides;j++){int a=n+(end==0?0:3*sides)+j,b=n+(end==0?0:3*sides)+(j+1)%sides;triangles.AddRange(end==0?new[]{mid,b,a}:new[]{mid,a,b});}
+                }
+            }
+            public void RoundedRectPlate(Vector2 center,Vector2 size,float radius,float z,float depth,Color color) {
+                var boundary=new List<Vector2>();
+                for(int corner=0;corner<4;corner++)for(int j=0;j<=6;j++) {
+                    float angle=(corner*90+j*15)*Mathf.Deg2Rad;
+                    Vector2 cornerCenter=center+new Vector2((corner==0||corner==3?1:-1)*(size.x*.5f-radius),(corner<2?1:-1)*(size.y*.5f-radius));
+                    boundary.Add(cornerCenter+new Vector2(Mathf.Cos(angle),Mathf.Sin(angle))*radius);
+                }
+                Vector3 front=new Vector3(center.x,center.y,z+depth*.5f),back=Vector3.back*depth;
+                for(int i=0;i<boundary.Count;i++) {
+                    Vector2 a=boundary[i],b=boundary[(i+1)%boundary.Count];Vector3 p=new Vector3(a.x,a.y,front.z),q=new Vector3(b.x,b.y,front.z);
+                    Polygon(new[]{front,p,q},color);Polygon(new[]{front+back,q+back,p+back},color);Quad(p,p+back,q+back,q,color);
                 }
             }
             public void RoundedRectRing(Vector2 center,Vector2 size,float radius,float stroke,float z,float depth,Color color) {
