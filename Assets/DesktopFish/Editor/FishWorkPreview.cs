@@ -10,6 +10,8 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int slackCordChecks,groundedCordSamples;
+            public float minCordSlackRatio=10,meanCordSlackRatio,minCordFloor=1,maxPrimaryStripDistance;
             public int supplyGraphChecks,lifecycleChecks,maxSupplyCapacityA,maxSupplyCapacityB,maxVisibleSupplies,persistentIdleChecks;
             public float maxSupplyFeedError,maxSupplyPlacementDrift;
             [NonSerialized] public System.Collections.Generic.Dictionary<int,Vector3> supplyPositions=new System.Collections.Generic.Dictionary<int,Vector3>();
@@ -69,9 +71,12 @@ namespace DesktopFish.Editor
 
         public static void RenderUpgradeablePowerStrips() => Render("work/upgradeable-power-strips-174",true);
 
+        public static void RenderLooseCookerCords() => Render("work/loose-cooker-cords-175",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool supplyReview=output.EndsWith("174");
+            bool looseCords=output.EndsWith("175");
+            bool supplyReview=output.EndsWith("174")||looseCords;
             bool splitterReview=output.EndsWith("172");
             bool crackleReview=output.EndsWith("171")||splitterReview||supplyReview;
             bool fixedFeetReview=output.EndsWith("170")||crackleReview;
@@ -127,6 +132,7 @@ namespace DesktopFish.Editor
                         report.maxBaseRotationDegrees=Mathf.Max(report.maxBaseRotationDegrees,Quaternion.Angle(footing.localRotation,FishWorkStation.GeneratorRotation));
                     }
                     if(supplyReview)CheckSupply(station,report);
+                    if(looseCords)CheckLooseCords(station,report);
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     if(fullSize) {
                         Vector3 p=camera.transform.position+camera.transform.forward;
@@ -370,6 +376,11 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(looseCords) {
+                    report.meanCordSlackRatio/=Mathf.Max(1,report.slackCordChecks);
+                    if(report.slackCordChecks<200||report.minCordSlackRatio<1.05f||report.meanCordSlackRatio<1.12f||report.groundedCordSamples<report.slackCordChecks*8||report.minCordFloor<FishWorkStation.GeneratorFloorHeight+.002f||report.maxPrimaryStripDistance>.46f)
+                        throw new InvalidOperationException("Cooker cords are taut, leave the floor or strips are too far from generator: "+JsonUtility.ToJson(report));
+                }
                 if(supplyReview) {
                     TestSupplyLifecycle(model,companion.workPropShader,report);
                     if(report.supplyGraphChecks<100||report.maxSupplyFeedError>.000001f||report.maxSupplyPlacementDrift>.000001f||report.persistentIdleChecks<6||!report.directOne||!report.directTwo||!report.threeUsesOneFourWay||!report.fourUsesFourAndFive||!report.upgradedBoardsRetained||!report.reloadedUpgradesRetained)
@@ -422,6 +433,24 @@ namespace DesktopFish.Editor
             {
                 camera.targetTexture=null;RenderTexture.active=previous;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);
                 for(int s=0;s<skins.Length;s++){if(snapshots[s].sharedMesh)UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);UnityEngine.Object.DestroyImmediate(snapshots[s].gameObject);skins[s].enabled=true;}
+            }
+        }
+
+        static void CheckLooseCords(FishWorkStation station,Report report) {
+            if(!station.WorkingVisible)return;
+            for(int i=0;i<2;i++) {
+                var strip=station.SupplyAt(i);if(!strip.gameObject.activeInHierarchy)continue;
+                Vector3 offset=strip.localPosition-FishWorkStation.GeneratorPosition;offset.y=0;report.maxPrimaryStripDistance=Mathf.Max(report.maxPrimaryStripDistance,offset.magnitude);
+            }
+            foreach(var cord in station.Root.GetComponentsInChildren<MeshFilter>().Where(f=>f.name=="Power cable"&&f.gameObject.activeInHierarchy)) {
+                var v=cord.sharedMesh.vertices;Vector3 first=cord.transform.TransformPoint((v[0]+v[1])*.5f),previous=first;float length=0;
+                for(int j=0;j<v.Length/4;j++) {
+                    Vector3 next=cord.transform.TransformPoint((v[j*4+2]+v[j*4+3])*.5f);length+=Vector3.Distance(previous,next);previous=next;
+                    float y=station.Root.InverseTransformPoint(next).y;
+                    if(y<=FishWorkStation.GeneratorFloorHeight+.010f)report.groundedCordSamples++;
+                }
+                float ratio=length/Vector3.Distance(first,previous);report.minCordSlackRatio=Mathf.Min(report.minCordSlackRatio,ratio);report.meanCordSlackRatio+=ratio;report.slackCordChecks++;
+                foreach(var p in v)report.minCordFloor=Mathf.Min(report.minCordFloor,station.Root.InverseTransformPoint(cord.transform.TransformPoint(p)).y);
             }
         }
 
@@ -489,9 +518,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=.22f;
-                Vector3 focus=station.Root.TransformPoint(new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=output.EndsWith("175")?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint(output.EndsWith("175")?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,output.EndsWith("175")?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -510,7 +539,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());

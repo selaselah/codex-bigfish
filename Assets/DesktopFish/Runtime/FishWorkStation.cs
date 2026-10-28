@@ -18,7 +18,7 @@ namespace DesktopFish
         public static readonly Vector3 CookerPort = new Vector3(.046f,.038f,-.012f);
         public enum CookerStyle { ClassicWhite, RetroGold, CoralMetal, ModernCream, SlateBlue }
         public const int CookerStyleCount = 5;
-        const int CableSteps = 18, SteamPuffs = 9, PuffSides = 12;
+        const int CableSteps = 32, SteamPuffs = 9, PuffSides = 12;
         const float StageRevealWeight=.20f;
         public static readonly Vector3 LocalCrankCenter=new Vector3(.135f,.127f,-.030f);
         static readonly Vector3 LocalPowerOutlet=new Vector3(-.040f,-.145f,.146f);
@@ -112,6 +112,7 @@ namespace DesktopFish
             public Vector3[] cableVertices = new Vector3[CableSteps * 4];
             public Vector3 cableStart, cableEnd;
             public CookerStyle style;
+            public float cableSeed;
         }
 
         sealed class Supply {
@@ -120,6 +121,7 @@ namespace DesktopFish
             public Mesh cable;
             public Vector3[] vertices=new Vector3[CableSteps*4];
             public int capacity;
+            public float cableSeed;
             public bool present;
         }
 
@@ -264,7 +266,7 @@ namespace DesktopFish
             for(int i=0;i<chargeCells.Length;i++)chargeCells[i].gameObject.SetActive(i>=chargeCells.Length-filled);
             UpdateElectricity(time,weight);
             foreach(var supply in supplies)if(supply.present)
-                UpdateCord(supply.cable,supply.vertices,supply.wire,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position));
+                UpdateCord(supply.cable,supply.vertices,supply.wire,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position),supply.cableSeed);
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
@@ -279,7 +281,7 @@ namespace DesktopFish
                 p.cableStart=root.InverseTransformPoint(p.source.position);
                 UpdateCable(p);
                 float phase=Mathf.Repeat(time*.55f-i*.19f,1);
-                p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase)));
+                p.spark.localPosition=p.root.InverseTransformPoint(root.TransformPoint(Cable(p.cableStart,p.cableEnd,phase,p.cableSeed)));
                 for(int puff=0;puff<SteamPuffs;puff++)
                 {
                     float life=Mathf.Repeat(time*.52f+puff/9f+seed*.13f,1);
@@ -438,7 +440,7 @@ namespace DesktopFish
         }
 
         Supply CreateSupply(int index,int capacity) {
-            var supply=new Supply{root=Child(root,"Power strip "+index)};
+            var supply=new Supply{root=Child(root,"Power strip "+index),cableSeed=13+index*1.37f};
             supply.wire=Child(root,"Supply cable "+index);supply.cable=CreateCord(supply.wire,supply.vertices,"Power strip feed cable");
             BuildSupply(supply,index,capacity);supply.root.gameObject.SetActive(false);supply.wire.gameObject.SetActive(false);return supply;
         }
@@ -454,7 +456,7 @@ namespace DesktopFish
             Color paint=index%2==0?Ivory:new Color(.67f,.81f,.78f),dark=new Color(.15f,.21f,.27f);
             var body=new Shape();body.RoundedBlock(Vector3.zero,new Vector3(length,width,.016f),.005f,paint);
             body.RoundedBlock(new Vector3(-length*.5f+.020f,0,.010f),new Vector3(.021f,.027f,.004f),.003f,index%2==0?Teal:Gold);
-            Part(supply.geometry,"Power strip body "+capacity,body);
+            var casing=Part(supply.geometry,"Power strip body "+capacity,body);
             for(int slot=0;slot<capacity;slot++) {
                 int row=slot/columns,column=slot%columns;
                 var socket=Child(supply.geometry,"Socket "+slot);socket.localPosition=new Vector3(-length*.5f+.053f+column*.040f,(row-(rows-1)*.5f)*.038f,.009f);
@@ -470,9 +472,14 @@ namespace DesktopFish
             }
             var inlet=new Shape();inlet.RoundedBlock(Vector3.zero,new Vector3(.014f,.018f,.012f),.003f,Navy);
             supply.inlet=Part(supply.geometry,"Feed inlet",inlet);supply.inlet.localPosition=new Vector3(-length*.5f-.006f,0,0);
-            supply.root.localRotation=Quaternion.Euler(-55,0,0);
-            float elevation=Mathf.Sin(55*Mathf.Deg2Rad)*.008f+Mathf.Cos(55*Mathf.Deg2Rad)*width*.5f;
-            supply.root.localPosition=new Vector3(index%2==0?.170f:-.125f,GeneratorFloorHeight+elevation,.680f+(index/2)*.115f);
+            // Casually set down beside the generator, rather than lined up
+            // across the front of the whole cooker row.
+            supply.root.localRotation=Quaternion.Euler(index%2==0?-68:-64,index%2==0?18:-24,index%2==0?6:-4);
+            float lowest=float.PositiveInfinity;
+            foreach(var point in casing.GetComponent<MeshFilter>().sharedMesh.vertices)lowest=Mathf.Min(lowest,(supply.root.localRotation*point).y);
+            float x=index==0?-.420f:index==1?-.420f:(index%2==0?-.250f:-.390f);
+            float z=index==0?.250f:index==1?.430f:.610f+(index-2)*.12f;
+            supply.root.localPosition=new Vector3(x,GeneratorFloorHeight-lowest,z);
         }
         Mesh CreateCord(Transform transform,Vector3[] vertices,string name) {
             var mesh=Own(new Mesh{name=name});mesh.MarkDynamic();mesh.vertices=vertices;
@@ -481,9 +488,9 @@ namespace DesktopFish
             for(int j=0;j<CableSteps;j++){int n=j*4;triangles.AddRange(new[]{n,n+1,n+2,n,n+2,n+3});}
             mesh.colors=colors;mesh.normals=normals;mesh.triangles=triangles.ToArray();transform.gameObject.AddComponent<MeshFilter>().sharedMesh=mesh;transform.gameObject.AddComponent<MeshRenderer>().sharedMaterial=solid;return mesh;
         }
-        void UpdateCord(Mesh mesh,Vector3[] vertices,Transform transform,Vector3 start,Vector3 end) {
+        void UpdateCord(Mesh mesh,Vector3[] vertices,Transform transform,Vector3 start,Vector3 end,float seed) {
             for(int j=0;j<CableSteps;j++) {
-                Vector3 a=Cable(start,end,j/(float)CableSteps),b=Cable(start,end,(j+1f)/CableSteps),normal=Vector3.Cross(b-a,Vector3.forward).normalized*.0022f;int n=j*4;
+                Vector3 a=Cable(start,end,j/(float)CableSteps,seed),b=Cable(start,end,(j+1f)/CableSteps,seed),normal=Vector3.Cross(b-a,new Vector3(0,.65f,1)).normalized*.0022f;int n=j*4;
                 vertices[n]=transform.InverseTransformPoint(root.TransformPoint(a-normal));vertices[n+1]=transform.InverseTransformPoint(root.TransformPoint(a+normal));
                 vertices[n+2]=transform.InverseTransformPoint(root.TransformPoint(b+normal));vertices[n+3]=transform.InverseTransformPoint(root.TransformPoint(b-normal));
             }
@@ -495,19 +502,31 @@ namespace DesktopFish
             // Keep the actual plug connected while the cooker rocks. The cable
             // mesh and its buffers are reused, rather than rebuilt each frame.
             p.cableEnd=root.InverseTransformPoint(p.wobble.TransformPoint(CookerPort));
-            UpdateCord(p.cable,p.cableVertices,p.root,p.cableStart,p.cableEnd);
+            UpdateCord(p.cable,p.cableVertices,p.root,p.cableStart,p.cableEnd,p.cableSeed);
         }
 
-        static Vector3 Cable(Vector3 start, Vector3 end, float t)
+        static Vector3 Cable(Vector3 start,Vector3 end,float t,float seed)
         {
-            Vector3 a=Vector3.Lerp(start,end,.18f)+new Vector3(0,-.035f,.045f),b=Vector3.Lerp(start,end,.82f)+new Vector3(0,-.025f,.030f);
-            float u=1-t;Vector3 point=u*u*u*start+3*u*u*t*a+3*u*t*t*b+t*t*t*end;
-            point.y=Mathf.Max(GeneratorFloorHeight+.002f,point.y);return point;
+            Vector3 groundDirection=Vector3.ProjectOnPlane(end-start,Vector3.up);
+            float distance=groundDirection.magnitude;
+            groundDirection=distance>.00001f?groundDirection/distance:Vector3.right;
+            Vector3 sideways=Vector3.Cross(Vector3.up,groundDirection);
+            float envelope=Mathf.Pow(Mathf.Sin(t*Mathf.PI),2);
+            float extra=Mathf.Min(.090f,.030f+distance*.15f)*(.90f+.10f*Mathf.Sin(seed*1.2f));
+            Vector3 point=Vector3.Lerp(start,end,t);
+            // Extra cable lies in a lazy S on the floor, with a soft descent
+            // from each real plug. Seed belongs to the cooker, so it does not
+            // reroll or slide when another job appears.
+            point+=sideways*(Mathf.Sin(t*Mathf.PI*2+seed*.7f)*extra*envelope);
+            point+=groundDirection*(Mathf.Sin(t*Mathf.PI*2)*Mathf.Min(.035f,distance*.06f)*envelope);
+            float floor=GeneratorFloorHeight+.006f;
+            point.y=floor+(start.y-floor)*(1-Mathf.SmoothStep(0,1,t/.26f))+(end.y-floor)*Mathf.SmoothStep(0,1,(t-.74f)/.26f);
+            return point;
         }
 
         Pot CreatePot(int index)
         {
-            var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle()};
+            var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle(),cableSeed=index*1.73f};
             p.wobble=Child(p.root,"Cooker wobble");
             BuildCooker(p);
             var wire=Child(p.root,"Power cable");p.cable=CreateCord(wire,p.cableVertices,"Connected power cable");
