@@ -237,10 +237,12 @@ namespace DesktopFish
             root.gameObject.SetActive(false);
         }
 
-        public void Tick(float time, float weight, int activeCount)
+        public void Tick(float time, float weight, int activeCount, bool retainForActiveJobs=false)
         {
             if (disposed) return;
-            bool working=weight>StageRevealWeight,wasWorking=workingShown;workingShown=working;
+            // A completion gesture pauses cranking, not the remaining jobs.
+            bool wasWorking=workingShown;
+            bool working=activeCount>0&&(weight>StageRevealWeight||(retainForActiveJobs&&wasWorking));workingShown=working;
             root.gameObject.SetActive(working||powerUpgradeMask!=0);
             machine.gameObject.SetActive(working);footing.gameObject.SetActive(working);crank.gameObject.SetActive(working);
             foreach(var p in pots)p.root.gameObject.SetActive(working);
@@ -274,15 +276,16 @@ namespace DesktopFish
             UpdateElectricity(time,weight);
             foreach(var supply in supplies)if(supply.present)
                 UpdateSupplyCord(supply,root.InverseTransformPoint(supply.feedSource.position),root.InverseTransformPoint(supply.inlet.position));
+            float boilWeight=retainForActiveJobs?1:weight;
             for(int i=0;i<pots.Count;i++)
             {
                 var p=pots[i];float seed=i*1.73f;
                 // Each cooker has its own boiling rhythm. Rock the cooker above
                 // its fixed floor and let the lid briefly release the pressure.
                 p.wobble.localPosition=new Vector3(Mathf.Sin(time*26+seed)*.0015f,
-                    Mathf.Abs(Mathf.Sin(time*17+seed))*.0014f,0)*weight;
-                p.wobble.localRotation=Quaternion.Euler(0,0,(Mathf.Sin(time*24+seed)*1.8f+Mathf.Sin(time*39+seed)*.6f)*weight);
-                float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*weight;
+                    Mathf.Abs(Mathf.Sin(time*17+seed))*.0014f,0)*boilWeight;
+                p.wobble.localRotation=Quaternion.Euler(0,0,(Mathf.Sin(time*24+seed)*1.8f+Mathf.Sin(time*39+seed)*.6f)*boilWeight);
+                float pressure=Mathf.Pow(Mathf.Max(0,Mathf.Sin(time*9+seed)),4)*boilWeight;
                 p.lid.localPosition=Vector3.up*(pressure*.0045f);
                 p.lid.localRotation=Quaternion.Euler(0,0,Mathf.Sin(time*21+seed)*pressure*1.7f);
                 p.cableStart=root.InverseTransformPoint(p.source.position);
@@ -295,7 +298,7 @@ namespace DesktopFish
                     float x=(puff%3-1)*.014f+Mathf.Sin(life*5+seed+puff)*(.003f+.005f*life);
                     Vector3 center=new Vector3(x,.098f+life*.080f+pressure*.003f,.032f);
                     float radius=.0045f+.0085f*life;
-                    float alpha=Mathf.Sin(life*Mathf.PI)*.67f*weight;
+                    float alpha=Mathf.Sin(life*Mathf.PI)*.67f*boilWeight;
                     int n=puff*(1+2*PuffSides);p.steamVertices[n]=center;
                     p.steamColors[n]=new Color(.92f,.97f,1,alpha);
                     for(int ring=0;ring<2;ring++)for(int j=0;j<PuffSides;j++)

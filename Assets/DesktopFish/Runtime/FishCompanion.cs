@@ -162,7 +162,8 @@ namespace DesktopFish
                 previousMotionState = state;
             }
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
-            workStation.Tick(t, motion.WorkWeight, state == "working" ? activeCount : 0);
+            workStation.Tick(t, motion.WorkWeight, state == "working" ? activeCount : 0,
+                state == "working" && activeCount > 0 && !dragging);
             FishWorkStation.FrameWorkingCamera(view,restingViewSize,restingViewPosition,motion.WorkWeight);
             float blinkTime = t - blinkStart;
             float visibleJoy=Expression("Fcl_ALL_Joy", motion.Joy);
