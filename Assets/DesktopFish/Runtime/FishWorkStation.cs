@@ -177,7 +177,7 @@ namespace DesktopFish
             var slots=new Shape();
             for(int i=0;i<5;i++) {
                 Vector3 position=new Vector3(.006f+(i-2)*.025f,.130f,.1128f);
-                slots.RoundedBlock(position,new Vector3(.020f,.047f,.0015f),.001f,new Color(.15f,.21f,.19f));
+                slots.RoundedBlock(position,new Vector3(.020f,.047f,.0015f),.001f,Color.black);
                 var cell=new Shape();cell.RoundedBlock(Vector3.zero,new Vector3(.020f,.047f,.002f),.001f,new Color(.62f,.96f,.38f));
                 chargeCells[i]=Part(machine,"Charge cell "+i,cell);chargeCells[i].localPosition=position+Vector3.forward*.0015f;
             }
