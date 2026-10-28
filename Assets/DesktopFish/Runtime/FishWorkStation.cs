@@ -88,7 +88,6 @@ namespace DesktopFish
         readonly bool persistPowerUpgrades;
         const string PowerUpgradeKey="RebuiltBigFish.PowerStripUpgradeMask.v1";
         int powerUpgradeMask;
-        readonly Transform current;
         readonly System.Random styleRandom;
         readonly int[] styleOrder = new int[CookerStyleCount];
         int nextStyle = CookerStyleCount, lastStyle = -1;
@@ -165,25 +164,26 @@ namespace DesktopFish
             housing.RoundedBlock(new Vector3(-.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(.064f,.248f,0),new Vector3(.025f,.078f,.030f),.006f,dark);
             housing.RoundedBlock(new Vector3(0,.287f,0),new Vector3(.148f,.026f,.030f),.006f,dark);
-            // Raised charge meter, round power badge, screws and AC outlets.
-            housing.RoundedBlock(new Vector3(0,.120f,.107f),new Vector3(.116f,.071f,.013f),.006f,dark);
-            housing.Box(new Vector3(0,.120f,.115f),new Vector3(.091f,.045f,.004f),new Color(.25f,.39f,.38f));
+            // One battery outline, with cells directly on the ivory case.
+            // No inset screen/panel and no extra label strip above it.
+            var battery=new Shape();battery.RoundedRectRing(new Vector2(.006f,.130f),new Vector2(.154f,.086f),.008f,.005f,.109f,.006f,new Color(.07f,.10f,.11f));
+            battery.RoundedBlock(new Vector3(-.078f,.130f,.109f),new Vector3(.014f,.026f,.006f),.002f,new Color(.07f,.10f,.11f));
+            Part(machine,"Battery outline",battery);
+            var slots=new Shape();
             for(int i=0;i<5;i++) {
-                Vector3 position=new Vector3(-.034f+i*.0165f,.119f,.119f);
-                housing.Box(position,new Vector3(.010f,.024f,.002f),new Color(.12f,.20f,.18f));
-                var cell=new Shape();cell.Box(Vector3.zero,new Vector3(.009f,.023f,.002f),new Color(.62f,.96f,.38f));
+                Vector3 position=new Vector3(.006f+(i-2)*.025f,.130f,.111f);
+                slots.RoundedBlock(position,new Vector3(.020f,.047f,.0015f),.001f,new Color(.73f,.79f,.75f));
+                var cell=new Shape();cell.RoundedBlock(Vector3.zero,new Vector3(.020f,.047f,.002f),.001f,new Color(.62f,.96f,.38f));
                 chargeCells[i]=Part(machine,"Charge cell "+i,cell);chargeCells[i].localPosition=position+Vector3.forward*.0015f;
             }
-            housing.RoundedBlock(new Vector3(0,.177f,.104f),new Vector3(.092f,.021f,.004f),.003f,Gold);
+            Part(machine,"Battery cells",slots);
             var rim=new Shape();rim.Lathe(new[]{new Vector2(.078f,-.002f),new Vector2(.078f,.002f)},40,Gold);
             var rimPart=Part(machine,"Round power badge rim",rim);rimPart.localPosition=new Vector3(0,-.030f,.111f);rimPart.localRotation=Quaternion.Euler(90,0,0);
-            var badge=new Shape();badge.Lathe(new[]{new Vector2(.074f,-.002f),new Vector2(.074f,.002f)},40,new Color(.065f,.078f,.09f));
-            var badgePart=Part(machine,"Black round power badge",badge);badgePart.localPosition=new Vector3(0,-.030f,.115f);badgePart.localRotation=Quaternion.Euler(90,0,0);
+            var badge=new Shape();badge.Lathe(new[]{new Vector2(.069f,-.003f),new Vector2(.075f,0),new Vector2(.074f,.004f),new Vector2(.069f,.007f)},40,new Color(.065f,.078f,.09f));
+            var badgePart=Part(machine,"Black round power badge",badge);badgePart.localPosition=new Vector3(0,-.030f,.113f);badgePart.localRotation=Quaternion.Euler(90,0,0);
             var mark=new Shape();
-            mark.Polygon(new[]{new Vector3(.013f,.027f,.120f),new Vector3(-.024f,-.012f,.120f),new Vector3(.003f,-.012f,.120f)},Gold);
-            mark.Polygon(new[]{new Vector3(-.013f,-.055f,.120f),new Vector3(.025f,-.002f,.120f),new Vector3(-.004f,-.002f,.120f)},Gold);
-            mark.Box(new Vector3(-.0005f,-.007f,.120f),new Vector3(.007f,.010f,.001f),Gold);
-            var bolt=Part(machine,"Large yellow power bolt",mark);bolt.localPosition=Vector3.down*.016f;
+            mark.RoundedGlyph(new[]{new Vector2(.018f,.056f),new Vector2(-.038f,-.003f),new Vector2(-.006f,-.003f),new Vector2(-.018f,-.056f),new Vector2(.038f,.003f),new Vector2(.006f,.003f)},.010f,.002f,Gold);
+            var bolt=Part(machine,"Large yellow power bolt",mark);bolt.localPosition=new Vector3(0,-.030f,.123f);
             for(int i=0;i<4;i++)housing.Box(new Vector3(-.112f,.060f-i*.022f,0),new Vector3(.004f,.008f,.060f),dark);
             Part(machine,"Generator housing",housing);
             foreach(float x in new[]{-.086f,.086f})foreach(float y in new[]{-.190f,.190f}) {
@@ -220,8 +220,6 @@ namespace DesktopFish
             var sparkPart=Child(machine,"Generator crackle sparks");sparkPart.gameObject.AddComponent<MeshFilter>().sharedMesh=sparkMesh;sparkPart.gameObject.AddComponent<MeshRenderer>().sharedMaterial=electricity;
             var axle=new Shape();axle.Lathe(new[]{new Vector2(.012f,-.018f),new Vector2(.012f,.018f)},12,metal);
             var shaft=Part(machine,"Side shaft",axle);shaft.localPosition=new Vector3(.122f,.127f,-.030f);shaft.localRotation=Quaternion.Euler(0,0,90);
-            var lamp=new Shape();lamp.Lathe(new[]{new Vector2(.005f,-.002f),new Vector2(.005f,.002f)},10,Gold);
-            current=Part(machine,"Charge light",lamp);current.localPosition=new Vector3(.078f,.122f,.105f);current.localRotation=Quaternion.Euler(90,0,0);
             crank=Child(root,"Hand crank");crank.localPosition=CrankCenter;
             var arm=new Shape();arm.RoundedBlock(new Vector3(0,CrankRadius*.5f,0),new Vector3(.014f,CrankRadius+.019f,.017f),.003f,metal);
             Part(crank,"Crank arm",arm);
@@ -261,7 +259,6 @@ namespace DesktopFish
             crank.localRotation = pose.rotation * Quaternion.Euler(CrankAngle(time)*Mathf.Rad2Deg,0,0);
             // The grip has a free bearing; it does not drag the fist around the shaft.
             gripHandle.localRotation=Quaternion.Euler(-CrankAngle(time)*Mathf.Rad2Deg,0,0)*Quaternion.Euler(0,0,90);
-            current.localScale = Vector3.one * (1 + Mathf.Sin(CrankAngle(time))*.10f);
             // Fill0..5, then reset directly to0 each revolution.
             float charge=Mathf.Repeat(time*4.4f/(2*Mathf.PI),1);
             int filled=Mathf.Clamp(Mathf.FloorToInt(charge*6),0,5);
@@ -766,6 +763,55 @@ namespace DesktopFish
                 {
                     int mid=points.Count;points.Add(center+new Vector3(x[end==0?0:3],0,0));colors.Add(color);
                     for(int j=0;j<sides;j++){int a=n+(end==0?0:3*sides)+j,b=n+(end==0?0:3*sides)+(j+1)%sides;triangles.AddRange(end==0?new[]{mid,b,a}:new[]{mid,a,b});}
+                }
+            }
+            public void RoundedRectRing(Vector2 center,Vector2 size,float radius,float stroke,float z,float depth,Color color) {
+                var outer=new List<Vector2>();var inner=new List<Vector2>();
+                for(int corner=0;corner<4;corner++)for(int j=0;j<=6;j++) {
+                    float angle=(corner*90+j*15)*Mathf.Deg2Rad;
+                    Vector2 cornerCenter=center+new Vector2((corner==0||corner==3?1:-1)*(size.x*.5f-radius),(corner<2?1:-1)*(size.y*.5f-radius));
+                    Vector2 direction=new Vector2(Mathf.Cos(angle),Mathf.Sin(angle));outer.Add(cornerCenter+direction*radius);inner.Add(cornerCenter+direction*(radius-stroke));
+                }
+                for(int i=0;i<outer.Count;i++) {
+                    int j=(i+1)%outer.Count;Vector3 of=new Vector3(outer[i].x,outer[i].y,z+depth*.5f),nf=new Vector3(outer[j].x,outer[j].y,z+depth*.5f);
+                    Vector3 inf=new Vector3(inner[i].x,inner[i].y,z+depth*.5f),innf=new Vector3(inner[j].x,inner[j].y,z+depth*.5f),back=Vector3.back*depth;
+                    Quad(of,nf,innf,inf,color);Quad(of+back,inf+back,innf+back,nf+back,color);
+                    Quad(of,of+back,nf+back,nf,color);Quad(inf,innf,innf+back,inf+back,color);
+                }
+            }
+            static float Cross2(Vector2 a,Vector2 b)=>a.x*b.y-a.y*b.x;
+            public void RoundedGlyph(Vector2[] outline,float cut,float halfDepth,Color color) {
+                var boundary=new List<Vector2>();
+                for(int i=0;i<outline.Length;i++) {
+                    Vector2 p=outline[i],before=outline[(i+outline.Length-1)%outline.Length],after=outline[(i+1)%outline.Length];
+                    float trim=Mathf.Min(cut,Vector2.Distance(p,before)*.25f,Vector2.Distance(p,after)*.25f);
+                    Vector2 a=p+(before-p).normalized*trim,b=p+(after-p).normalized*trim;
+                    for(int j=0;j<=4;j++){float t=j/4f,u=1-t;boundary.Add(u*u*a+2*u*t*p+t*t*b);}
+                }
+                float signed=0;for(int i=0;i<boundary.Count;i++)signed+=Cross2(boundary[i],boundary[(i+1)%boundary.Count]);if(signed<0)boundary.Reverse();
+                var remaining=new List<int>();for(int i=0;i<boundary.Count;i++)remaining.Add(i);
+                var faces=new List<int>();int guard=boundary.Count*boundary.Count;
+                while(remaining.Count>3&&guard-->0) {
+                    bool found=false;
+                    for(int j=0;j<remaining.Count;j++) {
+                        int a=remaining[(j+remaining.Count-1)%remaining.Count],b=remaining[j],c=remaining[(j+1)%remaining.Count];
+                        Vector2 p=boundary[a],q=boundary[b],r=boundary[c];if(Cross2(q-p,r-p)<=1e-9f)continue;
+                        bool contains=false;
+                        foreach(int k in remaining)if(k!=a&&k!=b&&k!=c) {
+                            Vector2 v=boundary[k];if(Cross2(q-p,v-p)>=-1e-10f&&Cross2(r-q,v-q)>=-1e-10f&&Cross2(p-r,v-r)>=-1e-10f){contains=true;break;}
+                        }
+                        if(contains)continue;faces.AddRange(new[]{a,b,c});remaining.RemoveAt(j);found=true;break;
+                    }
+                    if(!found)throw new InvalidOperationException("Rounded glyph could not be triangulated.");
+                }
+                if(remaining.Count!=3)throw new InvalidOperationException("Rounded glyph triangulation did not finish.");faces.AddRange(remaining);
+                for(int i=0;i<faces.Count;i+=3) {
+                    Vector2 a=boundary[faces[i]],b=boundary[faces[i+1]],c=boundary[faces[i+2]];
+                    Polygon(new[]{new Vector3(a.x,a.y,halfDepth),new Vector3(b.x,b.y,halfDepth),new Vector3(c.x,c.y,halfDepth)},color);
+                    Polygon(new[]{new Vector3(c.x,c.y,-halfDepth),new Vector3(b.x,b.y,-halfDepth),new Vector3(a.x,a.y,-halfDepth)},color);
+                }
+                for(int i=0;i<boundary.Count;i++) {
+                    Vector2 a=boundary[i],b=boundary[(i+1)%boundary.Count];Quad(new Vector3(a.x,a.y,halfDepth),new Vector3(a.x,a.y,-halfDepth),new Vector3(b.x,b.y,-halfDepth),new Vector3(b.x,b.y,halfDepth),color);
                 }
             }
             public void Polygon(Vector3[] p,Color color){int n=points.Count;points.AddRange(p);foreach(var unused in p)colors.Add(color);for(int i=1;i<p.Length-1;i++)triangles.AddRange(new[]{n,n+i,n+i+1});}

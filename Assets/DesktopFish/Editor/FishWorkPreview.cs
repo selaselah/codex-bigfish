@@ -10,6 +10,9 @@ namespace DesktopFish.Editor
     {
         [Serializable] sealed class Report
         {
+            public int faceLayoutChecks;
+            public float batteryWidth,boltWidth,boltHeight,boltTopArea,boltBottomArea,boltAreaMismatch;
+            public bool batteryHoleClear;
             public int shellChecks,dualRowChecks,whiteFeedSamples;
             public float minShellThickness=1,minStripCaseGap=1,minWhiteFeedRGB=1,minTubeNormalDot=1;
             public int slackCordChecks,groundedCordSamples;
@@ -80,9 +83,12 @@ namespace DesktopFish.Editor
 
         public static void RenderFillResetMeter() => Render("work/fill-reset-meter-177",true);
 
+        public static void RenderBatteryRoundedBolt() => Render("work/battery-rounded-bolt-178",true);
+
         static void Render(string output,bool savedScene=false)
         {
-            bool solidStrips=output.EndsWith("176")||output.EndsWith("177");
+            bool faceLayout=output.EndsWith("178");
+            bool solidStrips=output.EndsWith("176")||output.EndsWith("177")||faceLayout;
             bool looseCords=output.EndsWith("175")||solidStrips;
             bool supplyReview=output.EndsWith("174")||looseCords;
             bool splitterReview=output.EndsWith("172");
@@ -142,6 +148,7 @@ namespace DesktopFish.Editor
                     if(supplyReview)CheckSupply(station,report);
                     if(looseCords)CheckLooseCords(station,report);
                     if(solidStrips)CheckSolidStrips(station,report);
+                    if(faceLayout)CheckFaceLayout(station,report);
                     FishWorkStation.FrameWorkingCamera(camera,restingViewSize,restingViewPosition,motion.WorkWeight);
                     if(fullSize) {
                         Vector3 p=camera.transform.position+camera.transform.forward;
@@ -391,6 +398,8 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
+                if(faceLayout&&(report.faceLayoutChecks<100||report.batteryWidth<.16f||report.boltWidth<.064f||report.boltHeight<.10f||report.boltTopArea<.0008f||report.boltAreaMismatch>.001f||!report.batteryHoleClear))
+                    throw new InvalidOperationException("Battery outline or balanced full rounded lightning failed: "+JsonUtility.ToJson(report));
                 if(solidStrips&&(report.shellChecks<100||report.dualRowChecks<8||report.whiteFeedSamples<100||report.minShellThickness<.026f||report.minStripCaseGap<.025f||report.minWhiteFeedRGB<.90f||report.minTubeNormalDot<=0))
                     throw new InvalidOperationException("Solid dual-row strips, white feed or generator clearance failed: "+JsonUtility.ToJson(report));
                 if(looseCords) {
@@ -451,6 +460,36 @@ namespace DesktopFish.Editor
                 camera.targetTexture=null;RenderTexture.active=previous;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);
                 for(int s=0;s<skins.Length;s++){if(snapshots[s].sharedMesh)UnityEngine.Object.DestroyImmediate(snapshots[s].sharedMesh);UnityEngine.Object.DestroyImmediate(snapshots[s].gameObject);skins[s].enabled=true;}
             }
+        }
+
+        static float CrossFace(Vector2 a,Vector2 b)=>a.x*b.y-a.y*b.x;
+        static float HalfArea(Vector3 a,Vector3 b,Vector3 c,bool upper) {
+            var input=new System.Collections.Generic.List<Vector2>{new Vector2(a.x,a.y),new Vector2(b.x,b.y),new Vector2(c.x,c.y)};
+            var output=new System.Collections.Generic.List<Vector2>();
+            for(int i=0;i<input.Count;i++) {
+                Vector2 p=input[i],q=input[(i+1)%input.Count];bool inside=upper?p.y>=0:p.y<=0,next=upper?q.y>=0:q.y<=0;
+                if(inside)output.Add(p);if(inside!=next)output.Add(Vector2.Lerp(p,q,-p.y/(q.y-p.y)));
+            }
+            float area=0;for(int i=1;i+1<output.Count;i++)area+=Mathf.Abs(CrossFace(output[i]-output[0],output[i+1]-output[0]))*.5f;return area;
+        }
+        static void CheckFaceLayout(FishWorkStation station,Report report) {
+            if(!station.WorkingVisible)return;report.faceLayoutChecks++;
+            var machine=station.Root.Find("Floor generator");var outline=machine.Find("Battery outline").GetComponent<MeshFilter>().sharedMesh;report.batteryWidth=outline.bounds.size.x;
+            Vector2 gap=new Vector2(.006f,.160f);bool blocked=false;var points=outline.vertices;var triangles=outline.triangles;
+            for(int i=0;i<triangles.Length;i+=3) {
+                Vector3 p=points[triangles[i]],q=points[triangles[i+1]],r=points[triangles[i+2]];if(Mathf.Abs(p.z-outline.bounds.max.z)>1e-7f||Mathf.Abs(q.z-p.z)>1e-7f||Mathf.Abs(r.z-p.z)>1e-7f)continue;
+                Vector2 a=new Vector2(p.x,p.y),b=new Vector2(q.x,q.y),c=new Vector2(r.x,r.y);float x=CrossFace(b-a,gap-a),y=CrossFace(c-b,gap-b),z=CrossFace(a-c,gap-c);
+                if((x>=0&&y>=0&&z>=0)||(x<=0&&y<=0&&z<=0))blocked=true;
+            }
+            report.batteryHoleClear=!blocked;
+            var bolt=machine.Find("Large yellow power bolt").GetComponent<MeshFilter>().sharedMesh;report.boltWidth=bolt.bounds.size.x;report.boltHeight=bolt.bounds.size.y;
+            points=bolt.vertices;triangles=bolt.triangles;float top=0,bottom=0;
+            for(int i=0;i<triangles.Length;i+=3) {
+                Vector3 a=points[triangles[i]],b=points[triangles[i+1]],c=points[triangles[i+2]];
+                if(Mathf.Abs(a.z-bolt.bounds.max.z)>1e-7f||Mathf.Abs(a.z-b.z)>1e-7f||Mathf.Abs(a.z-c.z)>1e-7f)continue;
+                top+=HalfArea(a,b,c,true);bottom+=HalfArea(a,b,c,false);
+            }
+            report.boltTopArea=top;report.boltBottomArea=bottom;report.boltAreaMismatch=Mathf.Abs(top-bottom)/Mathf.Max(top,bottom);
         }
 
         static void CheckSolidStrips(FishWorkStation station,Report report) {
@@ -564,9 +603,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.25f:.22f;
-                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.45f:.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178"))?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178"))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178"))?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -585,7 +624,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177"))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178"))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
