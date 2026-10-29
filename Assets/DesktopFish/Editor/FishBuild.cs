@@ -15,6 +15,7 @@ namespace DesktopFish.Editor
     {
         const string ScenePath = "Assets/Scenes/DesktopFish.unity";
         public static bool UseRebuilt;
+        public static bool UseLowPoly5K;
 
         [MenuItem("Desktop Fish/Create Scene")]
         public static void CreateScene()
@@ -109,6 +110,7 @@ namespace DesktopFish.Editor
                 throw new InvalidOperationException("The skinned expression mesh is missing.");
             Debug.Log("Desktop model: " + companion.face.sharedMesh.vertexCount + " vertices, " +
                 companion.face.sharedMesh.blendShapeCount + " blendshapes.");
+            if(UseRebuilt&&UseLowPoly5K)FishLowPoly5K.Apply(model,true);
             Directory.CreateDirectory("Assets/Scenes");
             EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
