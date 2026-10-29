@@ -6,16 +6,14 @@ using UnityEngine;
 
 namespace DesktopFish.Editor {
     public static class FishLowPoly5KReview {
-        static string Folder=>Environment.GetEnvironmentVariable("FISH_LOD_REVIEW_FOLDER")??"work/scalp-cover-193/review";
+        static string Folder=>Environment.GetEnvironmentVariable("FISH_LOD_REVIEW_FOLDER")??"work/hair-cards-194/review";
         public static void Render() {
             Directory.CreateDirectory(Folder);
             for(int version=0;version<2;version++) {
                 EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();
                 FishLowPoly5K.RestoreFullModel(companion.model.gameObject);
                 if(version==1){
-                    int budget=int.Parse(Environment.GetEnvironmentVariable("FISH_LOD_PREVIEW_BUDGET")??"5000");
-                    if(budget==5000)FishLowPoly5K.Apply(companion.model.gameObject,false);
-                    else{foreach(var renderer in companion.model.GetComponentsInChildren<SkinnedMeshRenderer>())renderer.sharedMesh=FishLowPoly5K.Reduce(renderer.sharedMesh,renderer.name=="Face");int actual=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>().Sum(r=>r.sharedMesh.triangles.Length/3);if(actual>budget)throw new InvalidOperationException("Preview budget exceeded");Debug.Log("Review-only variant:"+actual+" triangles;production selection unchanged.");}
+                    FishLowPoly5K.Apply(companion.model.gameObject,false);
                 }
                 var camera=companion.view;var motion=new FishMotion(companion.model){randomActions=false};var skins=companion.model.GetComponentsInChildren<SkinnedMeshRenderer>();
                 var snapshots=new MeshFilter[skins.Length];var meshes=new Mesh[skins.Length];
@@ -27,6 +25,11 @@ namespace DesktopFish.Editor {
                 motion.Tick(1,1,0,0,"idle",false);
                 foreach(int angle in new[]{0,35,90,180,-35,-90}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("default-"+angle);}
                 camera.transform.position=center+Quaternion.Euler(-16,0,0)*(front-center);camera.transform.LookAt(center);capture("default-top");
+                if(version==1){
+                    foreach(var snapshot in snapshots)snapshot.GetComponent<Renderer>().enabled=snapshot.transform.parent.name=="RearHairCards";
+                    foreach(int angle in new[]{35,90,180}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("cards-isolated-"+angle);}
+                    foreach(var snapshot in snapshots)snapshot.GetComponent<Renderer>().enabled=true;
+                }
                 resize(180,240);
                 foreach(int angle in new[]{0,35,90,180,-35,-90}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("small-"+angle);}camera.transform.position=center+Quaternion.Euler(-16,0,0)*(front-center);camera.transform.LookAt(center);capture("small-top");
                 resize(720,960);camera.transform.SetPositionAndRotation(front,rotation);manualExpression=true;

@@ -95,7 +95,7 @@ for index, item in enumerate(data['meshes']):
     color_node = nodes.new('ShaderNodeVertexColor')
     color_node.layer_name = 'Color'
     paint = nodes.new('ShaderNodeTexImage')
-    paint.image = bpy.data.images.load(str(ROOT / 'Assets/DesktopFish/Rebuilt/HairPaint.png'), check_existing=True)
+    paint.image = bpy.data.images.load(str(ROOT / item.get('paint','Assets/DesktopFish/Rebuilt/HairPaint.png')), check_existing=True)
     paint.image.pack()
     multiply = nodes.new('ShaderNodeMixRGB')
     multiply.blend_type = 'MULTIPLY'
@@ -103,7 +103,7 @@ for index, item in enumerate(data['meshes']):
     mat.node_tree.links.new(color_node.outputs['Color'], multiply.inputs[1])
     mat.node_tree.links.new(paint.outputs['Color'], multiply.inputs[2])
     mat.node_tree.links.new(multiply.outputs[0], shader.inputs['Base Color'])
-    if not index:
+    if item['name']!='Face':
         # A binary alpha node is recognized by glTF as MASK, and matches
         # Unity's clip in both the color and outline passes.
         cutoff = nodes.new('ShaderNodeMath')
@@ -112,7 +112,7 @@ for index, item in enumerate(data['meshes']):
         mat.node_tree.links.new(paint.outputs['Alpha'], cutoff.inputs[0])
         mat.node_tree.links.new(cutoff.outputs[0], shader.inputs['Alpha'])
         mat.surface_render_method = 'DITHERED'
-    if index:
+    if item['name']=='Face':
         # A color-to-surface connection is Blender's unlit material convention.
         # glTF exports it as KHR_materials_unlit, preserving vertex-color eyes
         # without a separate white emission texture washing them out.
@@ -238,7 +238,7 @@ binary = blob[28 + json_length:]
 def float_vectors(accessor_id):
     accessor = document['accessors'][accessor_id]
     assert accessor['componentType'] == 5126
-    dimensions = {'SCALAR':1,'VEC2': 2, 'VEC3': 3}[accessor['type']]
+    dimensions = {'SCALAR':1,'VEC2':2,'VEC3':3,'VEC4':4,'MAT4':16}[accessor['type']]
     values = [(0.0,) * dimensions for _ in range(accessor['count'])]
     if 'bufferView' in accessor:
         view = document['bufferViews'][accessor['bufferView']]
@@ -379,8 +379,13 @@ encoded_json=json.dumps(document,separators=(',',':')).encode();encoded_json+=b'
 print('Exact complete-record weld:',sum(document['accessors'][pr['attributes']['POSITION']]['count'] for mesh in document['meshes'] for pr in mesh['primitives']),'encoded vertices')
 
 assert len(document['meshes']) == len(data['meshes'])
-assert len(document['images']) == 1
+assert len(document['images']) == len({item.get('paint','Assets/DesktopFish/Rebuilt/HairPaint.png') for item in data['meshes']})
 assert document['materials'][0]['alphaMode'] == 'MASK'
+for mesh in document['meshes']:
+    for pr in mesh['primitives']:
+        mat=document['materials'][pr['material']]
+        if mesh['name']!='Face':assert mat['alphaMode']=='MASK' and mat.get('doubleSided',False) and abs(mat.get('alphaCutoff',.5)-.5)<1e-6
+        else:assert 'KHR_materials_unlit' in mat.get('extensions',{})
 assert document['materials'][0].get('doubleSided', False), 'Thin hair sheets require a two-sided material'
 assert abs(document['materials'][0].get('alphaCutoff', .5) - .5) < 1e-6
 assert sum(len(item['triangles']) // 3 for item in data['meshes']) <= 5000
@@ -388,6 +393,9 @@ exported_triangles = sum(document['accessors'][primitive['indices']]['count'] //
                          for mesh in document['meshes'] for primitive in mesh['primitives'])
 assert exported_triangles == sum(len(item['triangles']) // 3 for item in data['meshes'])
 assert len(document['skins'][0]['joints']) == len(data['bones'])
+for skin in document['skins']:
+    assert skin['joints']==document['skins'][0]['joints'],'A mesh uses a different joint order'
+    assert float_vectors(skin['inverseBindMatrices'])==float_vectors(document['skins'][0]['inverseBindMatrices']),'A mesh uses different inverse binds'
 blended_vertices = 0
 checked_normals = 0
 exported_normals = 0

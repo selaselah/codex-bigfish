@@ -2,7 +2,7 @@
 import bpy,json,struct,math
 from pathlib import Path
 from mathutils import Vector,Quaternion
-ROOT=Path(__file__).resolve().parents[2];out=ROOT/'work/scalp-cover-193/blender-review';out.mkdir(parents=True,exist_ok=True)
+ROOT=Path(__file__).resolve().parents[2];out=ROOT/'work/hair-cards-194/blender-review';out.mkdir(parents=True,exist_ok=True)
 data=json.loads((ROOT/'work/rebuilt-geometry-5k.json').read_text());poses={b['name']:b for b in json.loads((ROOT/'work/rebuilt-idle-pose.json').read_text())['bones']}
 bpy.ops.wm.open_mainfile(filepath=str(ROOT/'Modeling/RebuiltBigFish5K/BigFish.blend'));rig=bpy.data.objects['BigFish rig']
 def v(x):return Vector(tuple(x[a] for a in 'xyz'))
@@ -22,6 +22,7 @@ for m in data['meshes']:
  recipe=json.loads((ROOT/'Assets/DesktopFish/Editor/FishLowPoly5KRecipe.json').read_text());original=json.loads((ROOT/'work/rebuilt-geometry.json').read_text());mi=0 if m['name']=='Body' else 1;src=original['meshes'][mi];mapping=recipe['sourceIndices' if mi==0 else 'faceSourceIndices'];original_faces={tuple(sorted(src['triangles'][j:j+3])) for j in range(0,len(src['triangles']),3)};collapsed=set()
  for poly in mesh.polygons:
   if poly.area<1e-12:
+   assert m['name']!='RearHairCards','New degenerate card triangle'
    assert tuple(sorted(mapping[i] for i in poly.vertices)) in original_faces,'New degenerate triangle'
    collapsed.update(poly.vertices)
  for loop,n in zip(mesh.loops,mesh.corner_normals):
@@ -52,6 +53,7 @@ def rows(ai):
  if ac.get('normalized',False):values=[tuple(x/({5121:255,5123:65535}[ac['componentType']]) for x in q) for q in values]
  return values
 jointnames=[doc['nodes'][i]['name'] for i in doc['skins'][0]['joints']];assert len(jointnames)==58
+for skin in doc['skins']:assert skin['joints']==doc['skins'][0]['joints'] and rows(skin['inverseBindMatrices'])==rows(doc['skins'][0]['inverseBindMatrices'])
 report['glb_vertices']=0;report['glb_exact_base_and_morph_normals']=0;report['glb_skin_records']=0
 for mesh in doc['meshes']:
  m=next(m for m in data['meshes'] if m['name']==mesh['name']);lookup={}

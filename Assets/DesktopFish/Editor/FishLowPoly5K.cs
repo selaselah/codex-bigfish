@@ -37,7 +37,10 @@ namespace DesktopFish.Editor {
             if(!string.IsNullOrEmpty(r.sourceAttributeSHA256)&&(r.sourceAttributeSHA256!=body||r.faceAttributeSHA256!=face))throw new InvalidOperationException("5K source attributes changed; regenerate the LOD recipe.");r.sourceAttributeSHA256=body;r.faceAttributeSHA256=face;File.WriteAllText(path,JsonUtility.ToJson(r));
         }
         public static void RestoreFullModel(GameObject model){
-            foreach(var skin in model.GetComponentsInChildren<SkinnedMeshRenderer>())skin.sharedMesh=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Rebuilt/"+(skin.name=="Face"?"Face":"Body")+".asset");
+            foreach(var skin in model.GetComponentsInChildren<SkinnedMeshRenderer>()){
+                if(skin.name=="RearHairCards"){UnityEngine.Object.DestroyImmediate(skin.gameObject);continue;}
+                skin.sharedMesh=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Rebuilt/"+(skin.name=="Face"?"Face":"Body")+".asset");
+            }
         }
         public static Mesh Reduce(Mesh source,bool face=false) {
             var recipe=JsonUtility.FromJson<Recipe>(File.ReadAllText("Assets/DesktopFish/Editor/FishLowPoly5KRecipe.json"));
@@ -52,6 +55,7 @@ namespace DesktopFish.Editor {
                 source.GetBlendShapeFrameVertices(shape,frame,p,n,t);mesh.AddBlendShapeFrame(source.GetBlendShapeName(shape),source.GetBlendShapeFrameWeight(shape,frame),Pick(p,used),Pick(n,used),Pick(t,used));
             }
             if(!face&&Environment.GetEnvironmentVariable("FISH_LOD_SCALP_COVERAGE")!="0")CoverRearScalp(mesh);
+            if(!face)FishRearAlphaCards.RemoveOldUnderlayers(mesh);
             mesh.RecalculateBounds();return mesh;
         }
         [Serializable] sealed class ScalpAudit {public int triangles,capTriangles,capVertices;public int[] originalLowIndices,capIndices;public float maximumOutset;}
@@ -94,7 +98,7 @@ namespace DesktopFish.Editor {
         static T[] Pick<T>(T[] data,int[] used)=>data.Length==0?new T[0]:used.Select(i=>data[i]).ToArray();
         public static void Apply(GameObject model,bool saveAssets) {
             var skins=model.GetComponentsInChildren<SkinnedMeshRenderer>();
-            var reductions=skins.Select(s=>Reduce(s.sharedMesh,s.name=="Face")).ToArray();int triangles=reductions.Sum(m=>m.triangles.Length/3);
+            var reductions=skins.Select(s=>Reduce(s.sharedMesh,s.name=="Face")).ToArray();var cards=FishRearAlphaCards.Create(skins.First(s=>s.name!="Face").sharedMesh);int triangles=reductions.Sum(m=>m.triangles.Length/3)+cards.triangles.Length/3;
             if(triangles>5000||skins.Any(s=>s.bones.Length!=58)||reductions.Any(m=>m.blendShapeCount!=6))throw new InvalidOperationException("5K triangle/rig/expression contract failed.");
             if(saveAssets){Directory.CreateDirectory(Folder);AssetDatabase.Refresh();}
             for(int i=0;i<skins.Length;i++){
@@ -102,8 +106,9 @@ namespace DesktopFish.Editor {
                 if(saveAssets){string path=Folder+(skin.name=="Face"?"/Face.asset":"/Body.asset");var existing=AssetDatabase.LoadAssetAtPath<Mesh>(path);if(existing){existing.Clear(false);existing.ClearBlendShapes();EditorUtility.CopySerialized(reduced,existing);EditorUtility.SetDirty(existing);UnityEngine.Object.DestroyImmediate(reduced);reduced=existing;}else AssetDatabase.CreateAsset(reduced,path);}
                 skin.sharedMesh=reduced;skin.quality=SkinQuality.Bone4;
             }
+            FishRearAlphaCards.Attach(skins.First(s=>s.name!="Face"),cards,saveAssets);
             if(saveAssets){PrefabUtility.SaveAsPrefabAsset(model,Folder+"/BigFish.prefab");AssetDatabase.SaveAssets();}
-            Debug.Log("5K model selected: "+triangles+" triangles; "+skins.Sum(s=>s.sharedMesh.vertexCount)+" vertices;58 joints/six expressions; eyelid/brow/mouth topology and original atlas retained.");
+            Debug.Log("5K model selected: "+triangles+" triangles; "+model.GetComponentsInChildren<SkinnedMeshRenderer>().Sum(s=>s.sharedMesh.vertexCount)+" vertices;58 joints/six expressions; eyelid/brow/mouth topology and original atlas retained.");
         }
     }
 }
