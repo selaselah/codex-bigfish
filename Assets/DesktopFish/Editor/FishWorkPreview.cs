@@ -14,7 +14,9 @@ namespace DesktopFish.Editor
             public int riceEvents,riceFrames,riceCleanupCycles,ricePeakGrains;
             public float minRiceY=1,maxRiceY,riceSettledMaxY;
             public bool lastJobRiceVisible,riceEffectsExpired;
-            public int bowlChecks,bowlTriangles;
+            public int bowlChecks,bowlTriangles,popParticleCount;
+            public bool lidLaunchesBeforeBowl,bodyGoneDuringParticles,particlesRetired;
+            public float maxBowlHopY=-1,settledBowlY,maxPopAlpha;
             public float bowlOpeningRadius,bowlRimHeight,settledRiceMaxRadius,settledRiceMinHeight=1,settledRiceAboveRim;
             public int partialCompletionFrames;
             public float minCompletionWorkWeight=1,completionSteamAtPause;
@@ -113,10 +115,11 @@ namespace DesktopFish.Editor
 
         public static void RenderRiceBurst() => Render("work/rice-burst-187",true);
         public static void RenderRiceBowl() => Render("work/rice-bowl-188",true);
+        public static void RenderRiceBowlHop() => Render("work/rice-hop-189",true);
 
         static void Render(string output,bool savedScene=false)
         {
-            bool faceLayout=output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188"))))))))));
+            bool faceLayout=output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189")))))))))));
             bool solidStrips=output.EndsWith("176")||output.EndsWith("177")||faceLayout;
             bool looseCords=output.EndsWith("175")||solidStrips;
             bool supplyReview=output.EndsWith("174")||looseCords;
@@ -427,13 +430,13 @@ namespace DesktopFish.Editor
                         capture((entering?"transition-in/":"transition-out/")+"frame"+i.ToString("D3"));report.transitionFrames++;
                     }
                 }
-                if((output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188")))) {
+                if((output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))) {
                     Directory.CreateDirectory(output+"/completion");
                     motion.Play(FishMotion.Gesture.None,99);motion.Tick(100,1,0,0,"working",false);
                     station.Tick(100,motion.WorkWeight,3,true);capture("completion-working-3");
                     var remainingStyles=Enumerable.Range(0,2).Select(n=>station.CookerStyleAt(n)).ToArray();
                     motion.Play(FishMotion.Gesture.Cheer,101);
-                    if((output.EndsWith("187")||output.EndsWith("188")))report.riceEvents+=station.CompleteCookers(1,101);
+                    if((output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))report.riceEvents+=station.CompleteCookers(1,101);
                     for(int frame=0;frame<90;frame++) {
                         float time=101+frame/30f;motion.Tick(time,1/30f,0,0,"working",false);
                         station.Tick(time,motion.WorkWeight,2,true);
@@ -455,11 +458,12 @@ namespace DesktopFish.Editor
                             station.Root.gameObject.SetActive(true);
                             capture("completion-after");
                         }
-                        if((output.EndsWith("187")||output.EndsWith("188"))) {
+                        if((output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189")))) {
                             if(station.RiceBurstCount!=1||station.RiceGrainCount!=64)throw new InvalidOperationException("Completed cooker did not create one rice burst.");
                             CheckRice(station,report);report.riceFrames++;report.ricePeakGrains=Mathf.Max(report.ricePeakGrains,station.RiceGrainCount);
-                            if(frame==50&&output.EndsWith("188"))CheckRiceBowl(station,report);
-                            if(frame==50)report.riceSettledMaxY=station.Root.InverseTransformPoint(station.RiceBurstAt(0).TransformPoint(station.RiceBurstAt(0).Find("Flying rice and settled pile").GetComponent<MeshFilter>().sharedMesh.bounds.max)).y;
+                            if((frame==50||(output.EndsWith("189")&&(frame==13||frame==20)))&&(output.EndsWith("188")||output.EndsWith("189")))CheckRiceBowl(station,report);
+                            if(output.EndsWith("189"))CheckRiceHop(station,report,frame);
+                            if(frame==50)report.riceSettledMaxY=station.Root.InverseTransformPoint(station.RiceBurstAt(0).Find("Flying rice and settled pile").TransformPoint(station.RiceBurstAt(0).Find("Flying rice and settled pile").GetComponent<MeshFilter>().sharedMesh.bounds.max)).y;
                         }
                         capture("completion/frame"+frame.ToString("D3"));report.partialCompletionFrames++;
                     }
@@ -467,11 +471,11 @@ namespace DesktopFish.Editor
                     motion.Play(FishMotion.Gesture.None,109);motion.Tick(109,1,0,0,"working",false);
                     station.Tick(109,motion.WorkWeight,1,true);capture("last-job-working");
                     motion.Play(FishMotion.Gesture.Cheer,110);motion.Tick(110,1/30f,0,0,"complete",false);
-                    if((output.EndsWith("187")||output.EndsWith("188")))report.riceEvents+=station.CompleteCookers(1,110);
+                    if((output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))report.riceEvents+=station.CompleteCookers(1,110);
                     station.Tick(110,motion.WorkWeight,0,false);
                     report.lastJobHidesEquipment=!station.WorkingVisible&&station.CookerCount==0;
                     capture("last-job-complete");
-                    if((output.EndsWith("187")||output.EndsWith("188"))) {
+                    if((output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189")))) {
                         report.lastJobRiceVisible=station.Visible&&!station.WorkingVisible&&station.RiceBurstCount==1;
                         Directory.CreateDirectory(output+"/last-rice");
                         for(int frame=0;frame<115;frame++) {
@@ -489,19 +493,21 @@ namespace DesktopFish.Editor
                                 report.riceCleanupCycles++;
                             }
                         }
-                        if(report.riceEvents!=2||report.riceFrames!=90||report.ricePeakGrains!=64||report.minRiceY<FishWorkStation.GeneratorFloorHeight||report.maxRiceY<.25f||(!output.EndsWith("188")&&report.riceSettledMaxY>.18f)||!report.lastJobRiceVisible||!report.riceEffectsExpired||report.riceCleanupCycles!=3)
+                        if(report.riceEvents!=2||report.riceFrames!=90||report.ricePeakGrains!=64||report.minRiceY<FishWorkStation.GeneratorFloorHeight||report.maxRiceY<.25f||(!(output.EndsWith("188")||output.EndsWith("189"))&&report.riceSettledMaxY>.18f)||!report.lastJobRiceVisible||!report.riceEffectsExpired||report.riceCleanupCycles!=3)
                             throw new InvalidOperationException("Rice explosion/pile/expiry validation failed: "+JsonUtility.ToJson(report));
-                        if(output.EndsWith("188")&&(report.bowlChecks!=1||report.bowlTriangles!=896||report.bowlOpeningRadius<.053f||report.bowlRimHeight<.062f||report.settledRiceMaxRadius>report.bowlOpeningRadius||report.settledRiceMinHeight<.017f||report.settledRiceAboveRim<=0||report.settledRiceAboveRim>.043f))
+                        if((output.EndsWith("188")||output.EndsWith("189"))&&(report.bowlChecks!=(output.EndsWith("189")?3:1)||report.bowlTriangles!=896||report.bowlOpeningRadius<.053f||report.bowlRimHeight<.062f||report.settledRiceMaxRadius>report.bowlOpeningRadius||report.settledRiceMinHeight<.017f||report.settledRiceAboveRim<=0||report.settledRiceAboveRim>.043f))
                             throw new InvalidOperationException("Served rice escaped the bowl opening or did not heap above its rim: "+JsonUtility.ToJson(report));
+                        if(output.EndsWith("189")&&(!report.lidLaunchesBeforeBowl||!report.bodyGoneDuringParticles||!report.particlesRetired||report.maxBowlHopY-report.settledBowlY<.16f||report.maxPopAlpha<.8f||report.popParticleCount!=32))
+                            throw new InvalidOperationException("Lid launch, whole-bowl hop, particles or body disappearance timing failed: "+JsonUtility.ToJson(report));
                     }
                     if(report.partialCompletionFrames!=90||report.minCompletionWorkWeight>.01f||report.completionSteamAtPause<.6f||!report.completionOldHideReproduced||!report.completionResumed||!report.lastJobHidesEquipment)
                         throw new InvalidOperationException("Partial/final job completion equipment lifecycle failed: "+JsonUtility.ToJson(report));
                 }
                 if(output.EndsWith("180")&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback<.002f))
                     throw new InvalidOperationException("Battery outer corners or terminal shoulders are not rounded: "+JsonUtility.ToJson(report));
-                if((output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188"))))))))&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback>1e-7f))
+                if((output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189")))))))))&&(report.batteryOuterCornerSetback<.008f||report.batteryShoulderSetback>1e-7f))
                     throw new InvalidOperationException("Rounded battery body or direct terminal join failed: "+JsonUtility.ToJson(report));
-                if((output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188"))))&&(report.badgeTopGap<.015f||report.badgeBottomGap<.015f||report.badgeCenteringError>1e-7f))
+                if((output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189")))))&&(report.badgeTopGap<.015f||report.badgeBottomGap<.015f||report.badgeCenteringError>1e-7f))
                     throw new InvalidOperationException("Power badge is not centered between battery and sockets: "+JsonUtility.ToJson(report));
                 if(faceLayout&&(report.faceLayoutChecks<100||report.batteryWidth<.16f||report.boltWidth<.064f||report.boltHeight<.10f||report.boltTopArea<.0008f||report.boltAreaMismatch>.001f||!report.batteryFaceFilled))
                     throw new InvalidOperationException("Solid battery body or balanced full rounded lightning failed: "+JsonUtility.ToJson(report));
@@ -572,13 +578,26 @@ namespace DesktopFish.Editor
                 var root=station.RiceBurstAt(burst);var filter=root.Find("Flying rice and settled pile").GetComponent<MeshFilter>();var mesh=filter.sharedMesh;var points=mesh.vertices;var normals=mesh.normals;var triangles=mesh.triangles;
                 foreach(var p in points) {
                     if(!Finite(p))throw new InvalidOperationException("Non-finite rice particle.");
-                    float y=station.Root.InverseTransformPoint(root.TransformPoint(p)).y;report.minRiceY=Mathf.Min(report.minRiceY,y);report.maxRiceY=Mathf.Max(report.maxRiceY,y);
+                    float y=station.Root.InverseTransformPoint(filter.transform.TransformPoint(p)).y;report.minRiceY=Mathf.Min(report.minRiceY,y);report.maxRiceY=Mathf.Max(report.maxRiceY,y);
                 }
                 for(int i=0;i<triangles.Length;i+=3) {
                     int a=triangles[i],b=triangles[i+1],c=triangles[i+2];var face=Vector3.Cross(points[b]-points[a],points[c]-points[a]);
                     if(face.sqrMagnitude<1e-18f||Vector3.Dot(face,normals[a]+normals[b]+normals[c])<=0)throw new InvalidOperationException("Rice particle degenerate or inward-facing.");
                 }
             }
+        }
+
+        static void CheckRiceHop(FishWorkStation station,Report report,int frame) {
+            var root=station.RiceBurstAt(0);var bowl=root.Find("Rice serving bowl");var lid=root.Find("Popping cooker lid");var body=root.Find("Cooker wobble");var particles=root.Find("Cooker pop particles");
+            var mesh=particles.GetComponent<MeshFilter>().sharedMesh;report.popParticleCount=mesh.vertexCount/4;
+            if(particles.gameObject.activeInHierarchy) {
+                report.maxPopAlpha=Mathf.Max(report.maxPopAlpha,mesh.colors.Max(c=>c.a));
+                foreach(var p in mesh.vertices)if(!Finite(p))throw new InvalidOperationException("Non-finite cooker pop particle.");
+            }
+            if(bowl.gameObject.activeInHierarchy)report.maxBowlHopY=Mathf.Max(report.maxBowlHopY,bowl.localPosition.y);
+            if(frame==5)report.lidLaunchesBeforeBowl=lid.gameObject.activeInHierarchy&&lid.localPosition.y>.11f&&!bowl.gameObject.activeInHierarchy&&body.gameObject.activeInHierarchy;
+            if(frame==20)report.bodyGoneDuringParticles=!body.gameObject.activeInHierarchy&&bowl.gameObject.activeInHierarchy&&particles.gameObject.activeInHierarchy;
+            if(frame==50){report.settledBowlY=bowl.localPosition.y;report.particlesRetired=!particles.gameObject.activeInHierarchy&&!lid.gameObject.activeInHierarchy;}
         }
 
         static void CheckRiceBowl(FishWorkStation station,Report report) {
@@ -748,9 +767,9 @@ namespace DesktopFish.Editor
                 foreach(var mesh in snapshots)mesh.gameObject.SetActive(false);
                 station.Root.Find("Hand crank").gameObject.SetActive(false);
                 foreach(var child in children)if(child.name=="Cooker wobble"||child.name=="Electric pulse")child.gameObject.SetActive(false);
-                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188")))))))))))?.25f:.22f;
-                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188")))))))))))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
-                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188")))))))))))?.45f:.34f,.8f);camera.transform.LookAt(focus);
+                camera.targetTexture=rt;camera.aspect=1.6f;camera.orthographicSize=(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))))))))))?.25f:.22f;
+                Vector3 focus=station.Root.TransformPoint((output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))))))))))?new Vector3(-.20f,.13f,.34f):new Vector3(-.015f,.13f,.39f));
+                camera.transform.position=focus+new Vector3(0,(output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))))))))))?.45f:.34f,.8f);camera.transform.LookAt(focus);
                 camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,640,400),0,0);image.Apply();File.WriteAllBytes(output+"/supply-step-"+step.ToString("D2")+"-jobs-"+count+".png",image.EncodeToPNG());
             } finally {
                 for(int i=0;i<children.Length;i++)children[i].gameObject.SetActive(active[i]);for(int i=0;i<snapshots.Length;i++)snapshots[i].gameObject.SetActive(visible[i]);
@@ -769,7 +788,7 @@ namespace DesktopFish.Editor
                 foreach(var t in steam)t.gameObject.SetActive(false);
                 Vector3 grip=station.Root.Find("Hand crank/Crank grip").position,focus=Vector3.Lerp(grip,elbow.position,.3f);
                 Vector3 shaft=station.Root.TransformDirection(FishWorkStation.GeneratorRotation*Vector3.right);
-                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||output.EndsWith("188")))))))))))?.15f:.115f;
+                camera.targetTexture=rt;camera.aspect=1.5f;camera.orthographicSize=(output.EndsWith("165")||output.EndsWith("166")||output.EndsWith("167")||output.EndsWith("168")||output.EndsWith("169")||output.EndsWith("170")||output.EndsWith("171")||output.EndsWith("172")||output.EndsWith("174")||output.EndsWith("175")||output.EndsWith("176")||output.EndsWith("177")||output.EndsWith("178")||(output.EndsWith("179")||(output.EndsWith("180")||(output.EndsWith("181")||(output.EndsWith("182")||(output.EndsWith("183")||(output.EndsWith("184")||(output.EndsWith("185")||(output.EndsWith("186")||(output.EndsWith("187")||(output.EndsWith("188")||output.EndsWith("189"))))))))))))?.15f:.115f;
                 foreach(string angle in new[]{"front","axial"}) {
                     camera.transform.position=focus+(angle=="front"?Vector3.forward:shaft)*.7f+Vector3.up*.10f;camera.transform.LookAt(focus);
                     camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,720,480),0,0);image.Apply();File.WriteAllBytes(output+"/arms/frame"+frame.ToString("D3")+"-"+angle+".png",image.EncodeToPNG());
