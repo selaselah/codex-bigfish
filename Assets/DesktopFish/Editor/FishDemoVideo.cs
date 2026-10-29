@@ -21,6 +21,21 @@ namespace DesktopFish.Editor
         }
         static int Count(float t)=>t<7?0:t<17?1:t<27?2:t<37?3:2;
 
+        public static void ExportAudioTiming() {
+            EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");
+            var companion=UnityEngine.Object.FindObjectOfType<FishCompanion>();var motion=new FishMotion(companion.model){randomActions=false};
+            var csv=new System.Text.StringBuilder("frame,time,workWeight,crankPhase,jobs\n");
+            var culture=System.Globalization.CultureInfo.InvariantCulture;
+            for(int frame=0;frame<Frames;frame++) {
+                float t=frame/(float)Fps,now=100+t;int count=Count(t);
+                if(frame==37*Fps)motion.Play(FishMotion.Gesture.Cheer,now);
+                motion.Tick(now,1f/Fps,0,0,count==0?"idle":"working",false);
+                csv.Append(frame).Append(',').Append(t.ToString("R",culture)).Append(',').Append(motion.WorkWeight.ToString("R",culture)).Append(',').Append(FishWorkStation.CrankAngle(now).ToString("R",culture)).Append(',').Append(count).Append('\n');
+            }
+            Directory.CreateDirectory("work/demo-voice-191");File.WriteAllText("work/demo-voice-191/motion-timing.csv",csv.ToString());
+            Debug.Log("Demo audio timing exported:1500frames, original50second motion sequence.");
+        }
+
         public static void Render() {
             Directory.CreateDirectory(Output+"/frames");
             Vector2 min=new Vector2(float.PositiveInfinity,float.PositiveInfinity),max=new Vector2(float.NegativeInfinity,float.NegativeInfinity);
