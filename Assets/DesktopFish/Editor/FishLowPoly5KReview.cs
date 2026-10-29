@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace DesktopFish.Editor {
     public static class FishLowPoly5KReview {
-        const string Folder="work/poly5k-192/hair-review-v35";
+        static string Folder=>Environment.GetEnvironmentVariable("FISH_LOD_REVIEW_FOLDER")??"work/scalp-cover-193/review";
         public static void Render() {
             Directory.CreateDirectory(Folder);
             for(int version=0;version<2;version++) {
@@ -25,10 +25,10 @@ namespace DesktopFish.Editor {
                 Action<string> capture=name=>{if(!manualExpression)FishBuild.ApplyMotionExpressions(companion,motion);for(int s=0;s<skins.Length;s++){skins[s].BakeMesh(meshes[s]);if(meshes[s].vertices.Any(p=>float.IsNaN(p.x)||float.IsNaN(p.y)||float.IsNaN(p.z)))throw new InvalidOperationException("Non-finite 5K pose");}camera.Render();RenderTexture.active=target;frame.ReadPixels(new Rect(0,0,rw,rh),0,0);frame.Apply();File.WriteAllBytes(prefix+"-"+name+".png",frame.EncodeToPNG());};
                 Action<int,int> resize=(width,height)=>{camera.targetTexture=null;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);rw=width;rh=height;target=new RenderTexture(width,height,24){antiAliasing=4};frame=new Texture2D(width,height,TextureFormat.RGBA32,false);camera.targetTexture=target;};
                 motion.Tick(1,1,0,0,"idle",false);
-                foreach(int angle in new[]{0,35,90,180}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("default-"+angle);}
+                foreach(int angle in new[]{0,35,90,180,-35,-90}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("default-"+angle);}
                 camera.transform.position=center+Quaternion.Euler(-16,0,0)*(front-center);camera.transform.LookAt(center);capture("default-top");
                 resize(180,240);
-                foreach(int angle in new[]{0,35,90,180}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("small-"+angle);}camera.transform.position=center+Quaternion.Euler(-16,0,0)*(front-center);camera.transform.LookAt(center);capture("small-top");
+                foreach(int angle in new[]{0,35,90,180,-35,-90}){camera.transform.position=center+Quaternion.Euler(0,angle,0)*(front-center);camera.transform.LookAt(center);capture("small-"+angle);}camera.transform.position=center+Quaternion.Euler(-16,0,0)*(front-center);camera.transform.LookAt(center);capture("small-top");
                 resize(720,960);camera.transform.SetPositionAndRotation(front,rotation);manualExpression=true;
                 for(int shape=0;shape<6;shape++)foreach(float amount in new[]{.5f,1f}){foreach(var skin in skins)for(int j=0;j<6;j++)skin.SetBlendShapeWeight(j,j==shape?amount*100:0);capture("expression-"+shape+"-"+amount.ToString("0.0",System.Globalization.CultureInfo.InvariantCulture));}
                 manualExpression=false;foreach(var skin in skins)for(int j=0;j<6;j++)skin.SetBlendShapeWeight(j,0);
@@ -44,7 +44,7 @@ namespace DesktopFish.Editor {
                 }
                 camera.targetTexture=null;RenderTexture.active=null;UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(frame);foreach(var m in meshes)UnityEngine.Object.DestroyImmediate(m);
             }
-            Debug.Log("5K full comparison passed:default5/actual180x240/12 expression samples/35 gestures/13 working samples per model; all baked positions finite.");
+            Debug.Log("5K full comparison passed:default7/actual180x240/12 expression samples/35 gestures/13 working samples per model; all baked positions finite.");
         }
     }
 }

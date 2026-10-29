@@ -51,7 +51,45 @@ namespace DesktopFish.Editor {
             for(int shape=0;shape<source.blendShapeCount;shape++)for(int frame=0;frame<source.GetBlendShapeFrameCount(shape);frame++){
                 source.GetBlendShapeFrameVertices(shape,frame,p,n,t);mesh.AddBlendShapeFrame(source.GetBlendShapeName(shape),source.GetBlendShapeFrameWeight(shape,frame),Pick(p,used),Pick(n,used),Pick(t,used));
             }
+            if(!face&&Environment.GetEnvironmentVariable("FISH_LOD_SCALP_COVERAGE")!="0")CoverRearScalp(mesh);
             mesh.RecalculateBounds();return mesh;
+        }
+        [Serializable] sealed class ScalpAudit {public int triangles,capTriangles,capVertices;public int[] originalLowIndices,capIndices;public float maximumOutset;}
+        static void CoverRearScalp(Mesh mesh){
+            // The source skull and tall rear-neck support show through behind the ears.
+            // Reuse those existing faces as a scalp underlayer instead of spending more
+            // triangles or changing the visible face. Boundary positions stay welded;
+            // interior vertices have a 2 mm outset and retain their authored normals.
+            var original=mesh.vertices;var normals=mesh.normals;var uv=mesh.uv;var triangles=mesh.triangles;var selected=new bool[triangles.Length/3];var cap=new HashSet<int>();var outside=new HashSet<int>();var edges=new Dictionary<long,int>();
+            var skin=mesh.colors;var originalWeights=mesh.boneWeights;
+            Func<int,bool> head=i=>uv[i].x*1024>=647.999f&&uv[i].x*1024<=752.001f&&uv[i].y*2048>=783.999f&&uv[i].y*2048<=1080.001f;
+            Func<int,bool> rearNeck=i=>skin[i].r==1&&Mathf.Abs(skin[i].g-240/255f)<1e-6f&&originalWeights[i].boneIndex0==3&&originalWeights[i].boneIndex1==4;
+            for(int f=0;f<selected.Length;f++){
+                int a=triangles[3*f],b=triangles[3*f+1],c=triangles[3*f+2];var center=(original[a]+original[b]+original[c])/3;
+                float angle=Mathf.Abs(Mathf.Atan2(center.x,center.z-.005f)*Mathf.Rad2Deg);
+                bool upperNeck=rearNeck(a)&&rearNeck(b)&&rearNeck(c)&&center.y>.60f;
+                bool rearSkull=head(a)&&head(b)&&head(c)&&center.y>.64f&&center.y<.90f&&Mathf.Min(original[a].y,Mathf.Min(original[b].y,original[c].y))>.60f&&angle>55;
+                selected[f]=upperNeck||rearSkull;
+                foreach(int i in new[]{a,b,c})(selected[f]?cap:outside).Add(i);
+                if(selected[f])foreach(var pair in new[]{new[]{a,b},new[]{b,c},new[]{c,a}}){long key=((long)Math.Min(pair[0],pair[1])<<32)|(uint)Math.Max(pair[0],pair[1]);edges[key]=edges.ContainsKey(key)?edges[key]+1:1;}
+            }
+            if(cap.Count!=80||selected.Count(s=>s)!=85)throw new InvalidOperationException("Rear-scalp coverage no longer matches the frozen skull/neck surfaces.");
+            var boundary=new HashSet<int>();foreach(var pair in edges)if(pair.Value==1){boundary.Add((int)(pair.Key>>32));boundary.Add((int)pair.Key);}
+            var mapping=Enumerable.Range(0,mesh.vertexCount).ToList();var target=new Dictionary<int,int>();
+            foreach(int i in cap.OrderBy(i=>i)){if(outside.Contains(i)){target[i]=mapping.Count;mapping.Add(i);}else target[i]=i;}
+            var positions=mapping.Select(i=>original[i]).ToArray();var ns=mapping.Select(i=>normals[i]).ToArray();var colors=mapping.Select(i=>mesh.colors[i]).ToArray();var weights=mapping.Select(i=>mesh.boneWeights[i]).ToArray();var tangents=Pick(mesh.tangents,mapping.ToArray());
+            foreach(int i in cap){if(!boundary.Contains(i))positions[target[i]]+=normals[i]*.002f;colors[target[i]]=new Color(48/255f,76/255f,145/255f,1);}
+            var channels=new List<Vector4>[8];for(int ch=0;ch<8;ch++){var list=new List<Vector4>();mesh.GetUVs(ch,list);if(list.Count>0){channels[ch]=mapping.Select(i=>list[i]).ToList();if(ch==0)foreach(int i in cap)channels[ch][target[i]]=new Vector4(.995f,.56f,0,0);}}
+            var frames=new List<Tuple<string,float,Vector3[],Vector3[],Vector3[]>>();
+            for(int shape=0;shape<mesh.blendShapeCount;shape++)for(int frame=0;frame<mesh.GetBlendShapeFrameCount(shape);frame++){
+                var dp=new Vector3[original.Length];var dn=new Vector3[original.Length];var dt=new Vector3[original.Length];mesh.GetBlendShapeFrameVertices(shape,frame,dp,dn,dt);dp=Pick(dp,mapping.ToArray());dn=Pick(dn,mapping.ToArray());dt=Pick(dt,mapping.ToArray());
+                // Copy every facial delta and the continuous Head/Neck attachment exactly.
+                frames.Add(Tuple.Create(mesh.GetBlendShapeName(shape),mesh.GetBlendShapeFrameWeight(shape,frame),dp,dn,dt));
+            }
+            for(int f=0;f<selected.Length;f++)if(selected[f])for(int j=0;j<3;j++)triangles[3*f+j]=target[triangles[3*f+j]];
+            var binds=mesh.bindposes;mesh.Clear(false);mesh.ClearBlendShapes();mesh.vertices=positions;mesh.normals=ns;mesh.colors=colors;mesh.tangents=tangents;mesh.boneWeights=weights;mesh.bindposes=binds;
+            for(int ch=0;ch<8;ch++)if(channels[ch]!=null)mesh.SetUVs(ch,channels[ch]);mesh.triangles=triangles;foreach(var f in frames)mesh.AddBlendShapeFrame(f.Item1,f.Item2,f.Item3,f.Item4,f.Item5);
+            string folder="work/scalp-cover-193";Directory.CreateDirectory(folder);File.WriteAllText(folder+"/Scalp-Coverage.json",JsonUtility.ToJson(new ScalpAudit{triangles=triangles.Length/3,capTriangles=selected.Count(s=>s),capVertices=cap.Count,originalLowIndices=mapping.ToArray(),capIndices=target.Values.OrderBy(i=>i).ToArray(),maximumOutset=.002f},true));
         }
         static T[] Pick<T>(T[] data,int[] used)=>data.Length==0?new T[0]:used.Select(i=>data[i]).ToArray();
         public static void Apply(GameObject model,bool saveAssets) {

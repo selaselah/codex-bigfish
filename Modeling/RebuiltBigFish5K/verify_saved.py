@@ -2,7 +2,7 @@
 import bpy,json,struct,math
 from pathlib import Path
 from mathutils import Vector,Quaternion
-ROOT=Path(__file__).resolve().parents[2];out=ROOT/'work/poly5k-192/blender-review';out.mkdir(parents=True,exist_ok=True)
+ROOT=Path(__file__).resolve().parents[2];out=ROOT/'work/scalp-cover-193/blender-review';out.mkdir(parents=True,exist_ok=True)
 data=json.loads((ROOT/'work/rebuilt-geometry-5k.json').read_text());poses={b['name']:b for b in json.loads((ROOT/'work/rebuilt-idle-pose.json').read_text())['bones']}
 bpy.ops.wm.open_mainfile(filepath=str(ROOT/'Modeling/RebuiltBigFish5K/BigFish.blend'));rig=bpy.data.objects['BigFish rig']
 def v(x):return Vector(tuple(x[a] for a in 'xyz'))
