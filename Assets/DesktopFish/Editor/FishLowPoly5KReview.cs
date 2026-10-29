@@ -6,7 +6,38 @@ using UnityEngine;
 
 namespace DesktopFish.Editor {
     public static class FishLowPoly5KReview {
-        static string Folder=>Environment.GetEnvironmentVariable("FISH_LOD_REVIEW_FOLDER")??"work/hair-cards-194/review";
+        static string Folder=>Environment.GetEnvironmentVariable("FISH_LOD_REVIEW_FOLDER")??"work/hands-shoes-195/review";
+        public static void Details(){
+            string folder=Environment.GetEnvironmentVariable("FISH_DETAIL_FOLDER")??"work/hands-shoes-195/final-details";Directory.CreateDirectory(folder);var centers=new System.Collections.Generic.Dictionary<string,Vector3>();
+            for(int version=0;version<2;version++){
+                EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");var c=UnityEngine.Object.FindObjectOfType<FishCompanion>();FishLowPoly5K.RestoreFullModel(c.model.gameObject);if(version==1)FishLowPoly5K.Apply(c.model.gameObject,false);
+                var skins=c.model.GetComponentsInChildren<SkinnedMeshRenderer>();var baked=skins.Select(s=>new Mesh()).ToArray();var filters=skins.Select(s=>{var go=new GameObject("Detail snapshot");go.transform.SetParent(s.transform,false);var f=go.AddComponent<MeshFilter>();go.AddComponent<MeshRenderer>().sharedMaterials=s.sharedMaterials;s.enabled=false;return f;}).ToArray();
+                var camera=c.view;var rt=new RenderTexture(512,512,24){antiAliasing=4};var image=new Texture2D(512,512,TextureFormat.RGBA32,false);camera.targetTexture=rt;camera.aspect=1;camera.backgroundColor=Color.white;var motion=new FishMotion(c.model){randomActions=false};
+                for(int pose=0;pose<4;pose++){
+                    motion.Play(pose==1?FishMotion.Gesture.Wave:pose==2?FishMotion.Gesture.Step:FishMotion.Gesture.None,100);
+                    if(pose==3)for(int i=0;i<120;i++)motion.Tick(100+i/30f,1/30f,0,0,"working",false);
+                    motion.Tick(pose==1?101.36f:pose==2?101.05f:104,1,0,0,pose==3?"working":"idle",false);FishBuild.ApplyMotionExpressions(c,motion);
+                    for(int s=0;s<skins.Length;s++){skins[s].BakeMesh(baked[s]);filters[s].sharedMesh=baked[s];}
+                    foreach(string part in new[]{"shoes","hand-L","hand-R"}){
+                        string key=pose+part;var points=new System.Collections.Generic.List<Vector3>();
+                        if(version==0)for(int s=0;s<skins.Length;s++){
+                            var mesh=skins[s].sharedMesh;var ps=mesh.vertices;var bs=baked[s].vertices;var weights=mesh.boneWeights;
+                            for(int i=0;i<ps.Length;i++){
+                                string role=skins[s].bones[weights[i].boneIndex0].name;bool shoe=ps[i].y<.18f&&(role.Contains("Foot")||role.Contains("LowerLeg"));bool hand=part=="hand-L"?ps[i].x<-.32f&&ps[i].y>.45f&&ps[i].y<.55f:ps[i].x>.32f&&ps[i].y>.45f&&ps[i].y<.55f;
+                                if(part=="shoes"?shoe:hand)points.Add(skins[s].transform.TransformPoint(bs[i]));
+                            }
+                        }
+                        if(version==0){if(points.Count==0)throw new InvalidOperationException("Detail scope empty");var bounds=new Bounds(points[0],Vector3.zero);foreach(var p in points)bounds.Encapsulate(p);centers[key]=bounds.center;}
+                        var center=centers[key];camera.orthographicSize=part=="shoes"?.145f:.068f;
+                        foreach(int angle in new[]{0,35,90,180}){
+                            camera.transform.position=center+Quaternion.Euler(0,angle,0)*c.model.forward*3;camera.transform.LookAt(center);camera.Render();RenderTexture.active=rt;image.ReadPixels(new Rect(0,0,512,512),0,0);image.Apply();File.WriteAllBytes(folder+"/"+(version==0?"full":"5k")+"-"+part+"-pose"+pose+"-"+angle+".png",image.EncodeToPNG());
+                        }
+                    }
+                }
+                camera.targetTexture=null;RenderTexture.active=null;UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(image);foreach(var m in baked)UnityEngine.Object.DestroyImmediate(m);
+            }
+            Debug.Log("5K shoe/hand detail comparison passed:96 new images; shared high-detail camera centers and scale.");
+        }
         public static void Render() {
             Directory.CreateDirectory(Folder);
             for(int version=0;version<2;version++) {

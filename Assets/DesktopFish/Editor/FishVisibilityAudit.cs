@@ -10,7 +10,7 @@ namespace DesktopFish.Editor {
   [Serializable] sealed class Report {public bool[] visible,outline;public int[] maximumPixels;public int views,seen,total;public string method="actual authored alpha/depth triangle ID,default8angles plus high/low views;all expressions and runtime gesture/work poses;sampled visibility only";}
   public static void Run(){
    EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");var c=UnityEngine.Object.FindObjectOfType<FishCompanion>();var camera=c.view;var palette=camera.GetComponent<FishPalette>();palette.enabled=false;
-   FishLowPoly5K.RestoreFullModel(c.model.gameObject);var skins=c.model.GetComponentsInChildren<SkinnedMeshRenderer>();var body=skins.Single(s=>s.name=="Body and hair");int total=skins.Sum(s=>s.sharedMesh.triangles.Length/3);var report=new Report{visible=new bool[total],outline=new bool[total],maximumPixels=new int[total],total=total};
+   FishLowPoly5K.RestoreFullModel(c.model.gameObject);if(Environment.GetEnvironmentVariable("FISH_VISIBILITY_LOW")=="1")FishLowPoly5K.Apply(c.model.gameObject,false);var skins=c.model.GetComponentsInChildren<SkinnedMeshRenderer>();var body=skins.Single(s=>s.name=="Body and hair");int total=skins.Sum(s=>s.sharedMesh.triangles.Length/3);var report=new Report{visible=new bool[total],outline=new bool[total],maximumPixels=new int[total],total=total};
    var diagnostic=new Mesh[skins.Length];var baked=new Mesh[skins.Length];var filters=new MeshFilter[skins.Length];var materials=new Material[skins.Length];var originalTriangles=skins.Select(s=>s.sharedMesh.triangles).ToArray();int offset=0;
    for(int s=0;s<skins.Length;s++){
     int[] indices=originalTriangles[s];var mesh=new Mesh{indexFormat=IndexFormat.UInt32};var points=new Vector3[indices.Length];var uv=skins[s].sharedMesh.uv;var colors=skins[s].sharedMesh.colors;mesh.vertices=points;mesh.triangles=Enumerable.Range(0,indices.Length).ToArray();mesh.uv=indices.Select(i=>uv[i]).ToArray();mesh.SetUVs(1,indices.Select(i=>new Vector2(colors[i].a,0)).ToList());
@@ -32,7 +32,7 @@ namespace DesktopFish.Editor {
      if(pose==0){for(int a=0;a<8;a++){view(a*45,28);view(a*45,-12);}}
      Debug.Log("Visibility pose "+pose+"/25");
     }
-    report.seen=report.visible.Count(x=>x);File.WriteAllText("work/poly5k-192/visibility.json",JsonUtility.ToJson(report));Debug.Log("Visibility audit passed: "+report.seen+"/"+total+" triangles seen across "+report.views+" alpha/depth views.");
+    report.seen=report.visible.Count(x=>x);string output=Environment.GetEnvironmentVariable("FISH_VISIBILITY_OUTPUT")??"work/poly5k-192/visibility.json";Directory.CreateDirectory(Path.GetDirectoryName(output));File.WriteAllText(output,JsonUtility.ToJson(report));Debug.Log("Visibility audit passed: "+report.seen+"/"+total+" triangles seen across "+report.views+" alpha/depth views.");
    }finally{camera.targetTexture=null;RenderTexture.active=null;UnityEngine.Object.DestroyImmediate(rt);UnityEngine.Object.DestroyImmediate(image);for(int s=0;s<skins.Length;s++){UnityEngine.Object.DestroyImmediate(diagnostic[s]);UnityEngine.Object.DestroyImmediate(baked[s]);UnityEngine.Object.DestroyImmediate(filters[s].gameObject);UnityEngine.Object.DestroyImmediate(materials[s]);skins[s].enabled=true;}}
   }
  }

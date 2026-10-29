@@ -56,6 +56,7 @@ namespace DesktopFish.Editor {
             }
             if(!face&&Environment.GetEnvironmentVariable("FISH_LOD_SCALP_COVERAGE")!="0")CoverRearScalp(mesh);
             if(!face)FishRearAlphaCards.RemoveOldUnderlayers(mesh);
+            if(!face)FishHandsShoes5K.Apply(mesh);
             mesh.RecalculateBounds();return mesh;
         }
         [Serializable] sealed class ScalpAudit {public int triangles,capTriangles,capVertices;public int[] originalLowIndices,capIndices;public float maximumOutset;}
