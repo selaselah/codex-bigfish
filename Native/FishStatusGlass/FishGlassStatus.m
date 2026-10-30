@@ -64,8 +64,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated);
     self.dragWindow = nil;
     [self highlight:NO];
     if (click) [self sendAction:self.action to:self.target];
-    // Keep the grabbed bar on its current side until release; only then may it
-    // switch ends of the character when a drag crosses the desktop midpoint.
+    // Refresh attached controls after the complete drag.
     if (moved) LayoutStatus();
 }
 - (void)viewWillMoveToWindow:(NSWindow *)window {
@@ -228,9 +227,7 @@ static BOOL tasksExpanded = NO;
 static BOOL taskCardsShown = YES;
 static CGFloat petTaskOffset = 0;
 static BOOL applyingPetOffset = NO;
-static BOOL statusAtTop = NO;
-static BOOL petNeedsSideSelection = YES;
-static BOOL tasksExpandUpward = YES;
+static const BOOL tasksExpandUpward = YES;
 static BOOL taskRowsExpandUpward = YES;
 static id outsideClickMonitor;
 static id localClickMonitor;
@@ -273,7 +270,7 @@ static CGFloat DesiredPetTaskOffset(void) {
     // Keep the status dock fixed: add 8 pt without cards, and bring the avatar
     // 16 pt closer to the folded stack. Expanded retains the folded position.
     CGFloat reserve=TaskCardsPresent() ? TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+8-16 : 8;
-    return tasksExpandUpward ? reserve : -reserve;
+    return reserve;
 }
 static void ApplyPetTaskOffset(CGFloat offset) {
     if (!petWindow || fabs(offset-petTaskOffset)<.001) return;
@@ -765,27 +762,14 @@ static void LayoutStatus(void) {
     layingOut = YES;
     NSView *content = petWindow.contentView;
     NSRect screen = PetDockScreen().visibleFrame;
-    BOOL tracking = ((FishStatusDragButton *)overlay.taskButton).pressed || ((FishStatusDragButton *)overlay.disclosureButton).pressed;
-    if (!tracking && petNeedsSideSelection) {
-        statusAtTop = NSMidY(petWindow.frame) > NSMidY(screen);
-        petNeedsSideSelection=NO;
-    }
-    BOOL directionChanged = tasksExpandUpward != !statusAtTop;
-    tasksExpandUpward = !statusAtTop;
-    if (directionChanged) CancelTaskAnimation();
     CGFloat offset=DesiredPetTaskOffset();
-    if (directionChanged && petTaskOffset!=0 && offset!=0) {
-        // A user drag changing sides keeps its exact avatar endpoint. Rebase
-        // the dock to the new reservation direction instead of jumping the pet.
-        petTaskOffset=offset;
-    } else if (!taskAnimationActive && !preparingTaskAnimation) ApplyPetTaskOffset(offset);
+    if (!taskAnimationActive && !preparingTaskAnimation) ApplyPetTaskOffset(offset);
     CGFloat textWidth = overlay.caption.cell.cellSize.width;
     CGFloat capsuleWidth = MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
     CGFloat panelWidth = capsuleWidth+24;
     // Transparent horizontal room preserves the native capsule edge rendering.
-    // Move one capsule height toward the visible avatar, into the foot-level
-    // gap marked by the user. Mirror that inset for an upper status anchor.
-    CGFloat statusY = statusAtTop ? NSMaxY(content.bounds)-74 : 24;
+    // Always use the accepted foot-level anchor, including above screen center.
+    CGFloat statusY = 24;
     NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, statusY, panelWidth, 60) toView:nil];
     rect = [petWindow convertRectToScreen:rect];
     rect.origin.y-=petTaskOffset;
@@ -805,7 +789,7 @@ static void LayoutStatus(void) {
     }
     RefreshActiveAppearance();
     statusPanel.ignoresMouseEvents = NO;
-    if (directionChanged) UpdateTaskRows(); else LayoutTasks();
+    LayoutTasks();
     UpdateTaskAccessibility();
     layingOut = NO;
 }
@@ -823,7 +807,7 @@ static void InstallObservers(void) {
     for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
         NSWindowDidChangeScreenNotification, NSWindowDidMiniaturizeNotification, NSWindowDidDeminiaturizeNotification]) {
         [observers addObject:[center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-            if (note.object == petWindow && !applyingPetOffset) { petNeedsSideSelection=YES; PreparePetDrag(); LayoutStatus(); }
+            if (note.object == petWindow && !applyingPetOffset) { PreparePetDrag(); LayoutStatus(); }
         }]];
     }
     for (NSNotificationName name in @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification,
@@ -872,7 +856,6 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
             [petWindow removeChildWindow:statusPanel];
             petWindow = window;
             petTaskOffset=0;
-            petNeedsSideSelection=YES;
             originalAccessibilityChildren = [window.accessibilityChildren copy];
             statusPanel.collectionBehavior = window.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
         }
@@ -936,9 +919,8 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
         taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
-        statusAtTop=NO; tasksExpandUpward=YES; taskRowsExpandUpward=YES;
+        taskRowsExpandUpward=YES;
         taskCardsShown=YES; petTaskOffset=0;
-        petNeedsSideSelection=YES;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
         observers = nil;
         [petWindow removeChildWindow:statusPanel];

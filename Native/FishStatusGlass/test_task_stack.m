@@ -58,8 +58,8 @@ static void CheckStatusGlass(void) {
 static void CheckPlacement(void) {
     NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
     NSRect screen=PetDockScreen().visibleFrame;
-    Require(tasksExpandUpward==!statusAtTop, @"Expansion direction points toward the desktop interior");
-    Require(statusAtTop ? NSMidY(pill)>NSMidY(PetDockFrame()) : NSMidY(pill)<NSMidY(PetDockFrame()), @"Status follows the top or bottom of the pet");
+    Require(tasksExpandUpward, @"Task cards always expand upward regardless of the pet's screen half");
+    Require(NSMidY(pill)<NSMidY(PetDockFrame()), @"Status always stays at the foot of the pet");
     Require(fabs(tasksExpandUpward ? NSMinY(taskPanel.frame)-NSMaxY(pill) : NSMaxY(taskPanel.frame)-NSMinY(pill))<1e-6, @"Task panel attaches to the correct status edge");
     Require(NSContainsRect(NSInsetRect(screen,8,8),pill), @"Painted status remains inside the usable desktop");
     Require(NSContainsRect(NSInsetRect(screen,8,8),taskPanel.frame), @"Task cards fit within the usable desktop");
@@ -147,14 +147,13 @@ static FishTaskAnimationEntry *MotionEntry(NSString *sid) {
     for (FishTaskAnimationEntry *entry in taskAnimationEntries) if ([entry.row.sessionID isEqualToString:sid]) return entry;
     return nil;
 }
-static void CheckTaskMotion(BOOL upward) {
+static void CheckTaskMotion(BOOL lowerHalf) {
     if (tasksExpanded) ClickControl(overlay.disclosureButton);
     NSRect screen=PetDockScreen().visibleFrame;
-    NSPoint position=NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+20 : NSMaxY(screen)-petWindow.frame.size.height-20);
+    NSPoint position=NSMakePoint(NSMinX(screen)+400,lowerHalf ? NSMinY(screen)+20 : NSMaxY(screen)-petWindow.frame.size.height-20);
     [petWindow setFrameOrigin:position];
     SetTasks(6,@"动画检查");
-    CGFloat maxOffset=MAX(0,taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height);
-    [taskScroll.contentView scrollToPoint:NSMakePoint(0,upward ? 0 : maxOffset)];
+    [taskScroll.contentView scrollToPoint:NSZeroPoint];
     NSRect avatar=petWindow.frame;
     ToggleTasks();
     if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
@@ -172,7 +171,7 @@ static void CheckTaskMotion(BOOL upward) {
     AdvanceTaskAnimation(.10);
     NSRect middle=entry.row.frame;CGFloat alpha=entry.row.alphaValue;
     Require(!NSEqualRects(middle,from) && !NSEqualRects(middle,to) && alpha>0 && alpha<1, @"The intermediate frame moves and fades rather than jumping directly to its destination");
-    Require(upward ? middle.origin.y>from.origin.y && middle.origin.y<to.origin.y : middle.origin.y<from.origin.y && middle.origin.y>to.origin.y, @"Unfolding moves in the actual upper or lower expansion direction");
+    Require(middle.origin.y>from.origin.y && middle.origin.y<to.origin.y, @"Unfolding always moves upward at both screen locations");
     ToggleTasks();
     entry=MotionEntry(second);
     Require(entry && NSEqualRects(entry.row.frame,middle) && entry.row.alphaValue==alpha, @"Rapid reversal begins at the current native frame and opacity without snapping");
@@ -185,7 +184,7 @@ static void CheckTaskMotion(BOOL upward) {
     PumpFor(.06);NSRect timerFirst=entry.row.frame;
     PumpFor(.06);NSRect timerSecond=entry.row.frame;
     Require(taskAnimationActive && !NSEqualRects(timerStart,timerFirst) && !NSEqualRects(timerFirst,timerSecond), @"The real run-loop timer advances multiple intermediate native frames before finishing");
-    NSLog(@"Motion %@ live y: %g -> %g -> %g",upward ? @"up" : @"down",timerStart.origin.y,timerFirst.origin.y,timerSecond.origin.y);
+    NSLog(@"Motion %@ half/upward live y: %g -> %g -> %g",lowerHalf ? @"lower" : @"upper",timerStart.origin.y,timerFirst.origin.y,timerSecond.origin.y);
     SettleTaskAnimation();
     ClickControl(overlay.disclosureButton);
     ToggleTasks();
@@ -205,16 +204,16 @@ static void CheckTaskMotion(BOOL upward) {
     CheckCollapsed(3);
 }
 static void ArrowClick(void) { [overlay.disclosureButton performClick:nil];SettleTaskAnimation(); }
-static void CheckThreeStates(BOOL upward) {
+static void CheckThreeStates(BOOL lowerHalf) {
     SetTaskMode(FishTaskHidden,NO);
     NSRect screen=PetDockScreen().visibleFrame;
-    [petWindow setFrameOrigin:NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+60 : NSMaxY(screen)-petWindow.frame.size.height-100)];
+    [petWindow setFrameOrigin:NSMakePoint(NSMinX(screen)+400,lowerHalf ? NSMinY(screen)+60 : NSMaxY(screen)-petWindow.frame.size.height-100)];
     SetTasks(3,@"三态检查");
     NSRect hiddenPet=petWindow.frame,bar=statusPanel.frame;
     Require(!TaskCardsPresent() && !taskPanel.visible && fabs(petTaskOffset)==8, @"Hidden state shows no cards with8pt extra avatar-to-status spacing");
     NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
-    CGFloat expectedCenter=upward ? NSMinY(hiddenPet)+41 : NSMaxY(hiddenPet)-41;
-    Require(fabs(NSMidY(pill)-expectedCenter)<1e-6, @"Fixed status anchor and hidden8pt spacing mirror correctly for the upper side");
+    CGFloat expectedCenter=NSMinY(hiddenPet)+41;
+    Require(fabs(NSMidY(pill)-expectedCenter)<1e-6, @"Fixed foot anchor and hidden8pt spacing stay the same in both screen halves");
     [overlay.disclosureButton performClick:nil];
     if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
         PumpFor(.08);
@@ -224,12 +223,12 @@ static void CheckThreeStates(BOOL upward) {
     SettleTaskAnimation();
     NSRect foldedPet=petWindow.frame,foldedCards=taskPanel.frame;
     Require(taskCardsShown && !tasksExpanded && taskPanel.visible && fabs(petTaskOffset)==76, @"Folded three-tier spacing is16pt smaller than the previous92pt reservation");
-    Require(upward ? foldedPet.origin.y==hiddenPet.origin.y+68 : foldedPet.origin.y==hiddenPet.origin.y-68, @"Hidden8pt and folded76pt give a68pt transition away from the fixed status");
+    Require(foldedPet.origin.y==hiddenPet.origin.y+68, @"Hidden8pt and folded76pt always give a68pt upward transition away from the fixed status");
     Require(NSEqualRects(statusPanel.frame,bar), @"Hidden and folded status frames are identical");
     ClickControl(taskStack.button);
     Require(tasksExpanded && taskPanel.frame.size.height>foldedCards.size.height, @"Clicking the stack expands the full list");
     Require(NSEqualRects(petWindow.frame,foldedPet) && NSEqualRects(statusPanel.frame,bar), @"Expansion keeps both the reserved avatar and status completely fixed");
-    Require(upward ? NSMinY(taskPanel.frame)==NSMinY(foldedCards) : NSMaxY(taskPanel.frame)==NSMaxY(foldedCards), @"Folded and expanded cards share the same near-status edge");
+    Require(NSMinY(taskPanel.frame)==NSMinY(foldedCards), @"Folded and expanded cards share the same near-status edge");
     ArrowClick();
     Require(taskCardsShown && !tasksExpanded && taskPanel.visible && NSEqualRects(taskPanel.frame,foldedCards), @"First arrow click from expanded folds the list, without hiding it");
     Require(NSEqualRects(petWindow.frame,foldedPet) && NSEqualRects(statusPanel.frame,bar), @"Expanded-to-folded does not move the avatar or status");
@@ -277,8 +276,7 @@ int main(void) { @autoreleasepool {
     Require(NSEqualRects(taskListSurface.bounds,taskDocument.frame), @"Glass sampling surface follows the full scroll document");
     for (FishTaskRow *row in taskRows.allValues) CheckRowEdges(row);
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
-    CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;
-    [taskScroll.contentView scrollToPoint:NSMakePoint(0,top-120)];
+    [taskScroll.contentView scrollToPoint:NSMakePoint(0,120)];
     ClickControl(overlay.disclosureButton);
     SetTasks(64,@"新的公开进度");
     CheckCollapsed(64);
@@ -286,11 +284,11 @@ int main(void) { @autoreleasepool {
     ClickControl(overlay.disclosureButton);
     Require(tasksExpanded, @"Status chevron expands the task list");
     CheckPlacement();
-    CGFloat distance=taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds);
+    CGFloat distance=NSMinY(taskScroll.contentView.bounds);
     Require(fabs(distance-120)<.001, @"Collapsing and live updates preserve scroll position");
     // A real AppKit local event takes the same outside-click monitor path.
     NSEvent *event=[NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
-        location:NSMakePoint(156,20) modifierFlags:0 timestamp:0
+        location:NSMakePoint(156,NSHeight(window.contentView.bounds)-20) modifierFlags:0 timestamp:0
         windowNumber:window.windowNumber context:nil eventNumber:1 clickCount:1 pressure:1];
     [NSApp sendEvent:event];
     SettleTaskAnimation();
@@ -306,7 +304,7 @@ int main(void) { @autoreleasepool {
     NSPoint low=NSMakePoint(NSMinX(screen)+10,NSMinY(screen)+20);
     [window setFrameOrigin:low];
     CheckCollapsed(64);
-    Require(tasksExpandUpward && !statusAtTop && NSEqualPoints(window.frame.origin,low), @"Low pet keeps its position, status below, cards above");
+    Require(tasksExpandUpward && NSEqualPoints(window.frame.origin,low), @"Low pet keeps its position, status below, cards above");
     ClickControl(overlay.disclosureButton);
     CheckPlacement();
     Require(tasksExpanded && NSEqualPoints(window.frame.origin,low), @"Expanding upward never lifts the pet");
@@ -314,26 +312,25 @@ int main(void) { @autoreleasepool {
     NSPoint high=NSMakePoint(NSMaxX(screen)-window.frame.size.width-10,NSMaxY(screen)-window.frame.size.height-20);
     [window setFrameOrigin:high];
     CheckPlacement();
-    Require(statusAtTop && !tasksExpandUpward && tasksExpanded && NSEqualPoints(window.frame.origin,high), @"High pet keeps its position, status above, cards below");
-    CGFloat distanceFromTop=taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds);
-    Require(fabs(distanceFromTop-120)<.001, @"Direction flip preserves logical scroll distance from the status anchor");
+    Require(tasksExpandUpward && tasksExpanded && NSEqualPoints(window.frame.origin,high), @"High pet keeps its position with status below and cards still above");
+    Require(fabs(NSMinY(taskScroll.contentView.bounds)-120)<.001, @"Moving into the upper half keeps the same bottom-anchor scroll distance");
     [window setFrameOrigin:low];
     CheckPlacement();
     Require(fabs(NSMinY(taskScroll.contentView.bounds)-120)<.001, @"Returning to upward expansion restores the same scroll distance");
     ClickControl(overlay.disclosureButton);
     CheckCollapsed(64);
-    Require(NSEqualSizes(window.frame.size,parentFrame.size), @"Adaptive placement never shrinks the pet");
-    // While the status is held, it must not jump to the other end of the pet.
-    // Release applies the new half-screen direction without changing the drag.
+    Require(NSEqualSizes(window.frame.size,parentFrame.size), @"Bottom placement never shrinks the pet");
+    // Crossing the midpoint never switches the status to the other end.
     NSPoint nearMiddle=NSMakePoint(920,NSMidY(screen)-window.frame.size.height/2-50);
     [window setFrameOrigin:nearMiddle];
+    NSPoint dragOrigin=window.frame.origin; // NSWindow may snap a half-point request.
     FishStatusDragButton *drag=(FishStatusDragButton *)overlay.taskButton;
     NSPoint start=[statusPanel convertPointToScreen:[drag convertPoint:NSMakePoint(NSMidX(drag.bounds),20) toView:nil]];
     [drag mouseDown:StatusMouse(NSEventTypeLeftMouseDown,start)];
     [drag mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x,start.y+100))];
-    Require(!statusAtTop && tasksExpandUpward, @"Crossing midpoint while held keeps the grabbed status on its current side");
+    Require(tasksExpandUpward, @"Crossing midpoint while held keeps the grabbed status below");
     [drag mouseUp:StatusMouse(NSEventTypeLeftMouseUp,NSMakePoint(start.x,start.y+100))];
-    Require(statusAtTop && !tasksExpandUpward && !tasksExpanded && NSEqualPoints(window.frame.origin,NSMakePoint(nearMiddle.x,nearMiddle.y+100)), @"Release flips sides while preserving the exact drag origin and collapsed state");
+    Require(tasksExpandUpward && !tasksExpanded && NSEqualPoints(window.frame.origin,NSMakePoint(dragOrigin.x,dragOrigin.y+100)), [NSString stringWithFormat:@"Release keeps status below with exact drag endpoint/folded state (actual=%@ expected=%@ expanded=%d offset=%g)",NSStringFromPoint(window.frame.origin),NSStringFromPoint(NSMakePoint(dragOrigin.x,dragOrigin.y+100)),tasksExpanded,petTaskOffset]);
     CheckCollapsed(64);
     FishGlassStatusSetVisible(0);
     Require(!statusPanel.visible && !taskPanel.visible, @"Hide also hides the stack");
@@ -367,6 +364,6 @@ int main(void) { @autoreleasepool {
     PumpFor(.35);
     Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor && !taskAnimationActive && !taskAnimationTimer && !taskAnimationHost && !taskAnimationEntries, @"Destroy releases views, event monitors and in-flight animation without late callbacks");
     [window orderOut:nil];
-    NSLog(@"PASS: three states hidden/folded/expanded, fixed status and shared card edge, animated avatar reservation only for folded row, arrow expanded-folded-hidden cycle, hidden-update preference and reversible reservation; live native unfold/refold in both directions, intermediate frames, continuous reversal, queued snapshots, drag/hide/destroy cancellation and immediate path; lower status/cards up, upper status/cards down, anchor-aware stack/order/scroll, no avatar relocation or resizing, held-side until drag release; caption/chevron drag and click,0/1/2/3/6/64, outside collapse/AX/focus/Regular glass/half-pixel edges/hide/empty/cleanup");
+    NSLog(@"PASS: status always below and cards always upward in both screen halves and across midpoint drag/release; hidden8pt/folded-16pt spacing, three states with fixed status/shared card edge, arrow cycle, hidden-update preference, reversible live animation, intermediate frames, queued snapshots, drag/hide/destroy cancellation and immediate path; anchored scroll/no resizing/caption-chevron drag/click/count0/1/2/3/6/64/outside/AX/focus/Regular glass/half-pixel/hide/empty/cleanup");
     return 0;
 } }
