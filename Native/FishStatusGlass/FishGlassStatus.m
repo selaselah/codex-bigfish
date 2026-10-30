@@ -269,8 +269,10 @@ static NSScreen *PetDockScreen(void) {
     return petWindow.screen ?: NSScreen.mainScreen;
 }
 static CGFloat DesiredPetTaskOffset(void) {
-    if (!wantsVisible || !TaskCardsPresent()) return 0;
-    CGFloat reserve=TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+8;
+    if (!wantsVisible) return 0;
+    // Keep the status dock fixed: add 8 pt without cards, and bring the avatar
+    // 16 pt closer to the folded stack. Expanded retains the folded position.
+    CGFloat reserve=TaskCardsPresent() ? TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+8-16 : 8;
     return tasksExpandUpward ? reserve : -reserve;
 }
 static void ApplyPetTaskOffset(CGFloat offset) {

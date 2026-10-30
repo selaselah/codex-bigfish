@@ -211,20 +211,20 @@ static void CheckThreeStates(BOOL upward) {
     [petWindow setFrameOrigin:NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+60 : NSMaxY(screen)-petWindow.frame.size.height-100)];
     SetTasks(3,@"三态检查");
     NSRect hiddenPet=petWindow.frame,bar=statusPanel.frame;
-    Require(!TaskCardsPresent() && !taskPanel.visible && petTaskOffset==0, @"Hidden state shows no cards and restores the unreserved avatar");
+    Require(!TaskCardsPresent() && !taskPanel.visible && fabs(petTaskOffset)==8, @"Hidden state shows no cards with8pt extra avatar-to-status spacing");
     NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
-    CGFloat expectedCenter=upward ? NSMinY(hiddenPet)+49 : NSMaxY(hiddenPet)-49;
-    Require(fabs(NSMidY(pill)-expectedCenter)<1e-6, @"Status sits one40pt capsule height closer to the avatar, mirrored for the upper anchor");
+    CGFloat expectedCenter=upward ? NSMinY(hiddenPet)+41 : NSMaxY(hiddenPet)-41;
+    Require(fabs(NSMidY(pill)-expectedCenter)<1e-6, @"Fixed status anchor and hidden8pt spacing mirror correctly for the upper side");
     [overlay.disclosureButton performClick:nil];
     if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
         PumpFor(.08);
-        Require(taskAnimationActive && fabs(petTaskOffset)>0 && fabs(petTaskOffset)<fabs(DesiredPetTaskOffset()), @"Showing the folded stack animates the avatar's reserved space");
+        Require(taskAnimationActive && fabs(petTaskOffset)>8 && fabs(petTaskOffset)<fabs(DesiredPetTaskOffset()), @"Showing the folded stack animates from the hidden8pt spacing");
         Require(NSEqualRects(statusPanel.frame,bar), @"Status anchor stays fixed during reservation animation");
     }
     SettleTaskAnimation();
     NSRect foldedPet=petWindow.frame,foldedCards=taskPanel.frame;
-    Require(taskCardsShown && !tasksExpanded && taskPanel.visible && fabs(petTaskOffset)==92, @"Folded state reserves one stack height plus its gap");
-    Require(upward ? foldedPet.origin.y==hiddenPet.origin.y+92 : foldedPet.origin.y==hiddenPet.origin.y-92, @"The avatar moves away from the fixed status toward the desktop interior");
+    Require(taskCardsShown && !tasksExpanded && taskPanel.visible && fabs(petTaskOffset)==76, @"Folded three-tier spacing is16pt smaller than the previous92pt reservation");
+    Require(upward ? foldedPet.origin.y==hiddenPet.origin.y+68 : foldedPet.origin.y==hiddenPet.origin.y-68, @"Hidden8pt and folded76pt give a68pt transition away from the fixed status");
     Require(NSEqualRects(statusPanel.frame,bar), @"Hidden and folded status frames are identical");
     ClickControl(taskStack.button);
     Require(tasksExpanded && taskPanel.frame.size.height>foldedCards.size.height, @"Clicking the stack expands the full list");
@@ -236,7 +236,7 @@ static void CheckThreeStates(BOOL upward) {
     ArrowClick();
     Require(!taskCardsShown && !taskPanel.visible && NSEqualRects(petWindow.frame,hiddenPet) && NSEqualRects(statusPanel.frame,bar), @"Second arrow click hides the stack and restores the exact hidden-state avatar while keeping status fixed");
     SetTasks(6,@"收缩时的新消息");
-    Require(!taskPanel.visible && petTaskOffset==0 && NSEqualRects(petWindow.frame,hiddenPet), @"Live messages respect the explicitly hidden preference");
+    Require(!taskPanel.visible && fabs(petTaskOffset)==8 && NSEqualRects(petWindow.frame,hiddenPet), @"Live messages respect hidden preference and its8pt spacing");
     [overlay.disclosureButton performClick:nil];
     if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
         AdvanceTaskAnimation(.10);
