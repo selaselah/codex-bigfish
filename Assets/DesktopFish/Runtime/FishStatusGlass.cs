@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -14,6 +15,8 @@ namespace DesktopFish
         string lastLabel, lastTone;
         float lastNativeUpdate = -10;
         bool nativeFailed, nativeAttempted, nativeVisible;
+        string tasksJson="{\"tasks\":[]}";
+        float lastTaskPoll=-10;
 
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         [DllImport("FishGlassStatus")] static extern int FishGlassStatusIsReady();
@@ -22,6 +25,9 @@ namespace DesktopFish
             [MarshalAs(UnmanagedType.LPUTF8Str)] string tone);
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusSetVisible(int visible);
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusDestroy();
+        [DllImport("FishGlassStatus")] static extern void FishGlassStatusUpdateTasks(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
+        [DllImport("FishGlassStatus")] static extern void FishGlassStatusShowTasks();
 #endif
         public void Draw(string label, string tone, float scale, Font font)
         {
@@ -35,6 +41,8 @@ namespace DesktopFish
                     if (lastLabel != label || lastTone != tone || Time.unscaledTime-lastNativeUpdate > 1)
                     {
                         FishGlassStatusUpdate(label, tone);
+                        PollTasks();
+                        FishGlassStatusUpdateTasks(tasksJson);
                         lastLabel = label; lastTone = tone; lastNativeUpdate = Time.unscaledTime;
                     }
                     if (FishGlassStatusIsReady() > 0)
@@ -49,6 +57,26 @@ namespace DesktopFish
             }
 #endif
             DrawFallback(label, tone, scale, font);
+        }
+
+        void PollTasks()
+        {
+            if(Time.unscaledTime-lastTaskPoll<.5f)return;
+            lastTaskPoll=Time.unscaledTime;
+            try {
+                string path=Path.Combine(Application.persistentDataPath,"codex-tasks.json");
+                var info=new FileInfo(path);
+                tasksJson=info.Exists&&info.Length<=256*1024?File.ReadAllText(path):"{\"tasks\":[]}";
+            } catch(IOException) { } // Keep the preceding complete atomic snapshot.
+        }
+
+        public void ShowTasks()
+        {
+#if UNITY_STANDALONE_OSX && !UNITY_EDITOR
+            if(!nativeFailed)try { PollTasks();FishGlassStatusUpdateTasks(tasksJson);FishGlassStatusShowTasks(); }
+            catch(DllNotFoundException){nativeFailed=true;}
+            catch(EntryPointNotFoundException){nativeFailed=true;}
+#endif
         }
 
         public void Hide()

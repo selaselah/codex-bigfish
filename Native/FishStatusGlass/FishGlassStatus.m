@@ -5,6 +5,15 @@
 
 #define FISH_EXPORT __attribute__((visibility("default")))
 static atomic_int ready = 0;
+static void ToggleTasks(void);
+static void LayoutTasks(void);
+static void UpdateTaskAccessibility(void);
+
+@interface FishTaskButton : NSButton
+@end
+@implementation FishTaskButton
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+@end
 
 @interface FishStatusOverlay : NSView
 @property(nonatomic, strong) NSView *pill;
@@ -13,6 +22,7 @@ static atomic_int ready = 0;
 @property(nonatomic, strong) NSView *content;
 @property(nonatomic, strong) NSTextField *caption;
 @property(nonatomic, strong) NSView *dot;
+@property(nonatomic, strong) NSButton *taskButton;
 @property(nonatomic, copy) NSString *tone;
 @property(nonatomic) BOOL liquidGlass;
 - (void)updateCaption:(NSString *)caption tone:(NSString *)tone;
@@ -20,7 +30,10 @@ static atomic_int ready = 0;
 
 @implementation FishStatusOverlay
 - (BOOL)isFlipped { return NO; }
-- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (NSView *)hitTest:(NSPoint)point {
+    return NSPointInRect(point, self.pill.frame) ? self.taskButton : nil;
+}
+- (void)toggleTasks:(id)sender { ToggleTasks(); }
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -71,12 +84,21 @@ static atomic_int ready = 0;
     self.dot.wantsLayer = YES;
     self.dot.layer.cornerRadius = 3;
     [self.content addSubview:self.dot];
+    self.taskButton = [[FishTaskButton alloc] initWithFrame:NSZeroRect];
+    self.taskButton.bordered = NO;
+    self.taskButton.transparent = YES;
+    self.taskButton.target = self;
+    self.taskButton.action = @selector(toggleTasks:);
+    self.taskButton.accessibilityLabel = @"查看任务消息";
+    self.taskButton.toolTip = @"查看每个任务的标题和最新消息";
+    [self addSubview:self.taskButton];
     return self;
 }
 - (void)updateCaption:(NSString *)caption tone:(NSString *)tone {
     BOOL changed = ![tone isEqualToString:self.tone];
     self.caption.stringValue = [caption stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
     self.caption.accessibilityValue = caption;
+    self.taskButton.accessibilityValue = caption;
     self.tone = tone;
     NSColor *color = [NSColor colorWithSRGBRed:.29 green:.55 blue:.95 alpha:1];
     if ([tone isEqualToString:@"complete"]) color = [NSColor colorWithSRGBRed:.18 green:.66 blue:.50 alpha:1];
@@ -110,6 +132,7 @@ static atomic_int ready = 0;
     self.content.frame = NSMakeRect(0, 0, width - 2 * edgeInset, 40);
     self.dot.frame = NSMakeRect(16 - edgeInset, 17, 6, 6);
     self.caption.frame = NSMakeRect(32 - edgeInset, 11, width - 48, 18);
+    self.taskButton.frame = self.pill.frame;
     CGPathRef shadow = CGPathCreateWithRoundedRect(self.pill.bounds, 20, 20, NULL);
     self.pill.layer.shadowPath = shadow;
     CGPathRelease(shadow);
@@ -140,6 +163,175 @@ static NSMutableArray *observers;
 static BOOL wantsVisible = YES;
 static BOOL layingOut = NO;
 static BOOL refreshingAppearance = NO;
+static NSPanel *taskPanel;
+static NSScrollView *taskScroll;
+static NSView *taskDocument;
+static NSMutableDictionary *taskRows;
+static NSArray<NSDictionary *> *taskData;
+static BOOL tasksVisible = NO;
+static id outsideClickMonitor;
+static id localClickMonitor;
+static NSArray *originalAccessibilityChildren;
+
+@interface FishTaskRow : NSView
+@property(nonatomic, strong) NSTextField *titleLabel;
+@property(nonatomic, strong) NSTextField *messageLabel;
+@property(nonatomic, strong) NSButton *button;
+@property(nonatomic, copy) NSString *sessionID;
+- (void)updateTask:(NSDictionary *)task;
+@end
+@implementation FishTaskRow
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    self.wantsLayer = YES;
+    NSVisualEffectView *backdrop = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
+    backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    backdrop.material = NSVisualEffectMaterialHUDWindow;
+    backdrop.state = NSVisualEffectStateActive;
+    backdrop.wantsLayer = YES;
+    backdrop.layer.cornerRadius = 29;
+    backdrop.layer.masksToBounds = YES;
+    [self addSubview:backdrop];
+    NSView *content = [[NSView alloc] initWithFrame:self.bounds];
+    if (@available(macOS 26.0, *)) {
+        NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:self.bounds];
+        glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        glass.style = NSGlassEffectViewStyleClear;
+        glass.cornerRadius = 29;
+        glass.contentView = content;
+        backdrop.alphaValue = .58;
+        [self addSubview:glass];
+    } else [backdrop addSubview:content];
+    self.titleLabel = [NSTextField labelWithString:@""];
+    self.titleLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
+    self.titleLabel.textColor = NSColor.labelColor;
+    self.titleLabel.frame = NSMakeRect(18, 31, frame.size.width-36, 18);
+    self.messageLabel = [NSTextField labelWithString:@""];
+    self.messageLabel.font = [NSFont systemFontOfSize:12 weight:NSFontWeightRegular];
+    self.messageLabel.textColor = NSColor.secondaryLabelColor;
+    self.messageLabel.frame = NSMakeRect(18, 12, frame.size.width-36, 17);
+    for (NSTextField *label in @[self.titleLabel, self.messageLabel]) {
+        label.maximumNumberOfLines = 1;
+        label.lineBreakMode = NSLineBreakByTruncatingTail;
+        [content addSubview:label];
+    }
+    self.button = [[FishTaskButton alloc] initWithFrame:self.bounds];
+    self.button.bordered = NO;
+    self.button.transparent = YES;
+    self.button.target = self;
+    self.button.action = @selector(openTask:);
+    [self addSubview:self.button];
+    return self;
+}
+- (void)updateTask:(NSDictionary *)task {
+    self.sessionID = task[@"session_id"];
+    self.titleLabel.stringValue = task[@"title"] ?: @"未命名任务";
+    self.messageLabel.stringValue = task[@"summary"] ?: @"正在思考";
+    self.button.accessibilityLabel = self.titleLabel.stringValue;
+    self.button.accessibilityValue = self.messageLabel.stringValue;
+    NSString *message = [task[@"message"] length] ? task[@"message"] : self.messageLabel.stringValue;
+    self.button.toolTip = [NSString stringWithFormat:@"%@\n%@", self.titleLabel.stringValue, message];
+    self.button.enabled = [[NSUUID alloc] initWithUUIDString:self.sessionID] != nil;
+}
+- (void)openTask:(id)sender {
+    if (![[NSUUID alloc] initWithUUIDString:self.sessionID]) return;
+    tasksVisible = NO;
+    [taskPanel orderOut:nil];
+    UpdateTaskAccessibility();
+    // Official local-chat deep link; opening never sends a message.
+    NSURL *url = [NSURL URLWithString:[@"codex://threads/" stringByAppendingString:self.sessionID]];
+    [NSWorkspace.sharedWorkspace openURL:url];
+}
+@end
+
+static NSPanel *NewTaskPanel(void) {
+    Class cls = FishPassiveStatusPanel.class;
+    if (@available(macOS 26.0, *)) cls = FishActiveStatusPanel.class;
+    NSPanel *panel = [[cls alloc] initWithContentRect:NSMakeRect(0,0,360,84)
+        styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+        backing:NSBackingStoreBuffered defer:NO];
+    panel.title = @"任务消息";
+    panel.opaque = NO;
+    panel.backgroundColor = NSColor.clearColor;
+    panel.hasShadow = NO;
+    panel.hidesOnDeactivate = NO;
+    panel.floatingPanel = YES;
+    panel.releasedWhenClosed = NO;
+    panel.excludedFromWindowsMenu = YES;
+    return panel;
+}
+static void UpdateTaskRows(void) {
+    if (!taskPanel) return;
+    CGFloat distanceFromTop = MAX(0, taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
+    NSArray *items = taskData.count ? taskData : @[@{@"session_id":@"", @"title":@"暂无进行中的任务", @"summary":@"新的任务开始后会显示在这里"}];
+    CGFloat height = items.count * 66 + 12;
+    taskDocument.frame = NSMakeRect(0,0,360,height);
+    NSMutableSet *keep = [NSMutableSet new];
+    for (NSUInteger i=0; i<items.count; i++) {
+        NSDictionary *item = items[i];
+        NSString *key = item[@"session_id"] ?: @"";
+        [keep addObject:key];
+        FishTaskRow *row = taskRows[key];
+        if (!row) { row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,0,340,58)]; taskRows[key]=row; [taskDocument addSubview:row]; }
+        row.frame = NSMakeRect(10,height-8-(i+1)*66,340,58);
+        [row updateTask:item];
+    }
+    for (NSString *key in [taskRows.allKeys copy]) if (![keep containsObject:key]) {
+        [taskRows[key] removeFromSuperview]; [taskRows removeObjectForKey:key];
+    }
+    LayoutTasks();
+    [taskScroll.contentView scrollToPoint:NSMakePoint(0, MAX(0, height-taskScroll.contentView.bounds.size.height-distanceFromTop))];
+    [taskScroll reflectScrolledClipView:taskScroll.contentView];
+    LayoutTasks();
+}
+static void LayoutTasks(void) {
+    if (!taskPanel || !petWindow) return;
+    if (!tasksVisible || !wantsVisible || !petWindow.visible || petWindow.miniaturized) { [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return; }
+    NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
+    CGFloat height = MIN(342, MAX(78, (taskData.count ?: 1)*66+12));
+    CGFloat x = NSMinX(petWindow.frame)-366;
+    if (x < NSMinX(screen)+8) x=MIN(NSMaxX(petWindow.frame)+6,NSMaxX(screen)-368);
+    CGFloat y = MIN(MAX(NSMinY(statusPanel.frame)+5,NSMinY(screen)+8),NSMaxY(screen)-height-8);
+    [taskPanel setFrame:NSMakeRect(MAX(NSMinX(screen)+8,x),y,360,height) display:YES];
+    taskScroll.frame = taskPanel.contentView.bounds;
+    taskPanel.level = petWindow.level;
+    taskPanel.collectionBehavior = petWindow.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
+    if (taskPanel.parentWindow != petWindow) [petWindow addChildWindow:taskPanel ordered:NSWindowAbove];
+    [taskPanel orderFront:nil];
+    UpdateTaskAccessibility();
+}
+static void UpdateTaskAccessibility(void) {
+    if (!petWindow) return;
+    NSMutableArray *children = [NSMutableArray arrayWithArray:originalAccessibilityChildren ?: @[]];
+    // Keep passive child-window controls reachable from the pet's main window
+    // for VoiceOver and accessibility clients without taking keyboard focus.
+    if (statusPanel.visible) [children addObject:overlay.taskButton];
+    if (taskPanel.visible) [children addObject:taskScroll];
+    petWindow.accessibilityChildren = children;
+}
+static void ToggleTasks(void) {
+    if (!taskPanel) {
+        taskPanel = NewTaskPanel();
+        taskScroll = [[NSScrollView alloc] initWithFrame:taskPanel.contentView.bounds];
+        taskScroll.drawsBackground = NO;
+        taskScroll.hasVerticalScroller = YES;
+        taskScroll.autohidesScrollers = YES;
+        taskScroll.scrollerStyle = NSScrollerStyleOverlay;
+        taskScroll.contentView.drawsBackground = NO;
+        taskDocument = [[NSView alloc] initWithFrame:NSMakeRect(0,0,360,78)];
+        taskScroll.documentView = taskDocument;
+        [taskPanel.contentView addSubview:taskScroll];
+        taskRows = [NSMutableDictionary new];
+    }
+    tasksVisible = !tasksVisible;
+    UpdateTaskRows();
+}
+static BOOL IsInsideStatus(NSPoint point) {
+    if (!statusPanel.visible) return NO;
+    NSRect pill = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+    return NSPointInRect(point,pill);
+}
 
 static NSWindow *FindPetWindow(void) {
     for (NSWindow *window in NSApp.windows) {
@@ -160,9 +352,11 @@ static void RefreshActiveAppearance(void) {
         SEL force = NSSelectorFromString(@"_setForceActiveControls:");
         SEL glass = NSSelectorFromString(@"setNativeGlassForcesActiveAppearance:");
         SEL refresh = NSSelectorFromString(@"_sendForcedWindowChangedKeyState");
-        if ([statusPanel respondsToSelector:force]) ((void(*)(id,SEL,BOOL))objc_msgSend)(statusPanel, force, YES);
-        if ([statusPanel respondsToSelector:glass]) ((void(*)(id,SEL,BOOL))objc_msgSend)(statusPanel, glass, YES);
-        if ([statusPanel respondsToSelector:refresh]) ((void(*)(id,SEL))objc_msgSend)(statusPanel, refresh);
+        for (NSPanel *panel in taskPanel ? @[statusPanel,taskPanel] : @[statusPanel]) {
+            if ([panel respondsToSelector:force]) ((void(*)(id,SEL,BOOL))objc_msgSend)(panel, force, YES);
+            if ([panel respondsToSelector:glass]) ((void(*)(id,SEL,BOOL))objc_msgSend)(panel, glass, YES);
+            if ([panel respondsToSelector:refresh]) ((void(*)(id,SEL))objc_msgSend)(panel, refresh);
+        }
     } @catch (NSException *exception) {
         NSLog(@"Desktop Fish active appearance refresh failed: %@", exception.name);
     } @finally {
@@ -175,7 +369,12 @@ static void LayoutStatus(void) {
     NSView *content = petWindow.contentView;
     // Preserve the taller capsule's top edge below the feet. Its own transparent
     // accessory extends downwards; the model window and camera remain untouched.
-    NSRect rect = [content convertRect:NSMakeRect(0, -16, content.bounds.size.width, 60) toView:nil];
+    CGFloat textWidth = [overlay.caption.stringValue sizeWithAttributes:@{NSFontAttributeName:overlay.caption.font}].width;
+    CGFloat capsuleWidth = MIN(MAX(140,ceil(textWidth)+48),MAX(140,content.bounds.size.width-24));
+    CGFloat panelWidth = capsuleWidth+24;
+    // Narrow only the transparent accessory bounds. The painted capsule keeps
+    // exactly the same size and desktop coordinates as the accepted version.
+    NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, -16, panelWidth, 60) toView:nil];
     rect = [petWindow convertRectToScreen:rect];
     if (!NSEqualRects(statusPanel.frame, rect)) [statusPanel setFrame:rect display:YES];
     statusPanel.level = petWindow.level;
@@ -189,11 +388,22 @@ static void LayoutStatus(void) {
         [statusPanel orderOut:nil];
     }
     RefreshActiveAppearance();
+    statusPanel.ignoresMouseEvents = NO;
+    LayoutTasks();
     layingOut = NO;
 }
 static void InstallObservers(void) {
     observers = [NSMutableArray new];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+    void (^outsideClick)(NSEvent *) = ^(NSEvent *event) {
+        NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
+        if (tasksVisible && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
+            tasksVisible=NO; [taskPanel orderOut:nil];
+            UpdateTaskAccessibility();
+        }
+    };
+    outsideClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:outsideClick];
+    localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) { outsideClick(event); return event; }];
     for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
         NSWindowDidChangeScreenNotification, NSWindowDidMiniaturizeNotification, NSWindowDidDeminiaturizeNotification]) {
         [observers addObject:[center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
@@ -231,7 +441,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
             statusPanel.hidesOnDeactivate = NO;
             statusPanel.floatingPanel = YES;
             statusPanel.becomesKeyOnlyIfNeeded = YES;
-            statusPanel.ignoresMouseEvents = YES;
+            statusPanel.ignoresMouseEvents = NO;
             statusPanel.releasedWhenClosed = NO;
             statusPanel.excludedFromWindowsMenu = YES;
             overlay = [[FishStatusOverlay alloc] initWithFrame:statusPanel.contentView.bounds];
@@ -240,13 +450,16 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
             created = YES;
         }
         if (petWindow != window) {
+            petWindow.accessibilityChildren = originalAccessibilityChildren;
             [petWindow removeChildWindow:statusPanel];
             petWindow = window;
+            originalAccessibilityChildren = [window.accessibilityChildren copy];
             statusPanel.collectionBehavior = window.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
         }
         [overlay updateCaption:caption tone:tone];
         wantsVisible = YES;
         LayoutStatus();
+        UpdateTaskAccessibility();
         atomic_store(&ready, overlay.liquidGlass ? 2 : 1);
         if (created) {
             NSRect capsule = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
@@ -261,15 +474,51 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
     return atomic_load(&ready);
 }
 FISH_EXPORT void FishGlassStatusSetVisible(int visible) {
-    OnMain(^{ wantsVisible = visible != 0; LayoutStatus(); });
+    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) tasksVisible=NO; LayoutStatus(); });
+}
+FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
+    if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
+    NSData *bytes = [[NSString stringWithUTF8String:jsonUTF8] dataUsingEncoding:NSUTF8StringEncoding];
+    if (!bytes) return;
+    id payload = [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
+    if (![payload isKindOfClass:NSDictionary.class] || ![payload[@"tasks"] isKindOfClass:NSArray.class]) return;
+    NSMutableArray *tasks = [NSMutableArray new];
+    NSMutableSet *seen = [NSMutableSet new];
+    for (id item in payload[@"tasks"]) {
+        if (![item isKindOfClass:NSDictionary.class]) continue;
+        NSString *sid=item[@"session_id"];
+        if (![sid isKindOfClass:NSString.class] || ![[NSUUID alloc] initWithUUIDString:sid] || [seen containsObject:sid]) continue;
+        if (![item[@"expires_at"] isKindOfClass:NSNumber.class] || [item[@"expires_at"] doubleValue]<=NSDate.date.timeIntervalSince1970) continue;
+        NSMutableDictionary *safe = [NSMutableDictionary new];
+        safe[@"session_id"]=sid;
+        for (NSString *field in @[@"title",@"summary",@"message"]) {
+            NSString *value=[item[field] isKindOfClass:NSString.class] ? item[field] : @"";
+            NSUInteger limit=[field isEqualToString:@"title"] ? 160 : 600;
+            if (value.length>limit) value=[value substringWithRange:[value rangeOfComposedCharacterSequencesForRange:NSMakeRange(0,limit)]];
+            safe[field]=value;
+        }
+        [tasks addObject:safe]; [seen addObject:sid];
+        if (tasks.count>=64) break;
+    }
+    OnMain(^{ if (![taskData isEqualToArray:tasks]) { taskData=[tasks copy]; UpdateTaskRows(); } });
+}
+FISH_EXPORT void FishGlassStatusShowTasks(void) {
+    OnMain(^{ tasksVisible=NO; ToggleTasks(); RefreshActiveAppearance(); });
 }
 FISH_EXPORT void FishGlassStatusDestroy(void) {
     OnMain(^{
+        if (outsideClickMonitor) [NSEvent removeMonitor:outsideClickMonitor];
+        if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
+        outsideClickMonitor=nil; localClickMonitor=nil;
+        [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskRows=nil; taskData=nil; tasksVisible=NO;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
         observers = nil;
         [petWindow removeChildWindow:statusPanel];
         [statusPanel orderOut:nil];
         [statusPanel close];
+        petWindow.accessibilityChildren=originalAccessibilityChildren;
+        originalAccessibilityChildren=nil;
         overlay = nil; statusPanel = nil; petWindow = nil;
         wantsVisible = YES;
         atomic_store(&ready, 0);

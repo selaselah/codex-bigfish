@@ -304,7 +304,7 @@ namespace DesktopFish
                 menu = !menu;
                 menuActions = false;
                 menuPoint = new Vector2(Mathf.Clamp(menuPointer.x, 8, Screen.width / scale - 190),
-                    Mathf.Clamp(menuPointer.y, 8, Screen.height / scale - 265));
+                    Mathf.Clamp(menuPointer.y, 8, Screen.height / scale - 295));
                 window.isClickThrough = false;
                 Debug.Log("Desktop Fish menu: " + (menu ? "opened" : "closed"));
                 mouseEvent.Use();
@@ -344,6 +344,12 @@ namespace DesktopFish
                     CloseMenu();
                 }
             if (GUILayout.Button("动作…", GUILayout.Height(25))) menuActions = true;
+            if (GUILayout.Button("查看任务消息", GUILayout.Height(25))) {
+                CloseMenu();
+                showStatus=true; // Reveal the entry point for this view; do not change the saved preference.
+                if(statusGlass==null)statusGlass=new FishStatusGlass();
+                statusGlass.ShowTasks();
+            }
             if (GUILayout.Button(showStatus ? "状态提示：开" : "状态提示：关", GUILayout.Height(25)))
             {
                 showStatus = !showStatus;
@@ -356,6 +362,6 @@ namespace DesktopFish
         float MenuScale() => window && !Application.isEditor && window.windowSize.x > 0 ?
             Mathf.Max(1, Screen.width / window.windowSize.x) : 1;
 
-        Rect MenuRect() => new Rect(menuPoint.x, menuPoint.y, 180, 260);
+        Rect MenuRect() => new Rect(menuPoint.x, menuPoint.y, 180, 290);
     }
 }

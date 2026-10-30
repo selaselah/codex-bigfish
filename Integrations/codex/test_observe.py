@@ -66,6 +66,17 @@ class ObserverTests(unittest.TestCase):
             self.tail.consume(record(kind), self.root)
             self.assertEqual(self.state(), expected)
 
+    def test_restart_recovers_old_turn_with_recent_progress(self):
+        start=record('task_started')
+        progress=record('token_count')
+        progress['timestamp']='2026-10-20T14:00:00Z'
+        self.path.write_text(json.dumps(start)+'\n'+json.dumps(progress)+'\n')
+        from observe import timestamp
+        for item in self.tail.initial():
+            self.tail.consume(item,self.root,now=timestamp(progress)+10,initial=True)
+        self.assertEqual(self.state(),'working')
+        self.assertNotIn('action',json.loads((self.root/'state.json').read_text()))
+
 
 if __name__ == '__main__':
     unittest.main()

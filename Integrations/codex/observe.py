@@ -11,10 +11,12 @@ import signal
 import time
 
 from bridge import STATE_DIR, atomic_json, update
+from tasks import TaskCatalog
 
 LIFECYCLE = {'task_started': 'UserPromptSubmit', 'task_complete': 'Stop',
              'turn_aborted': 'Interrupt', 'shutdown_complete': 'SessionEnd'}
 WAIT_EVENTS = {'exec_approval_request', 'apply_patch_approval_request', 'request_user_input'}
+PROGRESS_EVENTS = WAIT_EVENTS | {'item_completed', 'token_count'}
 UUID = re.compile(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$')
 MAX_RECORD = 32 * 1024 * 1024
 
@@ -55,6 +57,7 @@ class Tail:
         end = size
         committed_size = size
         suffix = b''
+        progress = None
         with self.path.open('rb') as stream:
             while end > 0:
                 start = max(0, end - 256 * 1024)
@@ -67,10 +70,16 @@ class Tail:
                 suffix = lines.pop(0) if start else b''
                 for line in reversed(lines):
                     record = event_record(line)
+                    if record and progress is None and record['payload'].get('type') in PROGRESS_EVENTS:
+                        progress = record
                     if record and record['payload'].get('type') in LIFECYCLE:
                         self.offset = committed_size
                         self.inode = self.path.stat().st_ino
-                        return [record]
+                        # Recover a long-running old-origin turn from a recent
+                        # progress heartbeat, never from a historical completion.
+                        same_turn = progress and (not progress['payload'].get('turn_id') or
+                            progress['payload'].get('turn_id') == record['payload'].get('turn_id'))
+                        return [record, progress] if record['payload']['type']=='task_started' and same_turn else [record]
                 end = start
         self.offset = committed_size
         self.inode = self.path.stat().st_ino
@@ -125,7 +134,8 @@ class Tail:
             return
         self.last_event = {'event': kind, 'at': event_time, 'session_id': self.session}
         # Never celebrate a historical completion when the observer starts.
-        if initial and (kind != 'task_started' or now - event_time > 3600):
+        if initial and (now - event_time > 3600 or
+                        (kind != 'task_started' and not (self.active and kind in PROGRESS_EVENTS))):
             return
         update({'hook_event_name': event, 'session_id': self.session, 'turn_id': turn},
                state_dir, now=event_time if initial else now, source='codex-rollout-events')
@@ -158,12 +168,15 @@ def run(codex_home, state_dir, once=False):
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
         tails = {}
+        catalog = TaskCatalog(codex_home, state_dir)
         next_discovery = 0
         try:
             while running:
                 now = time.time()
                 if now >= next_discovery:
-                    for path in candidates(codex_home):
+                    # Recent database entries include older-origin chats still
+                    # working today, which date-directory discovery misses.
+                    for path in {p.resolve() for p in candidates(codex_home) + catalog.refresh(now)}:
                         if path not in tails:
                             tail = tails[path] = Tail(path)
                             for record in tail.initial():
@@ -178,6 +191,7 @@ def run(codex_home, state_dir, once=False):
                         update({'hook_event_name': 'SessionEnd', 'session_id': tail.session}, state_dir,
                                source='codex-rollout-events')
                 events = [tail.last_event for tail in tails.values() if tail.last_event]
+                catalog.publish(now)
                 atomic_json(state_dir / 'codex-observer.json', {
                     'pid': os.getpid(), 'updated_at': time.time(), 'source': 'local-rollout-events',
                     'watched_sessions': len(tails),
@@ -193,6 +207,7 @@ def run(codex_home, state_dir, once=False):
                     if tail.active:
                         update({'hook_event_name': 'SessionEnd', 'session_id': tail.session}, state_dir,
                                source='codex-rollout-events')
+                catalog.publish()
 
 
 def main():

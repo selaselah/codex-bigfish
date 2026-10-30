@@ -15,10 +15,10 @@ ACTIVE_TTL = 3600
 COMPLETE_TTL = 12
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, ensure_ascii=True):
     with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
         temporary = Path(stream.name)
-        json.dump(value, stream)
+        json.dump(value, stream, ensure_ascii=ensure_ascii)
     try:
         os.replace(temporary, path)
     finally:
