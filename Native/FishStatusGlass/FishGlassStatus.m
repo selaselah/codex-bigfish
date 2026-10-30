@@ -16,6 +16,52 @@ static void EnsureTaskPanel(void);
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 @end
 
+// A status click still opens the task list. Crossing the same 4pt threshold as
+// the pet's own drag gesture instead moves the parent, never just its accessory.
+@interface FishStatusDragButton : FishTaskButton
+@property(nonatomic, weak) NSWindow *dragWindow;
+@property(nonatomic) NSPoint downScreen;
+@property(nonatomic) NSPoint downOrigin;
+@property(nonatomic) BOOL pressed;
+@property(nonatomic) BOOL dragged;
+@end
+@implementation FishStatusDragButton
+- (BOOL)mouseDownCanMoveWindow { return NO; }
+- (void)mouseDown:(NSEvent *)event {
+    self.dragWindow = self.window.parentWindow;
+    self.downScreen = [event.window convertPointToScreen:event.locationInWindow];
+    self.downOrigin = self.dragWindow.frame.origin;
+    self.pressed = YES;
+    self.dragged = NO;
+    [self highlight:YES];
+}
+- (void)mouseDragged:(NSEvent *)event {
+    if (!self.pressed) return;
+    NSPoint screen = [event.window convertPointToScreen:event.locationInWindow];
+    NSPoint delta = NSMakePoint(screen.x-self.downScreen.x,screen.y-self.downScreen.y);
+    if (!self.dragged && hypot(delta.x,delta.y) <= 4) return;
+    self.dragged = YES;
+    [self highlight:NO];
+    // Absolute desktop coordinates avoid feedback as this button's own window
+    // moves. Existing move observers keep the status and all task cards attached.
+    [self.dragWindow setFrameOrigin:NSMakePoint(self.downOrigin.x+delta.x,self.downOrigin.y+delta.y)];
+}
+- (void)mouseUp:(NSEvent *)event {
+    if (!self.pressed) return;
+    NSPoint screen = [event.window convertPointToScreen:event.locationInWindow];
+    NSPoint local = [self convertPoint:[self.window convertPointFromScreen:screen] fromView:nil];
+    BOOL click = !self.dragged && NSPointInRect(local,self.bounds);
+    self.pressed = NO;
+    self.dragWindow = nil;
+    [self highlight:NO];
+    if (click) [self sendAction:self.action to:self.target];
+}
+- (void)viewWillMoveToWindow:(NSWindow *)window {
+    if (!window) { self.pressed=NO; self.dragWindow=nil; [self highlight:NO]; }
+    [super viewWillMoveToWindow:window];
+}
+@end
+
 @interface FishStatusOverlay : NSView
 @property(nonatomic, strong) NSView *pill;
 @property(nonatomic, strong) NSVisualEffectView *backdrop;
@@ -80,7 +126,7 @@ static void EnsureTaskPanel(void);
     self.caption.selectable = NO;
     self.caption.accessibilityLabel = @"桌宠状态";
     [self.content addSubview:self.caption];
-    self.disclosureButton = [[FishTaskButton alloc] initWithFrame:NSZeroRect];
+    self.disclosureButton = [[FishStatusDragButton alloc] initWithFrame:NSZeroRect];
     self.disclosureButton.bordered = NO;
     self.disclosureButton.imagePosition = NSImageOnly;
     self.disclosureButton.contentTintColor = NSColor.labelColor;
@@ -88,13 +134,13 @@ static void EnsureTaskPanel(void);
     self.disclosureButton.action = @selector(toggleTasks:);
     [self.content addSubview:self.disclosureButton];
     [self updateDisclosure:NO];
-    self.taskButton = [[FishTaskButton alloc] initWithFrame:NSZeroRect];
+    self.taskButton = [[FishStatusDragButton alloc] initWithFrame:NSZeroRect];
     self.taskButton.bordered = NO;
     self.taskButton.transparent = YES;
     self.taskButton.target = self;
     self.taskButton.action = @selector(toggleTasks:);
     self.taskButton.accessibilityLabel = @"查看任务消息";
-    self.taskButton.toolTip = @"查看每个任务的标题和最新消息";
+    self.taskButton.toolTip = @"点击查看任务；拖动移动桌宠";
     [self addSubview:self.taskButton];
     return self;
 }
@@ -109,7 +155,7 @@ static void EnsureTaskPanel(void);
     NSImage *image = [NSImage imageWithSystemSymbolName:expanded ? @"chevron.up" : @"chevron.down" accessibilityDescription:nil];
     self.disclosureButton.image = [image imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
     self.disclosureButton.accessibilityLabel = expanded ? @"收起任务卡片" : @"展开任务卡片";
-    self.disclosureButton.toolTip = expanded ? @"收起为堆叠卡片" : @"展开任务卡片";
+    self.disclosureButton.toolTip = expanded ? @"点击收起卡片；拖动移动桌宠" : @"点击展开卡片；拖动移动桌宠";
 }
 - (void)layout {
     [super layout];
@@ -431,7 +477,7 @@ static void UpdateTaskAccessibility(void) {
     if (taskPanel.visible) [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
     petWindow.accessibilityChildren = children;
     overlay.taskButton.accessibilityLabel = tasksExpanded ? @"收起任务列表" : @"查看任务消息";
-    overlay.taskButton.toolTip = tasksExpanded ? @"收起为堆叠卡片" : @"展开每个任务的标题和最新消息";
+    overlay.taskButton.toolTip = tasksExpanded ? @"点击收起卡片；拖动移动桌宠" : @"点击展开任务消息；拖动移动桌宠";
     [overlay updateDisclosure:tasksExpanded];
 }
 static void EnsureTaskPanel(void) {

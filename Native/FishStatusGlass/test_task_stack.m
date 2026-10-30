@@ -84,6 +84,36 @@ static void CheckCollapsed(NSUInteger count) {
     Require(taskStack.front.titleLabel.frame.size.width==298, @"Title reclaims the space previously reserved for a count");
     Require([petWindow.accessibilityChildren containsObject:taskStack.button] && ![petWindow.accessibilityChildren containsObject:taskScroll], @"Only the stack control is exposed while collapsed");
 }
+static NSEvent *StatusMouse(NSEventType type, NSPoint screen) {
+    return [NSEvent mouseEventWithType:type location:[statusPanel convertPointFromScreen:screen]
+        modifierFlags:0 timestamp:0 windowNumber:statusPanel.windowNumber context:nil
+        eventNumber:1 clickCount:1 pressure:1];
+}
+static void CheckStatusDrag(NSButton *control) {
+    Require([control isKindOfClass:FishStatusDragButton.class], @"Both caption and chevron support dragging");
+    FishStatusDragButton *button=(FishStatusDragButton *)control;
+    NSRect parent=petWindow.frame, status=statusPanel.frame, cards=taskPanel.frame;
+    BOOL expanded=tasksExpanded;
+    NSPoint start=[statusPanel convertPointToScreen:[button convertPoint:NSMakePoint(NSMidX(button.bounds),NSMidY(button.bounds)) toView:nil]];
+    [button mouseDown:StatusMouse(NSEventTypeLeftMouseDown,start)];
+    [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+2,start.y+1))];
+    Require(NSEqualRects(petWindow.frame,parent) && tasksExpanded==expanded, @"Minor pointer jitter neither moves the pet nor toggles before release");
+    [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+40,start.y+20))];
+    [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+65,start.y+35))];
+    [button mouseUp:StatusMouse(NSEventTypeLeftMouseUp,NSMakePoint(start.x+65,start.y+35))];
+    Require(NSEqualRects(petWindow.frame,NSOffsetRect(parent,65,35)), @"Two drag events use absolute desktop delta without cumulative feedback");
+    Require(NSEqualRects(statusPanel.frame,NSOffsetRect(status,65,35)) && NSEqualRects(taskPanel.frame,NSOffsetRect(cards,65,35)), @"Status and collapsed or expanded cards move with the entire pet");
+    Require(tasksExpanded==expanded && !button.pressed && !button.dragWindow, @"Drag release never toggles cards and releases tracking");
+    CheckBelowStatus();
+    [petWindow setFrameOrigin:parent.origin];
+    start=[statusPanel convertPointToScreen:[button convertPoint:NSMakePoint(NSMidX(button.bounds),NSMidY(button.bounds)) toView:nil]];
+    [button mouseDown:StatusMouse(NSEventTypeLeftMouseDown,start)];
+    [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+2,start.y+1))];
+    [button mouseUp:StatusMouse(NSEventTypeLeftMouseUp,NSMakePoint(start.x+2,start.y+1))];
+    Require(tasksExpanded!=expanded && NSEqualRects(petWindow.frame,parent), @"A click with minor jitter still toggles once without moving the pet");
+    [overlay.disclosureButton performClick:nil];
+    Require(tasksExpanded==expanded, @"Accessible or keyboard button activation still toggles normally");
+}
 int main(void) { @autoreleasepool {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyProhibited];
     NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(920,450,312,416)
@@ -129,6 +159,11 @@ int main(void) { @autoreleasepool {
         windowNumber:window.windowNumber context:nil eventNumber:1 clickCount:1 pressure:1];
     [NSApp sendEvent:event];
     CheckCollapsed(64);
+    CheckStatusDrag(overlay.taskButton);
+    [overlay.disclosureButton performClick:nil];
+    CheckStatusDrag(overlay.disclosureButton);
+    [overlay.disclosureButton performClick:nil];
+    CheckCollapsed(64);
     Require(!taskPanel.canBecomeKeyWindow && !taskPanel.canBecomeMainWindow && NSApp.keyWindow==keyWindow, @"Task UI never steals keyboard focus");
     Require(NSEqualRects(window.frame,parentFrame) && NSEqualRects(statusPanel.frame,capsuleFrame), @"Avatar window and original status capsule geometry unchanged");
     // A low placement must move the group up, not clip the list or shrink the
@@ -158,6 +193,6 @@ int main(void) { @autoreleasepool {
     FishGlassStatusDestroy();
     Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
     [window orderOut:nil];
-    NSLog(@"PASS: below-status stack0/1/2/3/6/64, no dot, native chevron toggle/hit/AX, screen-edge fit without pet resizing, click expand, outside collapse, live preview, scroll, focus, Regular glass/half-pixel edges, hide, empty, cleanup");
+    NSLog(@"PASS: status caption/chevron drag, absolute delta and attached panels, jitter/click discrimination, no drag toggle or focus theft; below-status stack0/1/2/3/6/64, screen-edge fit without pet resizing, expand/outside collapse/live preview/scroll/Regular glass/half-pixel edges/hide/empty/cleanup");
     return 0;
 } }

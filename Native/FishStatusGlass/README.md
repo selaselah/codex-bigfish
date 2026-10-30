@@ -58,7 +58,10 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 | 折叠按钮 | 右侧原生 SF Symbol `chevron.down` / `chevron.up`，12 pt Semibold；24 × 24 pt 点击区域，右侧留 12 pt |
 | 自适应宽度 | 文字单元的 `cellSize.width`（包含原生内部留白）加 60 pt 后向上对齐到偶数点宽，为左右留白和箭头保留空间，并使窗口像素取整后的卡片中心一致；不小于 140 pt |
 | 点击范围 | 完整胶囊，不随玻璃半像素内缩而缩小 |
+| 拖动 | 按住状态文字或箭头拖动，移动整个角色窗口及附属卡片；鼠标位移超过 4 pt 后进入拖动，松手不切换展开状态 |
 | 既有容器阴影 | 作者参数 opacity .12、radius 4、offset (0, -1.5)；系统合成后的表现可能调整 |
+
+状态条的文字区域和箭头均使用 `FishStatusDragButton`：保存按下时的屏幕坐标和角色窗口起点，后续通过绝对屏幕位移移动父窗口，避免附属窗口跟随移动后产生累积偏移。未超过 4 pt 且在原控件内松手才发送原有点击动作；`performClick:`／无障碍按钮操作仍正常。窗口移动观察器同步状态条、堆叠和展开列表，沿用屏幕底部留白规则。拖动不取得键盘焦点，也不修改任务快照。
 
 状态条和卡片继续直接使用 Regular 玻璃；新增按钮不会叠加 HUD 或自制模糊底层。胶囊仍高 40 pt，宽度按新内容排布自适应，角色窗口大小和相机保持。
 
@@ -133,7 +136,7 @@ work/glass-check/task-stack-test
 python3 Native/FishStatusGlass/build.py
 ```
 
-原生测试覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无活动圆点／可见卡片计数、右侧按钮命中和状态、短状态文字完整显示、状态条下方居中布局、屏幕底部／侧边留白与角色尺寸保持、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
+原生测试覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无活动圆点／可见卡片计数、右侧按钮命中和状态、文字／箭头拖动时整组窗口位移、轻微抖动与点击区分／松手不误展开、短状态文字完整显示、状态条下方居中布局、屏幕底部／侧边留白与角色尺寸保持、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
 
 `build.py` 为 arm64 构建插件，最低部署目标为 macOS 12；Liquid Glass 分支要求 macOS 26。脚本按 `FishGlassStatus.m` 与自身内容生成指纹，签名并验证插件。仅编译原生插件不会更新已经运行的应用；还须构建应用并重启对应进程。先将 `UNITY_EDITOR_PATH` 指向本机 Unity 2022.3.22f1 的可执行文件：
 
@@ -159,8 +162,9 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | `30415c0`（199） | 收窄至 330×56、去掉可见计数；此版 Material-like 质感随后被否决 |
 | `4371f88`（200） | 用户确认的任务卡片纯原生 Regular 配置 |
 | `96bd0b8`（201） | 状态条也统一为纯原生 Regular，并加入本文档 |
-| 本文档对应源码（202） | 卡片移到状态条下方，去掉活动圆点，加入可见折叠按钮；保留材料和半像素修复 |
+| `0869040`（202） | 卡片移到状态条下方，去掉活动圆点，加入可见折叠按钮；保留材料和半像素修复 |
+| 本文档对应源码（203） | 拖动状态条文字或箭头可移动整个宠物；保留点击折叠、展开 |
 
-本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`；`work/` 不入库，本文及上方两张固定示例图不依赖这些本机记录即可阅读。
+本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`；`work/` 不入库，本文及上方两张固定示例图不依赖这些本机记录即可阅读。
 
 官方原理参考：[NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)、[Build an AppKit app with the new design](https://developer.apple.com/videos/play/wwdc2025/310/)。实现和验证范围以当前源码、原生测试及上述记录为准，不宣称精确复刻 Mini 或覆盖全部系统版本、壁纸和缩放组合。
