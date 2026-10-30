@@ -8,6 +8,7 @@ static atomic_int ready = 0;
 static void ToggleTasks(void);
 static void LayoutTasks(void);
 static void UpdateTaskAccessibility(void);
+static void EnsureTaskPanel(void);
 
 @interface FishTaskButton : NSButton
 @end
@@ -168,7 +169,7 @@ static NSScrollView *taskScroll;
 static NSView *taskDocument;
 static NSMutableDictionary *taskRows;
 static NSArray<NSDictionary *> *taskData;
-static BOOL tasksVisible = NO;
+static BOOL tasksExpanded = NO;
 static id outsideClickMonitor;
 static id localClickMonitor;
 static NSArray *originalAccessibilityChildren;
@@ -236,14 +237,81 @@ static NSArray *originalAccessibilityChildren;
 }
 - (void)openTask:(id)sender {
     if (![[NSUUID alloc] initWithUUIDString:self.sessionID]) return;
-    tasksVisible = NO;
-    [taskPanel orderOut:nil];
-    UpdateTaskAccessibility();
+    tasksExpanded = NO;
+    LayoutTasks();
     // Official local-chat deep link; opening never sends a message.
     NSURL *url = [NSURL URLWithString:[@"codex://threads/" stringByAppendingString:self.sessionID]];
     [NSWorkspace.sharedWorkspace openURL:url];
 }
 @end
+
+@interface FishTaskStack : NSView
+@property(nonatomic, strong) FishTaskRow *front;
+@property(nonatomic, strong) NSArray<FishTaskRow *> *backs;
+@property(nonatomic, strong) NSTextField *countLabel;
+@property(nonatomic, strong) NSButton *button;
+@property(nonatomic) NSUInteger count;
+- (void)updateTasks:(NSArray<NSDictionary *> *)tasks;
+@end
+@implementation FishTaskStack
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self = [super initWithFrame:frame])) return nil;
+    NSMutableArray *backs = [NSMutableArray new];
+    // Farthest card first: the two native-glass edges peek below the front.
+    for (NSUInteger i=0; i<2; i++) {
+        FishTaskRow *row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,340,58)];
+        row.button.hidden = YES;
+        row.accessibilityHidden = YES;
+        [self addSubview:row];
+        [backs addObject:row];
+    }
+    self.backs = backs;
+    self.front = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,8,340,58)];
+    self.front.button.hidden = YES;
+    self.front.accessibilityHidden = YES;
+    self.front.titleLabel.frame = NSMakeRect(18,31,260,18);
+    [self addSubview:self.front];
+    self.countLabel = [NSTextField labelWithString:@""];
+    self.countLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+    self.countLabel.textColor = NSColor.secondaryLabelColor;
+    self.countLabel.alignment = NSTextAlignmentRight;
+    self.countLabel.accessibilityHidden = YES;
+    [self addSubview:self.countLabel];
+    self.button = [[FishTaskButton alloc] initWithFrame:self.bounds];
+    self.button.bordered = NO;
+    self.button.transparent = YES;
+    self.button.target = self;
+    self.button.action = @selector(expandTasks:);
+    [self addSubview:self.button];
+    self.accessibilityChildren = @[self.button];
+    return self;
+}
+- (void)expandTasks:(id)sender { if (!tasksExpanded) ToggleTasks(); }
+- (void)updateTasks:(NSArray<NSDictionary *> *)tasks {
+    self.count = tasks.count;
+    [self.front updateTask:tasks.firstObject ?: @{}];
+    self.countLabel.stringValue = [NSString stringWithFormat:@"%lu 项",(unsigned long)self.count];
+    self.button.accessibilityLabel = [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
+    self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",self.front.titleLabel.stringValue,self.front.messageLabel.stringValue];
+    self.button.toolTip = [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,self.front.button.toolTip];
+    self.needsLayout = YES;
+}
+- (void)layout {
+    [super layout];
+    NSUInteger layers = MIN(MAX(self.count,1),3);
+    CGFloat frontY = 8 + (layers-1)*6;
+    for (NSUInteger i=0; i<self.backs.count; i++) {
+        NSUInteger depth = 2-i;
+        FishTaskRow *back = self.backs[i];
+        back.hidden = depth >= layers;
+        back.frame = NSMakeRect(10+depth*8,frontY-depth*6,340-depth*16,58);
+    }
+    self.front.frame = NSMakeRect(10,frontY,340,58);
+    self.countLabel.frame = NSMakeRect(294,frontY+32,38,16);
+    self.button.frame = self.bounds;
+}
+@end
+static FishTaskStack *taskStack;
 
 static NSPanel *NewTaskPanel(void) {
     Class cls = FishPassiveStatusPanel.class;
@@ -280,6 +348,7 @@ static void UpdateTaskRows(void) {
     for (NSString *key in [taskRows.allKeys copy]) if (![keep containsObject:key]) {
         [taskRows[key] removeFromSuperview]; [taskRows removeObjectForKey:key];
     }
+    [taskStack updateTasks:taskData];
     LayoutTasks();
     [taskScroll.contentView scrollToPoint:NSMakePoint(0, MAX(0, height-taskScroll.contentView.bounds.size.height-distanceFromTop))];
     [taskScroll reflectScrolledClipView:taskScroll.contentView];
@@ -287,14 +356,19 @@ static void UpdateTaskRows(void) {
 }
 static void LayoutTasks(void) {
     if (!taskPanel || !petWindow) return;
-    if (!tasksVisible || !wantsVisible || !petWindow.visible || petWindow.miniaturized) { [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return; }
+    if ((!taskData.count && !tasksExpanded) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) { [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return; }
     NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
-    CGFloat height = MIN(342, MAX(78, (taskData.count ?: 1)*66+12));
+    CGFloat height = tasksExpanded ? MIN(342, MAX(78, (taskData.count ?: 1)*66+12)) : 74+(MIN(taskData.count,3)-1)*6;
     CGFloat x = NSMinX(petWindow.frame)-366;
     if (x < NSMinX(screen)+8) x=MIN(NSMaxX(petWindow.frame)+6,NSMaxX(screen)-368);
     CGFloat y = MIN(MAX(NSMinY(statusPanel.frame)+5,NSMinY(screen)+8),NSMaxY(screen)-height-8);
     [taskPanel setFrame:NSMakeRect(MAX(NSMinX(screen)+8,x),y,360,height) display:YES];
-    taskScroll.frame = taskPanel.contentView.bounds;
+    taskScroll.hidden = !tasksExpanded;
+    taskStack.hidden = tasksExpanded;
+    // Keep the hidden scroll viewport intact so collapsing/live updates do not
+    // discard the user's distance from the top of the expanded list.
+    if (tasksExpanded) taskScroll.frame = taskPanel.contentView.bounds;
+    else { taskStack.frame = taskPanel.contentView.bounds; [taskStack layoutSubtreeIfNeeded]; }
     taskPanel.level = petWindow.level;
     taskPanel.collectionBehavior = petWindow.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
     if (taskPanel.parentWindow != petWindow) [petWindow addChildWindow:taskPanel ordered:NSWindowAbove];
@@ -307,13 +381,15 @@ static void UpdateTaskAccessibility(void) {
     // Keep passive child-window controls reachable from the pet's main window
     // for VoiceOver and accessibility clients without taking keyboard focus.
     if (statusPanel.visible) [children addObject:overlay.taskButton];
-    if (taskPanel.visible) [children addObject:taskScroll];
+    if (taskPanel.visible) [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
     petWindow.accessibilityChildren = children;
+    overlay.taskButton.accessibilityLabel = tasksExpanded ? @"收起任务列表" : @"查看任务消息";
+    overlay.taskButton.toolTip = tasksExpanded ? @"收起为堆叠卡片" : @"展开每个任务的标题和最新消息";
 }
-static void ToggleTasks(void) {
+static void EnsureTaskPanel(void) {
     if (!taskPanel) {
         taskPanel = NewTaskPanel();
-        taskScroll = [[NSScrollView alloc] initWithFrame:taskPanel.contentView.bounds];
+        taskScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,360,342)];
         taskScroll.drawsBackground = NO;
         taskScroll.hasVerticalScroller = YES;
         taskScroll.autohidesScrollers = YES;
@@ -323,8 +399,13 @@ static void ToggleTasks(void) {
         taskScroll.documentView = taskDocument;
         [taskPanel.contentView addSubview:taskScroll];
         taskRows = [NSMutableDictionary new];
+        taskStack = [[FishTaskStack alloc] initWithFrame:taskPanel.contentView.bounds];
+        [taskPanel.contentView addSubview:taskStack];
     }
-    tasksVisible = !tasksVisible;
+}
+static void ToggleTasks(void) {
+    EnsureTaskPanel();
+    tasksExpanded = !tasksExpanded;
     UpdateTaskRows();
 }
 static BOOL IsInsideStatus(NSPoint point) {
@@ -397,9 +478,9 @@ static void InstallObservers(void) {
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     void (^outsideClick)(NSEvent *) = ^(NSEvent *event) {
         NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
-        if (tasksVisible && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
-            tasksVisible=NO; [taskPanel orderOut:nil];
-            UpdateTaskAccessibility();
+        if (tasksExpanded && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
+            tasksExpanded=NO;
+            LayoutTasks();
         }
     };
     outsideClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:outsideClick];
@@ -474,7 +555,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
     return atomic_load(&ready);
 }
 FISH_EXPORT void FishGlassStatusSetVisible(int visible) {
-    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) tasksVisible=NO; LayoutStatus(); });
+    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) tasksExpanded=NO; LayoutStatus(); });
 }
 FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
@@ -500,10 +581,10 @@ FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
         [tasks addObject:safe]; [seen addObject:sid];
         if (tasks.count>=64) break;
     }
-    OnMain(^{ if (![taskData isEqualToArray:tasks]) { taskData=[tasks copy]; UpdateTaskRows(); } });
+    OnMain(^{ if (![taskData isEqualToArray:tasks]) { taskData=[tasks copy]; if (taskData.count) EnsureTaskPanel(); UpdateTaskRows(); } });
 }
 FISH_EXPORT void FishGlassStatusShowTasks(void) {
-    OnMain(^{ tasksVisible=NO; ToggleTasks(); RefreshActiveAppearance(); });
+    OnMain(^{ tasksExpanded=NO; ToggleTasks(); RefreshActiveAppearance(); });
 }
 FISH_EXPORT void FishGlassStatusDestroy(void) {
     OnMain(^{
@@ -511,7 +592,7 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskRows=nil; taskData=nil; tasksVisible=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
         observers = nil;
         [petWindow removeChildWindow:statusPanel];
