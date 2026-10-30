@@ -167,6 +167,7 @@ static BOOL refreshingAppearance = NO;
 static NSPanel *taskPanel;
 static NSScrollView *taskScroll;
 static NSView *taskDocument;
+static NSView *taskListSurface;
 static NSMutableDictionary *taskRows;
 static NSArray<NSDictionary *> *taskData;
 static BOOL tasksExpanded = NO;
@@ -195,31 +196,34 @@ static const CGFloat TaskListMaxHeight = 332;
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.wantsLayer = YES;
-    NSVisualEffectView *backdrop = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
-    backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    backdrop.material = NSVisualEffectMaterialHUDWindow;
-    backdrop.state = NSVisualEffectStateActive;
-    backdrop.wantsLayer = YES;
-    backdrop.layer.cornerRadius = TaskCardHeight/2;
-    backdrop.layer.masksToBounds = YES;
-    self.backdrop = backdrop;
-    [self addSubview:backdrop];
     NSView *content = [[NSView alloc] initWithFrame:self.bounds];
     self.content = content;
     if (@available(macOS 26.0, *)) {
         NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:self.bounds];
         glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        glass.style = NSGlassEffectViewStyleClear;
+        // Let AppKit render the complete adaptive lens and its content. A
+        // separate HUD material washes out the glass instead of replacing it.
+        glass.style = NSGlassEffectViewStyleRegular;
         glass.cornerRadius = TaskCardHeight/2;
         glass.contentView = content;
         self.glass = glass;
         self.liquidGlass = YES;
-        // Clear Glass supplies the native lens; use only a light HUD backing
-        // so the desktop remains visible through these larger task cards.
-        backdrop.alphaValue = .18;
         [self addSubview:glass];
-    } else { self.glass = backdrop; [backdrop addSubview:content]; }
+    } else {
+        // Older systems retain vibrancy as an explicit compatibility fallback.
+        NSVisualEffectView *backdrop = [[NSVisualEffectView alloc] initWithFrame:self.bounds];
+        backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+        backdrop.material = NSVisualEffectMaterialHUDWindow;
+        backdrop.state = NSVisualEffectStateActive;
+        backdrop.wantsLayer = YES;
+        backdrop.layer.cornerRadius = TaskCardHeight/2;
+        backdrop.layer.masksToBounds = YES;
+        self.backdrop = backdrop;
+        self.glass = backdrop;
+        [self addSubview:backdrop];
+        [backdrop addSubview:content];
+    }
     self.titleLabel = [NSTextField labelWithString:@""];
     self.titleLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
     self.titleLabel.textColor = NSColor.labelColor;
@@ -363,7 +367,8 @@ static void UpdateTaskRows(void) {
     CGFloat distanceFromTop = MAX(0, taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
     NSArray *items = taskData.count ? taskData : @[@{@"session_id":@"", @"title":@"暂无进行中的任务", @"summary":@"新的任务开始后会显示在这里"}];
     CGFloat height = items.count * TaskRowStep + 12;
-    taskDocument.frame = NSMakeRect(0,0,TaskPanelWidth,height);
+    taskListSurface.frame = NSMakeRect(0,0,TaskPanelWidth,height);
+    taskDocument.frame = taskListSurface.bounds;
     NSMutableSet *keep = [NSMutableSet new];
     for (NSUInteger i=0; i<items.count; i++) {
         NSDictionary *item = items[i];
@@ -425,7 +430,16 @@ static void EnsureTaskPanel(void) {
         taskScroll.scrollerStyle = NSScrollerStyleOverlay;
         taskScroll.contentView.drawsBackground = NO;
         taskDocument = [[NSView alloc] initWithFrame:NSMakeRect(0,0,TaskPanelWidth,TaskRowStep+12)];
-        taskScroll.documentView = taskDocument;
+        if (@available(macOS 26.0, *)) {
+            // Expanded cards share background sampling without merging across
+            // their gaps. Keep the overlapping stack outside this container:
+            // merging its silhouettes would erase the separate card edges.
+            NSGlassEffectContainerView *group = [[NSGlassEffectContainerView alloc] initWithFrame:taskDocument.frame];
+            group.spacing = 0;
+            group.contentView = taskDocument;
+            taskListSurface = group;
+        } else taskListSurface = taskDocument;
+        taskScroll.documentView = taskListSurface;
         [taskPanel.contentView addSubview:taskScroll];
         taskRows = [NSMutableDictionary new];
         taskStack = [[FishTaskStack alloc] initWithFrame:taskPanel.contentView.bounds];
@@ -621,7 +635,7 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
         observers = nil;
         [petWindow removeChildWindow:statusPanel];

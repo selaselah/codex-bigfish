@@ -22,8 +22,11 @@ static void CheckRowEdges(FishTaskRow *row) {
         Require(fabs(NSMinX(row.glass.frame)*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Left glass edge keeps half a backing pixel inside the row");
         Require(fabs((NSMaxX(row.bounds)-NSMaxX(row.glass.frame))*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Right glass edge keeps the same half-pixel margin");
         NSGlassEffectView *glass=(NSGlassEffectView *)row.glass;
-        Require(glass.style==NSGlassEffectViewStyleClear && !glass.tintColor && glass.cornerRadius==28, @"Native Clear Glass matches the slimmer capsule");
-        Require(row.backdrop.state==NSVisualEffectStateActive && row.backdrop.alphaValue==.18, @"Light active backing leaves the desktop visible");
+        Require(glass.style==NSGlassEffectViewStyleRegular && !glass.tintColor && glass.cornerRadius==28, @"Native Regular Liquid Glass matches the slimmer capsule");
+        // AppKit can render this view without exposing a CALayer.
+        Require(!row.backdrop && glass.alphaValue==1 && (!glass.layer || glass.layer.opacity==1), @"Direct system glass has no extra HUD backing or opacity override");
+        Require(glass.contentView==row.content, @"Text receives the native glass content treatment");
+        for (NSView *view in row.subviews) Require(![view isKindOfClass:NSVisualEffectView.class], @"No legacy material sibling on the Liquid Glass path");
     }
     Require(fabs([row convertPoint:NSZeroPoint fromView:row.titleLabel].x-16)<1e-6 && fabs([row convertPoint:NSZeroPoint fromView:row.messageLabel].x-16)<1e-6, @"Half-pixel compensation preserves the compact16pt text inset");
     Require(NSEqualRects(row.button.frame,row.bounds), @"Hit target keeps the full original card bounds");
@@ -67,6 +70,12 @@ int main(void) { @autoreleasepool {
     [taskStack.button performClick:nil];
     Require(tasksExpanded && taskStack.hidden && !taskScroll.hidden, @"Click stack to expand");
     Require(taskPanel.frame.size.height==332 && taskRows.count==64, @"Scrollable expanded list retains every task");
+    if (@available(macOS 26.0, *)) {
+        Require([taskScroll.documentView isKindOfClass:NSGlassEffectContainerView.class], @"Expanded cards share native glass sampling");
+        NSGlassEffectContainerView *group=(NSGlassEffectContainerView *)taskScroll.documentView;
+        Require(group.contentView==taskDocument && group.spacing==0, @"Batch sampling preserves the separate expanded card gaps");
+    }
+    Require(NSEqualRects(taskListSurface.bounds,taskDocument.frame), @"Glass sampling surface follows the full scroll document");
     for (FishTaskRow *row in taskRows.allValues) CheckRowEdges(row);
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
     CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;
@@ -97,7 +106,7 @@ int main(void) { @autoreleasepool {
     ToggleTasks();
     CheckCollapsed(0);
     FishGlassStatusDestroy();
-    Require(!taskPanel && !taskStack && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
+    Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
     [window orderOut:nil];
     NSLog(@"PASS: default stack0/1/2/3/6/64, click expand, outside collapse, live preview, scroll, AX, focus, geometry, glass edge alignment, fixed text/hit targets, hide, empty, cleanup");
     return 0;
