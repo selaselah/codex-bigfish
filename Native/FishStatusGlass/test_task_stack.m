@@ -22,10 +22,10 @@ static void CheckRowEdges(FishTaskRow *row) {
         Require(fabs(NSMinX(row.glass.frame)*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Left glass edge keeps half a backing pixel inside the row");
         Require(fabs((NSMaxX(row.bounds)-NSMaxX(row.glass.frame))*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Right glass edge keeps the same half-pixel margin");
         NSGlassEffectView *glass=(NSGlassEffectView *)row.glass;
-        Require(glass.style==NSGlassEffectViewStyleClear && !glass.tintColor && glass.cornerRadius==29, @"Original native glass material and radius retained");
-        Require(row.backdrop.state==NSVisualEffectStateActive && row.backdrop.alphaValue==.58, @"Active HUD backing retained");
+        Require(glass.style==NSGlassEffectViewStyleClear && !glass.tintColor && glass.cornerRadius==28, @"Native Clear Glass matches the slimmer capsule");
+        Require(row.backdrop.state==NSVisualEffectStateActive && row.backdrop.alphaValue==.18, @"Light active backing leaves the desktop visible");
     }
-    Require(fabs([row convertPoint:NSZeroPoint fromView:row.titleLabel].x-18)<1e-6 && fabs([row convertPoint:NSZeroPoint fromView:row.messageLabel].x-18)<1e-6, @"Text stays at its original row coordinates");
+    Require(fabs([row convertPoint:NSZeroPoint fromView:row.titleLabel].x-16)<1e-6 && fabs([row convertPoint:NSZeroPoint fromView:row.messageLabel].x-16)<1e-6, @"Half-pixel compensation preserves the compact16pt text inset");
     Require(NSEqualRects(row.button.frame,row.bounds), @"Hit target keeps the full original card bounds");
 }
 static void CheckCollapsed(NSUInteger count) {
@@ -33,8 +33,10 @@ static void CheckCollapsed(NSUInteger count) {
     Require(taskPanel.visible == (count>0), @"Collapsed stack visibility follows the task count");
     if (!count) return;
     Require(taskScroll.hidden && !taskStack.hidden, @"Collapsed content selection");
-    Require(taskPanel.frame.size.height == 74+(MIN(count,3)-1)*6, @"Compact stack height");
-    Require([taskStack.countLabel.stringValue isEqualToString:[NSString stringWithFormat:@"%lu 项",(unsigned long)count]], @"Actual count, including counts above three");
+    Require(taskPanel.frame.size.width==350 && taskPanel.frame.size.height == 72+(MIN(count,3)-1)*6, @"Slimmer stack canvas");
+    Require(taskStack.front.frame.size.width==330 && taskStack.front.frame.size.height==56, @"Slimmer330x56pt task card");
+    for (NSView *child in taskStack.subviews) Require(![child isKindOfClass:NSTextField.class], @"No separate visual task count");
+    Require([taskStack.button.accessibilityLabel containsString:[NSString stringWithFormat:@"%lu 项",(unsigned long)count]], @"Task count remains available to VoiceOver");
     NSUInteger backs=0;
     for (NSView *back in taskStack.backs) if (!back.hidden) {
         backs++;
@@ -44,7 +46,7 @@ static void CheckCollapsed(NSUInteger count) {
     Require(backs==MIN(count-1,2), @"At most two backing cards");
     Require(NSContainsRect(taskStack.bounds,taskStack.front.frame), @"Front card is not clipped");
     CheckRowEdges(taskStack.front);
-    Require(taskStack.front.titleLabel.frame.size.width==260, @"Stack title preserves space for the task count");
+    Require(taskStack.front.titleLabel.frame.size.width==298, @"Title reclaims the space previously reserved for a count");
     Require([petWindow.accessibilityChildren containsObject:taskStack.button] && ![petWindow.accessibilityChildren containsObject:taskScroll], @"Only the stack control is exposed while collapsed");
 }
 int main(void) { @autoreleasepool {
@@ -64,7 +66,7 @@ int main(void) { @autoreleasepool {
     }
     [taskStack.button performClick:nil];
     Require(tasksExpanded && taskStack.hidden && !taskScroll.hidden, @"Click stack to expand");
-    Require(taskPanel.frame.size.height==342 && taskRows.count==64, @"Scrollable expanded list retains every task");
+    Require(taskPanel.frame.size.height==332 && taskRows.count==64, @"Scrollable expanded list retains every task");
     for (FishTaskRow *row in taskRows.allValues) CheckRowEdges(row);
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
     CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;

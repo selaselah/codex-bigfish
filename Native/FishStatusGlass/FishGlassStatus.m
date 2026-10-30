@@ -174,6 +174,12 @@ static id outsideClickMonitor;
 static id localClickMonitor;
 static NSArray *originalAccessibilityChildren;
 
+static const CGFloat TaskCardWidth = 330;
+static const CGFloat TaskCardHeight = 56;
+static const CGFloat TaskPanelWidth = 350;
+static const CGFloat TaskRowStep = 64;
+static const CGFloat TaskListMaxHeight = 332;
+
 @interface FishTaskRow : NSView
 @property(nonatomic, strong) NSVisualEffectView *backdrop;
 @property(nonatomic, strong) NSView *glass;
@@ -195,7 +201,7 @@ static NSArray *originalAccessibilityChildren;
     backdrop.material = NSVisualEffectMaterialHUDWindow;
     backdrop.state = NSVisualEffectStateActive;
     backdrop.wantsLayer = YES;
-    backdrop.layer.cornerRadius = 29;
+    backdrop.layer.cornerRadius = TaskCardHeight/2;
     backdrop.layer.masksToBounds = YES;
     self.backdrop = backdrop;
     [self addSubview:backdrop];
@@ -205,21 +211,23 @@ static NSArray *originalAccessibilityChildren;
         NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:self.bounds];
         glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         glass.style = NSGlassEffectViewStyleClear;
-        glass.cornerRadius = 29;
+        glass.cornerRadius = TaskCardHeight/2;
         glass.contentView = content;
         self.glass = glass;
         self.liquidGlass = YES;
-        backdrop.alphaValue = .58;
+        // Clear Glass supplies the native lens; use only a light HUD backing
+        // so the desktop remains visible through these larger task cards.
+        backdrop.alphaValue = .18;
         [self addSubview:glass];
     } else { self.glass = backdrop; [backdrop addSubview:content]; }
     self.titleLabel = [NSTextField labelWithString:@""];
     self.titleLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
     self.titleLabel.textColor = NSColor.labelColor;
-    self.titleLabel.frame = NSMakeRect(18, 31, frame.size.width-36, 18);
+    self.titleLabel.frame = NSMakeRect(16, 28, frame.size.width-32, 18);
     self.messageLabel = [NSTextField labelWithString:@""];
     self.messageLabel.font = [NSFont systemFontOfSize:12 weight:NSFontWeightRegular];
     self.messageLabel.textColor = NSColor.secondaryLabelColor;
-    self.messageLabel.frame = NSMakeRect(18, 12, frame.size.width-36, 17);
+    self.messageLabel.frame = NSMakeRect(16, 10, frame.size.width-32, 17);
     for (NSTextField *label in @[self.titleLabel, self.messageLabel]) {
         label.maximumNumberOfLines = 1;
         label.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -251,7 +259,7 @@ static NSArray *originalAccessibilityChildren;
     self.content.frame = NSMakeRect(0,0,self.bounds.size.width-2*edgeInset,self.bounds.size.height);
     NSRect title = self.titleLabel.frame;
     NSRect message = self.messageLabel.frame;
-    title.origin.x = message.origin.x = 18-edgeInset;
+    title.origin.x = message.origin.x = 16-edgeInset;
     self.titleLabel.frame = title;
     self.messageLabel.frame = message;
     self.button.frame = self.bounds;
@@ -279,7 +287,6 @@ static NSArray *originalAccessibilityChildren;
 @interface FishTaskStack : NSView
 @property(nonatomic, strong) FishTaskRow *front;
 @property(nonatomic, strong) NSArray<FishTaskRow *> *backs;
-@property(nonatomic, strong) NSTextField *countLabel;
 @property(nonatomic, strong) NSButton *button;
 @property(nonatomic) NSUInteger count;
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks;
@@ -290,24 +297,17 @@ static NSArray *originalAccessibilityChildren;
     NSMutableArray *backs = [NSMutableArray new];
     // Farthest card first: the two native-glass edges peek below the front.
     for (NSUInteger i=0; i<2; i++) {
-        FishTaskRow *row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,340,58)];
+        FishTaskRow *row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,TaskCardWidth,TaskCardHeight)];
         row.button.hidden = YES;
         row.accessibilityHidden = YES;
         [self addSubview:row];
         [backs addObject:row];
     }
     self.backs = backs;
-    self.front = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,8,340,58)];
+    self.front = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,8,TaskCardWidth,TaskCardHeight)];
     self.front.button.hidden = YES;
     self.front.accessibilityHidden = YES;
-    self.front.titleLabel.frame = NSMakeRect(18,31,260,18);
     [self addSubview:self.front];
-    self.countLabel = [NSTextField labelWithString:@""];
-    self.countLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
-    self.countLabel.textColor = NSColor.secondaryLabelColor;
-    self.countLabel.alignment = NSTextAlignmentRight;
-    self.countLabel.accessibilityHidden = YES;
-    [self addSubview:self.countLabel];
     self.button = [[FishTaskButton alloc] initWithFrame:self.bounds];
     self.button.bordered = NO;
     self.button.transparent = YES;
@@ -321,7 +321,6 @@ static NSArray *originalAccessibilityChildren;
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks {
     self.count = tasks.count;
     [self.front updateTask:tasks.firstObject ?: @{}];
-    self.countLabel.stringValue = [NSString stringWithFormat:@"%lu 项",(unsigned long)self.count];
     self.button.accessibilityLabel = [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
     self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",self.front.titleLabel.stringValue,self.front.messageLabel.stringValue];
     self.button.toolTip = [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,self.front.button.toolTip];
@@ -335,10 +334,9 @@ static NSArray *originalAccessibilityChildren;
         NSUInteger depth = 2-i;
         FishTaskRow *back = self.backs[i];
         back.hidden = depth >= layers;
-        back.frame = NSMakeRect(10+depth*8,frontY-depth*6,340-depth*16,58);
+        back.frame = NSMakeRect(10+depth*8,frontY-depth*6,TaskCardWidth-depth*16,TaskCardHeight);
     }
-    self.front.frame = NSMakeRect(10,frontY,340,58);
-    self.countLabel.frame = NSMakeRect(294,frontY+32,38,16);
+    self.front.frame = NSMakeRect(10,frontY,TaskCardWidth,TaskCardHeight);
     self.button.frame = self.bounds;
 }
 @end
@@ -347,7 +345,7 @@ static FishTaskStack *taskStack;
 static NSPanel *NewTaskPanel(void) {
     Class cls = FishPassiveStatusPanel.class;
     if (@available(macOS 26.0, *)) cls = FishActiveStatusPanel.class;
-    NSPanel *panel = [[cls alloc] initWithContentRect:NSMakeRect(0,0,360,84)
+    NSPanel *panel = [[cls alloc] initWithContentRect:NSMakeRect(0,0,TaskPanelWidth,TaskCardHeight+28)
         styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
         backing:NSBackingStoreBuffered defer:NO];
     panel.title = @"任务消息";
@@ -364,16 +362,16 @@ static void UpdateTaskRows(void) {
     if (!taskPanel) return;
     CGFloat distanceFromTop = MAX(0, taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
     NSArray *items = taskData.count ? taskData : @[@{@"session_id":@"", @"title":@"暂无进行中的任务", @"summary":@"新的任务开始后会显示在这里"}];
-    CGFloat height = items.count * 66 + 12;
-    taskDocument.frame = NSMakeRect(0,0,360,height);
+    CGFloat height = items.count * TaskRowStep + 12;
+    taskDocument.frame = NSMakeRect(0,0,TaskPanelWidth,height);
     NSMutableSet *keep = [NSMutableSet new];
     for (NSUInteger i=0; i<items.count; i++) {
         NSDictionary *item = items[i];
         NSString *key = item[@"session_id"] ?: @"";
         [keep addObject:key];
         FishTaskRow *row = taskRows[key];
-        if (!row) { row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,0,340,58)]; taskRows[key]=row; [taskDocument addSubview:row]; }
-        row.frame = NSMakeRect(10,height-8-(i+1)*66,340,58);
+        if (!row) { row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,0,TaskCardWidth,TaskCardHeight)]; taskRows[key]=row; [taskDocument addSubview:row]; }
+        row.frame = NSMakeRect(10,height-8-(i+1)*TaskRowStep,TaskCardWidth,TaskCardHeight);
         [row updateTask:item];
     }
     for (NSString *key in [taskRows.allKeys copy]) if (![keep containsObject:key]) {
@@ -389,11 +387,11 @@ static void LayoutTasks(void) {
     if (!taskPanel || !petWindow) return;
     if ((!taskData.count && !tasksExpanded) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) { [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return; }
     NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
-    CGFloat height = tasksExpanded ? MIN(342, MAX(78, (taskData.count ?: 1)*66+12)) : 74+(MIN(taskData.count,3)-1)*6;
-    CGFloat x = NSMinX(petWindow.frame)-366;
-    if (x < NSMinX(screen)+8) x=MIN(NSMaxX(petWindow.frame)+6,NSMaxX(screen)-368);
+    CGFloat height = tasksExpanded ? MIN(TaskListMaxHeight, MAX(TaskRowStep+12, (taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(taskData.count,3)-1)*6;
+    CGFloat x = NSMinX(petWindow.frame)-TaskPanelWidth-6;
+    if (x < NSMinX(screen)+8) x=MIN(NSMaxX(petWindow.frame)+6,NSMaxX(screen)-TaskPanelWidth-8);
     CGFloat y = MIN(MAX(NSMinY(statusPanel.frame)+5,NSMinY(screen)+8),NSMaxY(screen)-height-8);
-    [taskPanel setFrame:NSMakeRect(MAX(NSMinX(screen)+8,x),y,360,height) display:YES];
+    [taskPanel setFrame:NSMakeRect(MAX(NSMinX(screen)+8,x),y,TaskPanelWidth,height) display:YES];
     taskScroll.hidden = !tasksExpanded;
     taskStack.hidden = tasksExpanded;
     // Keep the hidden scroll viewport intact so collapsing/live updates do not
@@ -420,13 +418,13 @@ static void UpdateTaskAccessibility(void) {
 static void EnsureTaskPanel(void) {
     if (!taskPanel) {
         taskPanel = NewTaskPanel();
-        taskScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,360,342)];
+        taskScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,TaskPanelWidth,TaskListMaxHeight)];
         taskScroll.drawsBackground = NO;
         taskScroll.hasVerticalScroller = YES;
         taskScroll.autohidesScrollers = YES;
         taskScroll.scrollerStyle = NSScrollerStyleOverlay;
         taskScroll.contentView.drawsBackground = NO;
-        taskDocument = [[NSView alloc] initWithFrame:NSMakeRect(0,0,360,78)];
+        taskDocument = [[NSView alloc] initWithFrame:NSMakeRect(0,0,TaskPanelWidth,TaskRowStep+12)];
         taskScroll.documentView = taskDocument;
         [taskPanel.contentView addSubview:taskScroll];
         taskRows = [NSMutableDictionary new];
