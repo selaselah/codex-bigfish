@@ -16,6 +16,18 @@ static void SetTasks(NSUInteger count, NSString *summary) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:@{@"tasks":items} options:0 error:nil];
     FishGlassStatusUpdateTasks([[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
 }
+static void CheckRowEdges(FishTaskRow *row) {
+    [row layoutSubtreeIfNeeded];
+    if (@available(macOS 26.0, *)) {
+        Require(fabs(NSMinX(row.glass.frame)*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Left glass edge keeps half a backing pixel inside the row");
+        Require(fabs((NSMaxX(row.bounds)-NSMaxX(row.glass.frame))*MAX(1,row.window.backingScaleFactor)-.5)<1e-6, @"Right glass edge keeps the same half-pixel margin");
+        NSGlassEffectView *glass=(NSGlassEffectView *)row.glass;
+        Require(glass.style==NSGlassEffectViewStyleClear && !glass.tintColor && glass.cornerRadius==29, @"Original native glass material and radius retained");
+        Require(row.backdrop.state==NSVisualEffectStateActive && row.backdrop.alphaValue==.58, @"Active HUD backing retained");
+    }
+    Require(fabs([row convertPoint:NSZeroPoint fromView:row.titleLabel].x-18)<1e-6 && fabs([row convertPoint:NSZeroPoint fromView:row.messageLabel].x-18)<1e-6, @"Text stays at its original row coordinates");
+    Require(NSEqualRects(row.button.frame,row.bounds), @"Hit target keeps the full original card bounds");
+}
 static void CheckCollapsed(NSUInteger count) {
     Require(!tasksExpanded, @"Data updates must not expand the list");
     Require(taskPanel.visible == (count>0), @"Collapsed stack visibility follows the task count");
@@ -27,9 +39,12 @@ static void CheckCollapsed(NSUInteger count) {
     for (NSView *back in taskStack.backs) if (!back.hidden) {
         backs++;
         Require(NSContainsRect(taskStack.bounds,back.frame), @"Backing card stays inside the window");
+        CheckRowEdges((FishTaskRow *)back);
     }
     Require(backs==MIN(count-1,2), @"At most two backing cards");
     Require(NSContainsRect(taskStack.bounds,taskStack.front.frame), @"Front card is not clipped");
+    CheckRowEdges(taskStack.front);
+    Require(taskStack.front.titleLabel.frame.size.width==260, @"Stack title preserves space for the task count");
     Require([petWindow.accessibilityChildren containsObject:taskStack.button] && ![petWindow.accessibilityChildren containsObject:taskScroll], @"Only the stack control is exposed while collapsed");
 }
 int main(void) { @autoreleasepool {
@@ -50,6 +65,7 @@ int main(void) { @autoreleasepool {
     [taskStack.button performClick:nil];
     Require(tasksExpanded && taskStack.hidden && !taskScroll.hidden, @"Click stack to expand");
     Require(taskPanel.frame.size.height==342 && taskRows.count==64, @"Scrollable expanded list retains every task");
+    for (FishTaskRow *row in taskRows.allValues) CheckRowEdges(row);
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
     CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;
     [taskScroll.contentView scrollToPoint:NSMakePoint(0,top-120)];
@@ -81,6 +97,6 @@ int main(void) { @autoreleasepool {
     FishGlassStatusDestroy();
     Require(!taskPanel && !taskStack && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
     [window orderOut:nil];
-    NSLog(@"PASS: default stack0/1/2/3/6/64, click expand, outside collapse, live preview, scroll, AX, focus, geometry, hide, empty, cleanup");
+    NSLog(@"PASS: default stack0/1/2/3/6/64, click expand, outside collapse, live preview, scroll, AX, focus, geometry, glass edge alignment, fixed text/hit targets, hide, empty, cleanup");
     return 0;
 } }

@@ -175,6 +175,10 @@ static id localClickMonitor;
 static NSArray *originalAccessibilityChildren;
 
 @interface FishTaskRow : NSView
+@property(nonatomic, strong) NSVisualEffectView *backdrop;
+@property(nonatomic, strong) NSView *glass;
+@property(nonatomic, strong) NSView *content;
+@property(nonatomic) BOOL liquidGlass;
 @property(nonatomic, strong) NSTextField *titleLabel;
 @property(nonatomic, strong) NSTextField *messageLabel;
 @property(nonatomic, strong) NSButton *button;
@@ -193,17 +197,21 @@ static NSArray *originalAccessibilityChildren;
     backdrop.wantsLayer = YES;
     backdrop.layer.cornerRadius = 29;
     backdrop.layer.masksToBounds = YES;
+    self.backdrop = backdrop;
     [self addSubview:backdrop];
     NSView *content = [[NSView alloc] initWithFrame:self.bounds];
+    self.content = content;
     if (@available(macOS 26.0, *)) {
         NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:self.bounds];
         glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         glass.style = NSGlassEffectViewStyleClear;
         glass.cornerRadius = 29;
         glass.contentView = content;
+        self.glass = glass;
+        self.liquidGlass = YES;
         backdrop.alphaValue = .58;
         [self addSubview:glass];
-    } else [backdrop addSubview:content];
+    } else { self.glass = backdrop; [backdrop addSubview:content]; }
     self.titleLabel = [NSTextField labelWithString:@""];
     self.titleLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
     self.titleLabel.textColor = NSColor.labelColor;
@@ -224,6 +232,29 @@ static NSArray *originalAccessibilityChildren;
     self.button.action = @selector(openTask:);
     [self addSubview:self.button];
     return self;
+}
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    self.needsLayout = YES;
+}
+- (void)viewDidChangeBackingProperties {
+    [super viewDidChangeBackingProperties];
+    self.needsLayout = YES;
+}
+- (void)layout {
+    [super layout];
+    self.backdrop.frame = self.bounds;
+    // Match the accepted status capsule's half-backing-pixel alignment. Keep
+    // native glass inside the row's edge without moving its text or hit target.
+    CGFloat edgeInset = self.liquidGlass ? .5 / MAX(1,self.window.backingScaleFactor) : 0;
+    if (self.liquidGlass) self.glass.frame = NSInsetRect(self.bounds,edgeInset,0);
+    self.content.frame = NSMakeRect(0,0,self.bounds.size.width-2*edgeInset,self.bounds.size.height);
+    NSRect title = self.titleLabel.frame;
+    NSRect message = self.messageLabel.frame;
+    title.origin.x = message.origin.x = 18-edgeInset;
+    self.titleLabel.frame = title;
+    self.messageLabel.frame = message;
+    self.button.frame = self.bounds;
 }
 - (void)updateTask:(NSDictionary *)task {
     self.sessionID = task[@"session_id"];
