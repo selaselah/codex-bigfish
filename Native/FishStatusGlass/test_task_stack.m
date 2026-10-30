@@ -212,6 +212,9 @@ static void CheckThreeStates(BOOL upward) {
     SetTasks(3,@"三态检查");
     NSRect hiddenPet=petWindow.frame,bar=statusPanel.frame;
     Require(!TaskCardsPresent() && !taskPanel.visible && petTaskOffset==0, @"Hidden state shows no cards and restores the unreserved avatar");
+    NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+    CGFloat expectedCenter=upward ? NSMinY(hiddenPet)+49 : NSMaxY(hiddenPet)-49;
+    Require(fabs(NSMidY(pill)-expectedCenter)<1e-6, @"Status sits one40pt capsule height closer to the avatar, mirrored for the upper anchor");
     [overlay.disclosureButton performClick:nil];
     if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
         PumpFor(.08);

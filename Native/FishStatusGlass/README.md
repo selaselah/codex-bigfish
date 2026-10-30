@@ -73,6 +73,7 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 | 项目 | 当前值 |
 | --- | --- |
 | 胶囊高度／圆角 | 40 / 20 pt |
+| 与角色的距离 | 按用户红框，将原停靠点朝角色方向内移 40 pt（一条状态胶囊的高度）；下方状态条上移，上方状态条下移，横向中心不变 |
 | 最小宽度 | 140 pt，根据文字宽度自适应 |
 | 透明附件窗口 | 高 60 pt，宽度比胶囊多 24 pt；不扩大角色窗口 |
 | 文字 | 系统字体 13 pt、Medium、居中；文字框起点距胶囊左侧 16 pt |
@@ -192,8 +193,9 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | `47f3610`（203） | 拖动状态条文字或箭头可移动整个宠物；保留点击折叠、展开 |
 | `33e0c32`（204） | 状态条随宠物位于上下侧，卡片朝桌面内部展开；取消展开时自动挪动角色，松手再切换拖动锚点 |
 | `d680743`（205） | 约 300 ms 原生卡片展开／收起动画，支持从当前帧反转、快照刷新延后及中断清理 |
-| 本文档对应源码（206） | 按用户三态示意固定状态条、只为折叠卡片预留角色空间，箭头逐级折叠／收缩并可重新显示 |
+| `a48c48a`（206） | 按用户三态示意固定状态条、只为折叠卡片预留角色空间，箭头逐级折叠／收缩并可重新显示 |
+| 本文档对应源码（207） | 状态条向角色内移 40 pt，落在脚下红框；三态共享此锚点，卡片同步跟随，角色大小和让位量保持 |
 
-本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
+本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 
 官方原理参考：[NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)、[Build an AppKit app with the new design](https://developer.apple.com/videos/play/wwdc2025/310/)。实现和验证范围以当前源码、原生测试及上述记录为准，不宣称精确复刻 Mini 或覆盖全部系统版本、壁纸和缩放组合。

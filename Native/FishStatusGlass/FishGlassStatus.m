@@ -781,7 +781,9 @@ static void LayoutStatus(void) {
     CGFloat capsuleWidth = MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
     CGFloat panelWidth = capsuleWidth+24;
     // Transparent horizontal room preserves the native capsule edge rendering.
-    CGFloat statusY = statusAtTop ? NSMaxY(content.bounds)-34 : -16;
+    // Move one capsule height toward the visible avatar, into the foot-level
+    // gap marked by the user. Mirror that inset for an upper status anchor.
+    CGFloat statusY = statusAtTop ? NSMaxY(content.bounds)-74 : 24;
     NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, statusY, panelWidth, 60) toView:nil];
     rect = [petWindow convertRectToScreen:rect];
     rect.origin.y-=petTaskOffset;
