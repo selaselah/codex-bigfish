@@ -22,16 +22,17 @@ static void EnsureTaskPanel(void);
 @property(nonatomic, strong) NSView *glass;
 @property(nonatomic, strong) NSView *content;
 @property(nonatomic, strong) NSTextField *caption;
-@property(nonatomic, strong) NSView *dot;
 @property(nonatomic, strong) NSButton *taskButton;
-@property(nonatomic, copy) NSString *tone;
+@property(nonatomic, strong) NSButton *disclosureButton;
 @property(nonatomic) BOOL liquidGlass;
 - (void)updateCaption:(NSString *)caption tone:(NSString *)tone;
+- (void)updateDisclosure:(BOOL)expanded;
 @end
 
 @implementation FishStatusOverlay
 - (BOOL)isFlipped { return NO; }
 - (NSView *)hitTest:(NSPoint)point {
+    if (NSPointInRect(point, [self convertRect:self.disclosureButton.bounds fromView:self.disclosureButton])) return self.disclosureButton;
     return NSPointInRect(point, self.pill.frame) ? self.taskButton : nil;
 }
 - (void)toggleTasks:(id)sender { ToggleTasks(); }
@@ -79,10 +80,14 @@ static void EnsureTaskPanel(void);
     self.caption.selectable = NO;
     self.caption.accessibilityLabel = @"桌宠状态";
     [self.content addSubview:self.caption];
-    self.dot = [[NSView alloc] initWithFrame:NSZeroRect];
-    self.dot.wantsLayer = YES;
-    self.dot.layer.cornerRadius = 3;
-    [self.content addSubview:self.dot];
+    self.disclosureButton = [[FishTaskButton alloc] initWithFrame:NSZeroRect];
+    self.disclosureButton.bordered = NO;
+    self.disclosureButton.imagePosition = NSImageOnly;
+    self.disclosureButton.contentTintColor = NSColor.labelColor;
+    self.disclosureButton.target = self;
+    self.disclosureButton.action = @selector(toggleTasks:);
+    [self.content addSubview:self.disclosureButton];
+    [self updateDisclosure:NO];
     self.taskButton = [[FishTaskButton alloc] initWithFrame:NSZeroRect];
     self.taskButton.bordered = NO;
     self.taskButton.transparent = YES;
@@ -94,43 +99,33 @@ static void EnsureTaskPanel(void);
     return self;
 }
 - (void)updateCaption:(NSString *)caption tone:(NSString *)tone {
-    BOOL changed = ![tone isEqualToString:self.tone];
     self.caption.stringValue = [caption stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
     self.caption.accessibilityValue = caption;
     self.taskButton.accessibilityValue = caption;
-    self.tone = tone;
-    NSColor *color = [NSColor colorWithSRGBRed:.29 green:.55 blue:.95 alpha:1];
-    if ([tone isEqualToString:@"complete"]) color = [NSColor colorWithSRGBRed:.18 green:.66 blue:.50 alpha:1];
-    else if ([tone isEqualToString:@"waiting"]) color = [NSColor colorWithSRGBRed:.91 green:.64 blue:.22 alpha:1];
-    else if ([tone isEqualToString:@"error"]) color = [NSColor colorWithSRGBRed:.91 green:.33 blue:.39 alpha:1];
-    else if ([tone isEqualToString:@"idle"]) color = [NSColor colorWithSRGBRed:.48 green:.56 blue:.67 alpha:1];
-    self.dot.layer.backgroundColor = color.CGColor;
-    if (changed) {
-        [self.dot.layer removeAnimationForKey:@"activity"];
-        if ([tone isEqualToString:@"working"] && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
-            CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"opacity"];
-            pulse.fromValue = @.55; pulse.toValue = @1;
-            pulse.autoreverses = YES; pulse.duration = 1.0; pulse.repeatCount = HUGE_VALF;
-            pulse.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
-            [self.dot.layer addAnimation:pulse forKey:@"activity"];
-        }
-    }
     self.needsLayout = YES;
     [self layoutSubtreeIfNeeded];
 }
+- (void)updateDisclosure:(BOOL)expanded {
+    NSImage *image = [NSImage imageWithSystemSymbolName:expanded ? @"chevron.up" : @"chevron.down" accessibilityDescription:nil];
+    self.disclosureButton.image = [image imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
+    self.disclosureButton.accessibilityLabel = expanded ? @"收起任务卡片" : @"展开任务卡片";
+    self.disclosureButton.toolTip = expanded ? @"收起为堆叠卡片" : @"展开任务卡片";
+}
 - (void)layout {
     [super layout];
-    CGFloat text = [self.caption.stringValue sizeWithAttributes:@{NSFontAttributeName:self.caption.font}].width;
-    CGFloat width = MIN(MAX(140, ceil(text) + 48), MAX(140, self.bounds.size.width - 24));
+    // Include NSTextField padding and use an even point width so the 350pt
+    // task window shares this capsule's center after AppKit window snapping.
+    CGFloat text = self.caption.cell.cellSize.width;
+    CGFloat width = MIN(MAX(140, 2*ceil((text+60)/2)), MAX(140, 2*floor((self.bounds.size.width-24)/2)));
     self.pill.frame = NSMakeRect(floor((self.bounds.size.width-width)/2), 5, width, 40);
     self.backdrop.frame = self.pill.bounds;
     // Keep the glass edge half a backing pixel inside the authored capsule.
-    // Text and the activity dot retain their original screen coordinates.
+    // Compensate content coordinates for the half-pixel glass inset.
     CGFloat edgeInset = self.liquidGlass ? .5 / MAX(1, self.window.backingScaleFactor) : 0;
     if (self.liquidGlass) self.glass.frame = NSInsetRect(self.pill.bounds, edgeInset, 0);
     self.content.frame = NSMakeRect(0, 0, width - 2 * edgeInset, 40);
-    self.dot.frame = NSMakeRect(16 - edgeInset, 17, 6, 6);
-    self.caption.frame = NSMakeRect(32 - edgeInset, 11, width - 48, 18);
+    self.caption.frame = NSMakeRect(16 - edgeInset, 11, width - 60, 18);
+    self.disclosureButton.frame = NSMakeRect(width - 36 - edgeInset, 8, 24, 24);
     self.taskButton.frame = self.pill.frame;
     CGPathRef shadow = CGPathCreateWithRoundedRect(self.pill.bounds, 20, 20, NULL);
     self.pill.layer.shadowPath = shadow;
@@ -161,6 +156,7 @@ static __weak NSWindow *petWindow;
 static NSMutableArray *observers;
 static BOOL wantsVisible = YES;
 static BOOL layingOut = NO;
+static BOOL layingOutTasks = NO;
 static BOOL refreshingAppearance = NO;
 static NSPanel *taskPanel;
 static NSScrollView *taskScroll;
@@ -374,7 +370,7 @@ static void UpdateTaskRows(void) {
         [keep addObject:key];
         FishTaskRow *row = taskRows[key];
         if (!row) { row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(10,0,TaskCardWidth,TaskCardHeight)]; taskRows[key]=row; [taskDocument addSubview:row]; }
-        row.frame = NSMakeRect(10,height-8-(i+1)*TaskRowStep,TaskCardWidth,TaskCardHeight);
+        row.frame = NSMakeRect(10,height-(i+1)*TaskRowStep,TaskCardWidth,TaskCardHeight);
         [row updateTask:item];
     }
     for (NSString *key in [taskRows.allKeys copy]) if (![keep containsObject:key]) {
@@ -387,14 +383,32 @@ static void UpdateTaskRows(void) {
     LayoutTasks();
 }
 static void LayoutTasks(void) {
-    if (!taskPanel || !petWindow) return;
+    if (!taskPanel || !petWindow || !statusPanel || layingOutTasks) return;
     if ((!taskData.count && !tasksExpanded) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) { [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return; }
+    layingOutTasks = YES;
     NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
     CGFloat height = tasksExpanded ? MIN(TaskListMaxHeight, MAX(TaskRowStep+12, (taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(taskData.count,3)-1)*6;
-    CGFloat x = NSMinX(petWindow.frame)-TaskPanelWidth-6;
-    if (x < NSMinX(screen)+8) x=MIN(NSMaxX(petWindow.frame)+6,NSMaxX(screen)-TaskPanelWidth-8);
-    CGFloat y = MIN(MAX(NSMinY(statusPanel.frame)+5,NSMinY(screen)+8),NSMaxY(screen)-height-8);
-    [taskPanel setFrame:NSMakeRect(MAX(NSMinX(screen)+8,x),y,TaskPanelWidth,height) display:YES];
+    NSRect pill = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+    CGFloat topRoom = MAX(0, NSMaxY(screen)-8-NSMaxY(petWindow.frame));
+    // Keep the cards below the status capsule. Near the desktop's lower edge,
+    // translate the whole group only as far as necessary; never resize the pet
+    // or change its camera. On a short screen the expanded viewport scrolls.
+    height = MIN(height, MAX(TaskRowStep+12, NSMinY(pill)+topRoom-NSMinY(screen)-8));
+    CGFloat lift = MIN(topRoom, MAX(0, NSMinY(screen)+8-(NSMinY(pill)-height)));
+    if (lift > 0) {
+        NSRect statusBefore = statusPanel.frame;
+        NSPoint origin = petWindow.frame.origin;
+        origin.y += lift;
+        [petWindow setFrameOrigin:origin];
+        // Child windows normally follow their parent. Synchronize explicitly
+        // as well when this layout runs inside the parent's move notification.
+        statusBefore.origin.y += lift;
+        if (!NSEqualRects(statusPanel.frame,statusBefore)) [statusPanel setFrame:statusBefore display:YES];
+        pill = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+    }
+    CGFloat x = MIN(MAX(NSMidX(pill)-TaskPanelWidth/2, NSMinX(screen)+8), NSMaxX(screen)-TaskPanelWidth-8);
+    // Both the stack and the expanded document keep 8pt above their first card.
+    [taskPanel setFrame:NSMakeRect(x,NSMinY(pill)-height,TaskPanelWidth,height) display:YES];
     taskScroll.hidden = !tasksExpanded;
     taskStack.hidden = tasksExpanded;
     // Keep the hidden scroll viewport intact so collapsing/live updates do not
@@ -405,6 +419,7 @@ static void LayoutTasks(void) {
     taskPanel.collectionBehavior = petWindow.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
     if (taskPanel.parentWindow != petWindow) [petWindow addChildWindow:taskPanel ordered:NSWindowAbove];
     [taskPanel orderFront:nil];
+    layingOutTasks = NO;
     UpdateTaskAccessibility();
 }
 static void UpdateTaskAccessibility(void) {
@@ -412,11 +427,12 @@ static void UpdateTaskAccessibility(void) {
     NSMutableArray *children = [NSMutableArray arrayWithArray:originalAccessibilityChildren ?: @[]];
     // Keep passive child-window controls reachable from the pet's main window
     // for VoiceOver and accessibility clients without taking keyboard focus.
-    if (statusPanel.visible) [children addObject:overlay.taskButton];
+    if (statusPanel.visible) [children addObjectsFromArray:@[overlay.taskButton,overlay.disclosureButton]];
     if (taskPanel.visible) [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
     petWindow.accessibilityChildren = children;
     overlay.taskButton.accessibilityLabel = tasksExpanded ? @"收起任务列表" : @"查看任务消息";
     overlay.taskButton.toolTip = tasksExpanded ? @"收起为堆叠卡片" : @"展开每个任务的标题和最新消息";
+    [overlay updateDisclosure:tasksExpanded];
 }
 static void EnsureTaskPanel(void) {
     if (!taskPanel) {
@@ -489,13 +505,11 @@ static void LayoutStatus(void) {
     if (!statusPanel || !petWindow || layingOut) return;
     layingOut = YES;
     NSView *content = petWindow.contentView;
-    // Preserve the taller capsule's top edge below the feet. Its own transparent
-    // accessory extends downwards; the model window and camera remain untouched.
-    CGFloat textWidth = [overlay.caption.stringValue sizeWithAttributes:@{NSFontAttributeName:overlay.caption.font}].width;
-    CGFloat capsuleWidth = MIN(MAX(140,ceil(textWidth)+48),MAX(140,content.bounds.size.width-24));
+    // Anchor the status capsule below the feet, above its task-card stack.
+    CGFloat textWidth = overlay.caption.cell.cellSize.width;
+    CGFloat capsuleWidth = MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
     CGFloat panelWidth = capsuleWidth+24;
-    // Narrow only the transparent accessory bounds. The painted capsule keeps
-    // exactly the same size and desktop coordinates as the accepted version.
+    // Transparent horizontal room preserves the native capsule edge rendering.
     NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, -16, panelWidth, 60) toView:nil];
     rect = [petWindow convertRectToScreen:rect];
     if (!NSEqualRects(statusPanel.frame, rect)) [statusPanel setFrame:rect display:YES];

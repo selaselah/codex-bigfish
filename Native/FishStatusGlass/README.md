@@ -1,6 +1,6 @@
 # 原生液态玻璃配置与左右像素缺口修复
 
-当前约定更新于 **2026-10-30**：任务卡片第 200 版的效果已获用户确认，随后用户要求脚下状态条也统一使用 **Regular Liquid Glass**。本模块当前源码实现两者统一的配置；此前状态条的 Clear＋HUD 配置只保留为历史记录。
+当前约定更新于 **2026-10-30**：任务卡片与脚下状态条都使用用户选定的 **Regular Liquid Glass**。卡片位于状态条下方，默认堆叠；状态条去掉活动圆点，右侧箭头控制展开、收起。此前状态条的 Clear＋HUD 配置只保留为历史记录。
 
 实现入口：[FishGlassStatus.m](FishGlassStatus.m)，验证入口：[test_task_stack.m](test_task_stack.m)，插件构建：[build.py](build.py)。任务数据和联动协议见 [Codex 接入说明](../../Integrations/codex/README.md)。
 
@@ -32,12 +32,15 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 | 文字左边距 | 16 pt；布局时扣除玻璃的半像素内缩，使最终坐标仍为 16 pt |
 | 标题可用宽度 | 298 pt，不再为右上计数预留位置 |
 | 计数 | 卡片上不显示；总数保留在脚下状态条、VoiceOver 和提示文字中 |
+| 位置 | 状态条正下方居中；靠屏幕左右边缘时限制在可用桌面内 |
 | 默认状态 | 前卡片显示标题和最新消息，后方最多露出两层卡片 |
 | 后层偏移 | 每层向内缩 8 pt、向下错开 6 pt，宽度每层减少 16 pt |
 | 展开列表 | 行距 64 pt，即卡片高 56 pt＋间隔 8 pt；最高 332 pt，超过后滚动 |
-| 操作 | 点击堆叠展开；点击外部、状态条或打开某个聊天后收回堆叠；消息更新不自动展开 |
+| 操作 | 点击堆叠或状态条右侧向下箭头展开；向上箭头、外部点击或打开聊天后收回堆叠；整条状态胶囊也可切换；消息更新不自动展开 |
 
-展开列表的滚动文档使用 `NSGlassEffectContainerView`，`spacing = 0`，让相邻玻璃共享采样，同时保留行间的空隙。容器和文档高度同步更新，折叠、消息刷新后保留滚动位置。
+展开列表的滚动文档使用 `NSGlassEffectContainerView`，`spacing = 0`，让相邻玻璃共享采样，同时保留行间的空隙。容器和文档高度同步更新，折叠、消息刷新后保留滚动位置。卡片面板的顶部与状态胶囊底部相接，首张卡片在面板内留 8 pt 顶边距，因此可见卡片与状态条相隔 8 pt。
+
+靠近屏幕底部时，按实际所需空间将角色和附属面板一起向上平移，**不缩小角色、不调整相机**；收起后保留当前位置，避免上下跳回。较矮屏幕还会缩短展开视口并保留滚动，默认最高仍为 332 pt。
 
 **重叠的堆叠卡片不整体放进合并容器。** 实测这样会把几层轮廓融成一整块，丢失堆叠边缘；当前堆叠保留独立的原生 Regular 玻璃层。
 
@@ -50,12 +53,14 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 | 胶囊高度／圆角 | 40 / 20 pt |
 | 最小宽度 | 140 pt，根据文字宽度自适应 |
 | 透明附件窗口 | 高 60 pt，宽度比胶囊多 24 pt；不扩大角色窗口 |
-| 文字 | 系统字体 13 pt、Medium、居中；文字框起点距胶囊左侧 32 pt |
-| 活动圆点 | 6 × 6 pt，圆角 3 pt；起点距胶囊左侧 16 pt |
+| 文字 | 系统字体 13 pt、Medium、居中；文字框起点距胶囊左侧 16 pt |
+| 活动圆点 | 已移除，包括工作状态的脉冲动画 |
+| 折叠按钮 | 右侧原生 SF Symbol `chevron.down` / `chevron.up`，12 pt Semibold；24 × 24 pt 点击区域，右侧留 12 pt |
+| 自适应宽度 | 文字单元的 `cellSize.width`（包含原生内部留白）加 60 pt 后向上对齐到偶数点宽，为左右留白和箭头保留空间，并使窗口像素取整后的卡片中心一致；不小于 140 pt |
 | 点击范围 | 完整胶囊，不随玻璃半像素内缩而缩小 |
 | 既有容器阴影 | 作者参数 opacity .12、radius 4、offset (0, -1.5)；系统合成后的表现可能调整 |
 
-状态条移除的是额外 HUD 材料，角色窗口、相机和胶囊的尺寸、位置不因此改变。
+状态条和卡片继续直接使用 Regular 玻璃；新增按钮不会叠加 HUD 或自制模糊底层。胶囊仍高 40 pt，宽度按新内容排布自适应，角色窗口大小和相机保持。
 
 ## 左右缺像素的修复过程
 
@@ -90,7 +95,7 @@ titleFrame.origin.x = messageFrame.origin.x = 16 - edgeInset;
 button.frame = row.bounds;
 ```
 
-状态条的文字、圆点分别使用 `32 - edgeInset`、`16 - edgeInset`。任务卡片在 `viewDidMoveToWindow` 和 `viewDidChangeBackingProperties` 中请求重新布局；状态条通过 `LayoutStatus` 随窗口移动、屏幕变化和状态刷新重算 backing scale。不要把 0.25 pt 写死为所有显示器的值，也不要只挪动玻璃而遗漏文字补偿。
+当前状态条文字使用 `16 - edgeInset`，箭头按钮使用 `width - 36 - edgeInset`；旧版圆点现已移除。任务卡片在 `viewDidMoveToWindow` 和 `viewDidChangeBackingProperties` 中请求重新布局；状态条通过 `LayoutStatus` 随窗口移动、屏幕变化和状态刷新重算 backing scale。不要把 0.25 pt 写死为所有显示器的值，也不要只挪动玻璃而遗漏文字补偿。
 
 ## 为什么没有继续调 Material 透明度
 
@@ -102,7 +107,7 @@ button.frame = row.bounds;
 
 ![原生组件材料对照](images/liquid-glass-variants.jpg)
 
-当前统一配置的组件预览：左侧为任务卡片堆叠及状态条，右侧为展开列表。
+当前统一配置的组件预览：两侧均为状态条在上、任务卡片在下；左侧收起堆叠，右侧展开列表，箭头方向随状态改变。
 
 ![统一 Regular Liquid Glass 的卡片和状态条](images/liquid-glass-components.jpg)
 
@@ -128,7 +133,7 @@ work/glass-check/task-stack-test
 python3 Native/FishStatusGlass/build.py
 ```
 
-原生测试覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无可见计数、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
+原生测试覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无活动圆点／可见卡片计数、右侧按钮命中和状态、短状态文字完整显示、状态条下方居中布局、屏幕底部／侧边留白与角色尺寸保持、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
 
 `build.py` 为 arm64 构建插件，最低部署目标为 macOS 12；Liquid Glass 分支要求 macOS 26。脚本按 `FishGlassStatus.m` 与自身内容生成指纹，签名并验证插件。仅编译原生插件不会更新已经运行的应用；还须构建应用并重启对应进程。先将 `UNITY_EDITOR_PATH` 指向本机 Unity 2022.3.22f1 的可执行文件：
 
@@ -153,8 +158,9 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | `08cfe91`（198） | 半像素对齐补到任务卡片 |
 | `30415c0`（199） | 收窄至 330×56、去掉可见计数；此版 Material-like 质感随后被否决 |
 | `4371f88`（200） | 用户确认的任务卡片纯原生 Regular 配置 |
-| 本文档对应源码 | 状态条按用户后续要求也统一为纯原生 Regular |
+| `96bd0b8`（201） | 状态条也统一为纯原生 Regular，并加入本文档 |
+| 本文档对应源码（202） | 卡片移到状态条下方，去掉活动圆点，加入可见折叠按钮；保留材料和半像素修复 |
 
-本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`；`work/` 不入库，本文及上方两张固定示例图不依赖这些本机记录即可阅读。
+本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`；`work/` 不入库，本文及上方两张固定示例图不依赖这些本机记录即可阅读。
 
 官方原理参考：[NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)、[Build an AppKit app with the new design](https://developer.apple.com/videos/play/wwdc2025/310/)。实现和验证范围以当前源码、原生测试及上述记录为准，不宣称精确复刻 Mini 或覆盖全部系统版本、壁纸和缩放组合。

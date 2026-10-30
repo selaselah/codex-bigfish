@@ -27,8 +27,25 @@ static void CheckStatusGlass(void) {
         CGFloat scale=MAX(1,overlay.window.backingScaleFactor);
         Require(fabs(NSMinX(glass.frame)*scale-.5)<1e-6 && fabs((NSMaxX(overlay.pill.bounds)-NSMaxX(glass.frame))*scale-.5)<1e-6, @"Status edges retain symmetric half-pixel margins");
     }
-    Require(fabs([overlay.pill convertPoint:NSZeroPoint fromView:overlay.caption].x-32)<1e-6 && fabs([overlay.pill convertPoint:NSZeroPoint fromView:overlay.dot].x-16)<1e-6, @"Status caption and dot keep their original coordinates");
+    Require(overlay.caption.frame.size.width>=overlay.caption.cell.cellSize.width, @"Short status caption fits alongside its chevron without truncation");
+    Require(overlay.content.subviews.count==2 && [overlay.content.subviews containsObject:overlay.caption] && [overlay.content.subviews containsObject:overlay.disclosureButton], @"Status has only its caption and disclosure button, no activity dot");
+    Require(fabs([overlay.pill convertPoint:NSZeroPoint fromView:overlay.caption].x-16)<1e-6, @"Caption reclaims the dot's space with compensated16pt inset");
+    NSRect arrow=[overlay.pill convertRect:overlay.disclosureButton.bounds fromView:overlay.disclosureButton];
+    Require(overlay.disclosureButton.image && NSContainsRect(overlay.pill.bounds,arrow) && arrow.size.width==24 && arrow.size.height==24 && NSMidY(arrow)==20, @"Visible native chevron stays centered inside the status pill");
+    Require([overlay.disclosureButton.accessibilityLabel isEqualToString:tasksExpanded ? @"收起任务卡片" : @"展开任务卡片"], @"Disclosure label follows actual expanded state");
+    NSPoint arrowCenter=[overlay convertPoint:NSMakePoint(12,12) fromView:overlay.disclosureButton];
+    Require([overlay hitTest:arrowCenter]==overlay.disclosureButton, @"Disclosure receives its own clicks despite the caption hit target");
+    Require([petWindow.accessibilityChildren containsObject:overlay.disclosureButton], @"Disclosure is directly accessible from the pet window");
     Require(NSEqualRects(overlay.taskButton.frame,overlay.pill.frame), @"Status hit target retains the complete capsule");
+}
+static void CheckBelowStatus(void) {
+    NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
+    NSRect screen=petWindow.screen.visibleFrame;
+    Require(fabs(NSMaxY(taskPanel.frame)-NSMinY(pill))<1e-6, @"Task panel is anchored below the status capsule");
+    Require(NSContainsRect(NSInsetRect(screen,8,8),taskPanel.frame), @"Task cards fit within the usable desktop");
+    if (NSMidX(pill)-175>=NSMinX(screen)+8 && NSMidX(pill)+175<=NSMaxX(screen)-8)
+        Require(fabs(NSMidX(taskPanel.frame)-NSMidX(pill))<1e-6, @"Task panel centers under the status capsule whenever space allows");
+    CheckStatusGlass();
 }
 static void CheckRowEdges(FishTaskRow *row) {
     [row layoutSubtreeIfNeeded];
@@ -49,6 +66,7 @@ static void CheckCollapsed(NSUInteger count) {
     Require(!tasksExpanded, @"Data updates must not expand the list");
     Require(taskPanel.visible == (count>0), @"Collapsed stack visibility follows the task count");
     if (!count) return;
+    CheckBelowStatus();
     Require(taskScroll.hidden && !taskStack.hidden, @"Collapsed content selection");
     Require(taskPanel.frame.size.width==350 && taskPanel.frame.size.height == 72+(MIN(count,3)-1)*6, @"Slimmer stack canvas");
     Require(taskStack.front.frame.size.width==330 && taskStack.front.frame.size.height==56, @"Slimmer330x56pt task card");
@@ -68,7 +86,7 @@ static void CheckCollapsed(NSUInteger count) {
 }
 int main(void) { @autoreleasepool {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyProhibited];
-    NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(920,200,312,416)
+    NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(920,450,312,416)
         styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     window.title=@"BigFatBlueFish";
     [window orderFront:nil];
@@ -84,6 +102,7 @@ int main(void) { @autoreleasepool {
     }
     [taskStack.button performClick:nil];
     Require(tasksExpanded && taskStack.hidden && !taskScroll.hidden, @"Click stack to expand");
+    CheckBelowStatus();
     Require(taskPanel.frame.size.height==332 && taskRows.count==64, @"Scrollable expanded list retains every task");
     if (@available(macOS 26.0, *)) {
         Require([taskScroll.documentView isKindOfClass:NSGlassEffectContainerView.class], @"Expanded cards share native glass sampling");
@@ -95,11 +114,13 @@ int main(void) { @autoreleasepool {
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
     CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;
     [taskScroll.contentView scrollToPoint:NSMakePoint(0,top-120)];
-    ToggleTasks();
+    [overlay.disclosureButton performClick:nil];
     SetTasks(64,@"新的公开进度");
     CheckCollapsed(64);
     Require([taskStack.front.messageLabel.stringValue isEqualToString:@"新的公开进度"], @"Collapsed preview refreshes");
-    [taskStack.button performClick:nil];
+    [overlay.disclosureButton performClick:nil];
+    Require(tasksExpanded, @"Status chevron expands the task list");
+    CheckBelowStatus();
     CGFloat distance=taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds);
     Require(fabs(distance-120)<.001, @"Collapsing and live updates preserve scroll position");
     // A real AppKit local event takes the same outside-click monitor path.
@@ -110,6 +131,19 @@ int main(void) { @autoreleasepool {
     CheckCollapsed(64);
     Require(!taskPanel.canBecomeKeyWindow && !taskPanel.canBecomeMainWindow && NSApp.keyWindow==keyWindow, @"Task UI never steals keyboard focus");
     Require(NSEqualRects(window.frame,parentFrame) && NSEqualRects(statusPanel.frame,capsuleFrame), @"Avatar window and original status capsule geometry unchanged");
+    // A low placement must move the group up, not clip the list or shrink the
+    // character. Collapsing must not snap the character back down afterwards.
+    NSRect screen=window.screen.visibleFrame;
+    [window setFrameOrigin:NSMakePoint(NSMinX(screen)+10,NSMinY(screen)+20)];
+    CheckCollapsed(64);
+    Require(NSEqualSizes(window.frame.size,parentFrame.size), @"Screen-edge correction never shrinks the pet");
+    [overlay.disclosureButton performClick:nil];
+    CheckBelowStatus();
+    Require(tasksExpanded && NSMinY(window.frame)>NSMinY(screen)+20, @"Opening a low-positioned list makes room below the pet");
+    NSRect lifted=window.frame;
+    [overlay.disclosureButton performClick:nil];
+    CheckCollapsed(64);
+    Require(NSEqualRects(window.frame,lifted), @"Collapse keeps the current pet position instead of snapping it back");
     FishGlassStatusSetVisible(0);
     Require(!statusPanel.visible && !taskPanel.visible, @"Hide also hides the stack");
     FishGlassStatusSetVisible(1);
@@ -124,6 +158,6 @@ int main(void) { @autoreleasepool {
     FishGlassStatusDestroy();
     Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
     [window orderOut:nil];
-    NSLog(@"PASS: default stack0/1/2/3/6/64, click expand, outside collapse, live preview, scroll, AX, focus, geometry, glass edge alignment, fixed text/hit targets, hide, empty, cleanup");
+    NSLog(@"PASS: below-status stack0/1/2/3/6/64, no dot, native chevron toggle/hit/AX, screen-edge fit without pet resizing, click expand, outside collapse, live preview, scroll, focus, Regular glass/half-pixel edges, hide, empty, cleanup");
     return 0;
 } }
