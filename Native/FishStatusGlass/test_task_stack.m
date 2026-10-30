@@ -6,6 +6,16 @@
 static void Require(BOOL condition, NSString *message) {
     if (!condition) { NSLog(@"FAIL: %@",message); exit(1); }
 }
+static void PumpFor(NSTimeInterval seconds) {
+    NSDate *until=[NSDate dateWithTimeIntervalSinceNow:seconds];
+    while (until.timeIntervalSinceNow>0) [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:MIN(.01,until.timeIntervalSinceNow)]];
+}
+static void SettleTaskAnimation(void) {
+    CFTimeInterval limit=CACurrentMediaTime()+1;
+    while(taskAnimationActive && CACurrentMediaTime()<limit) PumpFor(.01);
+    Require(!taskAnimationActive && !taskAnimationTimer && !taskAnimationHost, @"Task transition completes and releases its driver and temporary views");
+}
+static void ClickControl(NSButton *button) { [button performClick:nil]; SettleTaskAnimation(); }
 static void SetTasks(NSUInteger count, NSString *summary) {
     NSMutableArray *items = [NSMutableArray new];
     for (NSUInteger i=0; i<count; i++) [items addObject:@{
@@ -17,6 +27,7 @@ static void SetTasks(NSUInteger count, NSString *summary) {
     FishGlassStatusUpdateTasks([[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
 }
 static void CheckStatusGlass(void) {
+    SettleTaskAnimation();
     [overlay layoutSubtreeIfNeeded];
     Require(overlay.pill.frame.size.height==40 && overlay.pill.frame.size.width>=140, @"Status capsule keeps its accepted dimensions");
     if (@available(macOS 26.0, *)) {
@@ -72,6 +83,7 @@ static void CheckRowEdges(FishTaskRow *row) {
     Require(NSEqualRects(row.button.frame,row.bounds), @"Hit target keeps the full original card bounds");
 }
 static void CheckCollapsed(NSUInteger count) {
+    SettleTaskAnimation();
     Require(!tasksExpanded, @"Data updates must not expand the list");
     Require(taskPanel.visible == (count>0), @"Collapsed stack visibility follows the task count");
     if (!count) return;
@@ -121,9 +133,71 @@ static void CheckStatusDrag(NSButton *control) {
     [button mouseDown:StatusMouse(NSEventTypeLeftMouseDown,start)];
     [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+2,start.y+1))];
     [button mouseUp:StatusMouse(NSEventTypeLeftMouseUp,NSMakePoint(start.x+2,start.y+1))];
+    SettleTaskAnimation();
     Require(tasksExpanded!=expanded && NSEqualRects(petWindow.frame,parent), @"A click with minor jitter still toggles once without moving the pet");
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     Require(tasksExpanded==expanded, @"Accessible or keyboard button activation still toggles normally");
+}
+static FishTaskAnimationEntry *MotionEntry(NSString *sid) {
+    for (FishTaskAnimationEntry *entry in taskAnimationEntries) if ([entry.row.sessionID isEqualToString:sid]) return entry;
+    return nil;
+}
+static void CheckTaskMotion(BOOL upward) {
+    if (tasksExpanded) ClickControl(overlay.disclosureButton);
+    NSRect screen=petWindow.screen.visibleFrame;
+    NSPoint position=NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+20 : NSMaxY(screen)-petWindow.frame.size.height-20);
+    [petWindow setFrameOrigin:position];
+    SetTasks(6,@"动画检查");
+    CGFloat maxOffset=MAX(0,taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height);
+    [taskScroll.contentView scrollToPoint:NSMakePoint(0,upward ? 0 : maxOffset)];
+    NSRect avatar=petWindow.frame;
+    ToggleTasks();
+    if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        Require(!taskAnimationActive && tasksExpanded, @"Reduce Motion switches immediately without moving cards");
+        ClickControl(overlay.disclosureButton); return;
+    }
+    Require(taskAnimationActive && taskAnimationTimer && taskAnimationHost && taskAnimationEntries.count<=8, @"Opening uses a bounded live native transition and timer");
+    Require(taskScroll.hidden && taskStack.front.hidden && taskStack.button.hidden, @"Only transition rows and blank backing edges are drawn while unfolding");
+    Require(![petWindow.accessibilityChildren containsObject:taskScroll], @"Temporary animated controls are not duplicated in VoiceOver");
+    NSString *second=@"00000000-0000-4000-8000-000000000001";
+    FishTaskAnimationEntry *entry=MotionEntry(second);
+    Require(entry && !NSEqualRects(entry.fromFrame,entry.toFrame), @"A secondary card unfolds from the stack into its list position");
+    CheckRowEdges(entry.row);
+    NSRect from=entry.fromFrame,to=entry.toFrame;
+    AdvanceTaskAnimation(.10);
+    NSRect middle=entry.row.frame;CGFloat alpha=entry.row.alphaValue;
+    Require(!NSEqualRects(middle,from) && !NSEqualRects(middle,to) && alpha>0 && alpha<1, @"The intermediate frame moves and fades rather than jumping directly to its destination");
+    Require(upward ? middle.origin.y>from.origin.y && middle.origin.y<to.origin.y : middle.origin.y<from.origin.y && middle.origin.y>to.origin.y, @"Unfolding moves in the actual upper or lower expansion direction");
+    ToggleTasks();
+    entry=MotionEntry(second);
+    Require(entry && NSEqualRects(entry.row.frame,middle) && entry.row.alphaValue==alpha, @"Rapid reversal begins at the current native frame and opacity without snapping");
+    SettleTaskAnimation();
+    CheckCollapsed(6);
+    Require(NSEqualRects(petWindow.frame,avatar), @"Animation never moves or resizes the avatar");
+    ToggleTasks();
+    entry=MotionEntry(second);
+    NSRect timerStart=entry.row.frame;
+    PumpFor(.06);NSRect timerFirst=entry.row.frame;
+    PumpFor(.06);NSRect timerSecond=entry.row.frame;
+    Require(taskAnimationActive && !NSEqualRects(timerStart,timerFirst) && !NSEqualRects(timerFirst,timerSecond), @"The real run-loop timer advances multiple intermediate native frames before finishing");
+    NSLog(@"Motion %@ live y: %g -> %g -> %g",upward ? @"up" : @"down",timerStart.origin.y,timerFirst.origin.y,timerSecond.origin.y);
+    SettleTaskAnimation();
+    ClickControl(overlay.disclosureButton);
+    ToggleTasks();
+    SetTasks(3,@"动画期间的新消息");
+    Require(taskAnimationActive && taskAnimationNeedsRefresh, @"A live snapshot is deferred rather than interrupting moving cards");
+    SettleTaskAnimation();
+    Require(tasksExpanded && taskRows.count==3 && [taskStack.front.messageLabel.stringValue isEqualToString:@"动画期间的新消息"], @"The newest snapshot is applied at transition completion");
+    CheckPlacement();
+    ToggleTasks();
+    [petWindow setFrameOrigin:NSMakePoint(position.x+10,position.y)];
+    Require(!taskAnimationActive && !taskAnimationTimer && !taskAnimationHost, @"Dragging the pet cancels the transition and releases temporary views immediately");
+    CheckCollapsed(3);
+    ToggleTasks();
+    FishGlassStatusSetVisible(0);
+    Require(!taskAnimationActive && !taskPanel.visible && !statusPanel.visible, @"Hiding during animation cancels and hides all surfaces");
+    FishGlassStatusSetVisible(1);
+    CheckCollapsed(3);
 }
 int main(void) { @autoreleasepool {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyProhibited];
@@ -141,7 +215,7 @@ int main(void) { @autoreleasepool {
         SetTasks(count.unsignedIntegerValue,@"正在思考");
         CheckCollapsed(count.unsignedIntegerValue);
     }
-    [taskStack.button performClick:nil];
+    ClickControl(taskStack.button);
     Require(tasksExpanded && taskStack.hidden && !taskScroll.hidden, @"Click stack to expand");
     CheckPlacement();
     Require(taskPanel.frame.size.height==332 && taskRows.count==64, @"Scrollable expanded list retains every task");
@@ -155,11 +229,11 @@ int main(void) { @autoreleasepool {
     Require([petWindow.accessibilityChildren containsObject:taskScroll], @"Expanded rows are accessible");
     CGFloat top=taskDocument.bounds.size.height-taskScroll.contentView.bounds.size.height;
     [taskScroll.contentView scrollToPoint:NSMakePoint(0,top-120)];
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     SetTasks(64,@"新的公开进度");
     CheckCollapsed(64);
     Require([taskStack.front.messageLabel.stringValue isEqualToString:@"新的公开进度"], @"Collapsed preview refreshes");
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     Require(tasksExpanded, @"Status chevron expands the task list");
     CheckPlacement();
     CGFloat distance=taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds);
@@ -169,11 +243,12 @@ int main(void) { @autoreleasepool {
         location:NSMakePoint(156,20) modifierFlags:0 timestamp:0
         windowNumber:window.windowNumber context:nil eventNumber:1 clickCount:1 pressure:1];
     [NSApp sendEvent:event];
+    SettleTaskAnimation();
     CheckCollapsed(64);
     CheckStatusDrag(overlay.taskButton);
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     CheckStatusDrag(overlay.disclosureButton);
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     CheckCollapsed(64);
     Require(!taskPanel.canBecomeKeyWindow && !taskPanel.canBecomeMainWindow && NSApp.keyWindow==keyWindow, @"Task UI never steals keyboard focus");
     Require(NSEqualRects(window.frame,parentFrame) && NSEqualRects(statusPanel.frame,capsuleFrame), @"Expanding, collapsing and same-half drags leave the original avatar geometry intact");
@@ -182,7 +257,7 @@ int main(void) { @autoreleasepool {
     [window setFrameOrigin:low];
     CheckCollapsed(64);
     Require(tasksExpandUpward && !statusAtTop && NSEqualPoints(window.frame.origin,low), @"Low pet keeps its position, status below, cards above");
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     CheckPlacement();
     Require(tasksExpanded && NSEqualPoints(window.frame.origin,low), @"Expanding upward never lifts the pet");
     [taskScroll.contentView scrollToPoint:NSMakePoint(0,120)];
@@ -195,7 +270,7 @@ int main(void) { @autoreleasepool {
     [window setFrameOrigin:low];
     CheckPlacement();
     Require(fabs(NSMinY(taskScroll.contentView.bounds)-120)<.001, @"Returning to upward expansion restores the same scroll distance");
-    [overlay.disclosureButton performClick:nil];
+    ClickControl(overlay.disclosureButton);
     CheckCollapsed(64);
     Require(NSEqualSizes(window.frame.size,parentFrame.size), @"Adaptive placement never shrinks the pet");
     // While the status is held, it must not jump to the other end of the pet.
@@ -218,12 +293,25 @@ int main(void) { @autoreleasepool {
     SetTasks(0,@"");
     CheckCollapsed(0);
     FishGlassStatusShowTasks();
+    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        FishTaskAnimationEntry *placeholder=taskAnimationEntries.firstObject;
+        Require(taskAnimationActive && placeholder.row.alphaValue==0, @"Opening a previously hidden empty list fades its placeholder in");
+    }
+    SettleTaskAnimation();
     Require(tasksExpanded && taskPanel.visible && taskRows.count==1, @"Explicit empty-list opening shows a placeholder");
     ToggleTasks();
+    SettleTaskAnimation();
     CheckCollapsed(0);
+    CheckTaskMotion(NO);
+    CheckTaskMotion(YES);
+    SetTasksExpanded(YES,NO);
+    Require(tasksExpanded && !taskAnimationActive && !taskScroll.hidden, @"The nonanimated/reduced-motion path uses final native views directly");
+    ClickControl(overlay.disclosureButton);
+    ToggleTasks();
     FishGlassStatusDestroy();
-    Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor, @"Destroy releases views and event monitors");
+    PumpFor(.35);
+    Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor && !taskAnimationActive && !taskAnimationTimer && !taskAnimationHost && !taskAnimationEntries, @"Destroy releases views, event monitors and in-flight animation without late callbacks");
     [window orderOut:nil];
-    NSLog(@"PASS: lower status/cards up, upper status/cards down, anchor-aware stack/order/scroll, no avatar relocation or resizing, held-side until drag release; caption/chevron drag and click,0/1/2/3/6/64, outside collapse/AX/focus/Regular glass/half-pixel edges/hide/empty/cleanup");
+    NSLog(@"PASS: live native unfold/refold in both directions, intermediate frames, continuous reversal, queued snapshots, drag/hide/destroy cancellation and immediate path; lower status/cards up, upper status/cards down, anchor-aware stack/order/scroll, no avatar relocation or resizing, held-side until drag release; caption/chevron drag and click,0/1/2/3/6/64, outside collapse/AX/focus/Regular glass/half-pixel edges/hide/empty/cleanup");
     return 0;
 } }
