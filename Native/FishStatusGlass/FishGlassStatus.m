@@ -48,27 +48,25 @@ static void EnsureTaskPanel(void);
     self.pill.layer.shadowOffset = CGSizeMake(0, -1.5);
     [self addSubview:self.pill];
 
-    // Behind-window vibrancy gives the floating pet a real desktop backdrop;
-    // Liquid Glass then supplies the system refraction and edge treatment.
-    self.backdrop = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
-    self.backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-    self.backdrop.material = NSVisualEffectMaterialHUDWindow;
-    self.backdrop.state = NSVisualEffectStateActive;
-    self.backdrop.wantsLayer = YES;
-    self.backdrop.layer.cornerRadius = 20;
-    self.backdrop.layer.masksToBounds = YES;
-    [self.pill addSubview:self.backdrop];
     self.content = [[NSView alloc] initWithFrame:NSZeroRect];
     if (@available(macOS 26.0, *)) {
+        // Use the same direct native Liquid Glass surface as task cards.
         NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:NSZeroRect];
-        glass.style = NSGlassEffectViewStyleClear;
+        glass.style = NSGlassEffectViewStyleRegular;
         glass.cornerRadius = 20;
         glass.contentView = self.content;
         self.glass = glass;
         self.liquidGlass = YES;
-        self.backdrop.alphaValue = .58;
         [self.pill addSubview:glass];
     } else {
+        self.backdrop = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
+        self.backdrop.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+        self.backdrop.material = NSVisualEffectMaterialHUDWindow;
+        self.backdrop.state = NSVisualEffectStateActive;
+        self.backdrop.wantsLayer = YES;
+        self.backdrop.layer.cornerRadius = 20;
+        self.backdrop.layer.masksToBounds = YES;
+        [self.pill addSubview:self.backdrop];
         self.glass = self.backdrop;
         [self.backdrop addSubview:self.content];
     }
@@ -588,7 +586,8 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
         if (created) {
             NSRect capsule = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
             NSLog(@"Desktop Fish glass geometry: parent=%@ panel=%@ capsule=%@ scale=%g", NSStringFromRect(petWindow.frame), NSStringFromRect(statusPanel.frame), NSStringFromRect(capsule), statusPanel.backingScaleFactor);
-            NSLog(@"Desktop Fish original material restored: NSGlassEffectView.clear tint=nil; HUD alpha=.58; shadow=.12/4/-1.5; height=40 radius=20; activePainting=1");
+            NSLog(@"Desktop Fish status material: %@; shadow=.12/4/-1.5; height=40 radius=20; activePainting=1",
+                overlay.liquidGlass ? @"NSGlassEffectView.regular tint=nil; HUD=none" : @"NSVisualEffectView.HUDWindow compatibility fallback");
             NSLog(@"Desktop Fish original glass initial focus: appActive=%d petKey=%d panelKey=%d actualPanelKey=%d; forceSelector=%d refreshSelector=%d",
                 NSApp.active, petWindow.keyWindow, statusPanel.keyWindow, NSApp.keyWindow == statusPanel,
                 [statusPanel respondsToSelector:NSSelectorFromString(@"_setForceActiveControls:")],

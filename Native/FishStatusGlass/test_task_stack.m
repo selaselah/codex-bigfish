@@ -16,6 +16,20 @@ static void SetTasks(NSUInteger count, NSString *summary) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:@{@"tasks":items} options:0 error:nil];
     FishGlassStatusUpdateTasks([[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding].UTF8String);
 }
+static void CheckStatusGlass(void) {
+    [overlay layoutSubtreeIfNeeded];
+    Require(overlay.pill.frame.size.height==40 && overlay.pill.frame.size.width>=140, @"Status capsule keeps its accepted dimensions");
+    if (@available(macOS 26.0, *)) {
+        Require([overlay.glass isKindOfClass:NSGlassEffectView.class] && !overlay.backdrop, @"Status capsule also uses direct native glass without HUD");
+        NSGlassEffectView *glass=(NSGlassEffectView *)overlay.glass;
+        Require(glass.style==NSGlassEffectViewStyleRegular && !glass.tintColor && glass.alphaValue==1 && glass.cornerRadius==20, @"Status and task surfaces share Regular Liquid Glass");
+        Require(glass.contentView==overlay.content, @"Status text receives native glass content treatment");
+        CGFloat scale=MAX(1,overlay.window.backingScaleFactor);
+        Require(fabs(NSMinX(glass.frame)*scale-.5)<1e-6 && fabs((NSMaxX(overlay.pill.bounds)-NSMaxX(glass.frame))*scale-.5)<1e-6, @"Status edges retain symmetric half-pixel margins");
+    }
+    Require(fabs([overlay.pill convertPoint:NSZeroPoint fromView:overlay.caption].x-32)<1e-6 && fabs([overlay.pill convertPoint:NSZeroPoint fromView:overlay.dot].x-16)<1e-6, @"Status caption and dot keep their original coordinates");
+    Require(NSEqualRects(overlay.taskButton.frame,overlay.pill.frame), @"Status hit target retains the complete capsule");
+}
 static void CheckRowEdges(FishTaskRow *row) {
     [row layoutSubtreeIfNeeded];
     if (@available(macOS 26.0, *)) {
@@ -61,6 +75,7 @@ int main(void) { @autoreleasepool {
     // Data may arrive before Unity's first status/caption update.
     SetTasks(3,@"正在思考");
     FishGlassStatusUpdate("工作中 · 3 项","working");
+    CheckStatusGlass();
     NSRect parentFrame=window.frame, capsuleFrame=statusPanel.frame;
     NSWindow *keyWindow=NSApp.keyWindow;
     for (NSNumber *count in @[@0,@1,@2,@3,@6,@64]) {
@@ -98,6 +113,7 @@ int main(void) { @autoreleasepool {
     FishGlassStatusSetVisible(0);
     Require(!statusPanel.visible && !taskPanel.visible, @"Hide also hides the stack");
     FishGlassStatusSetVisible(1);
+    CheckStatusGlass();
     CheckCollapsed(64);
     SetTasks(0,@"");
     CheckCollapsed(0);

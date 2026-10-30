@@ -1,5 +1,5 @@
 {
-  "source_sha256": "800a63ed0f933ceb4812c676275e35e70c9770b647cbe9b4d454d382046b545f",
+  "source_sha256": "4a0a6a5dbf6f100bbac89e2a157f06ba245981a31270ff41b9c6cd0333c645cd",
   "architecture": "arm64",
   "minimum_macos": "12.0",
   "system_liquid_glass_macos": "26.0"

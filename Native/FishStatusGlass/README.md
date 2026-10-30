@@ -1,0 +1,160 @@
+# 原生液态玻璃配置与左右像素缺口修复
+
+当前约定更新于 **2026-10-30**：任务卡片第 200 版的效果已获用户确认，随后用户要求脚下状态条也统一使用 **Regular Liquid Glass**。本模块当前源码实现两者统一的配置；此前状态条的 Clear＋HUD 配置只保留为历史记录。
+
+实现入口：[FishGlassStatus.m](FishGlassStatus.m)，验证入口：[test_task_stack.m](test_task_stack.m)，插件构建：[build.py](build.py)。任务数据和联动协议见 [Codex 接入说明](../../Integrations/codex/README.md)。
+
+## 当前配置
+
+macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折射、背景适应和内容处理。任务卡片与状态条都采用以下材料配置：
+
+| 项目 | 当前值 |
+| --- | --- |
+| 原生视图 | `NSGlassEffectView` |
+| 样式 | `NSGlassEffectViewStyleRegular` |
+| 额外染色 | `tintColor == nil` |
+| 透明度 | 保留系统默认 `alphaValue == 1`，不通过减淡整个玻璃视图模拟通透 |
+| 内容承载 | 标题、消息或状态文字放在 `glass.contentView` 内 |
+| 额外模糊底层 | 不创建额外的 `NSVisualEffectView` / HUD 材质兄弟视图 |
+| 边缘对齐 | 左右各向内对齐半个 backing pixel，见下文公式 |
+| 旧系统回退 | 仅 macOS 26 以下使用 `NSVisualEffectView`、`BehindWindow`、`HUDWindow`、`stateActive`；这是兼容回退，不称为液态玻璃 |
+
+原生玻璃不一定向调用者暴露 `CALayer`。验证透明度时允许 `glass.layer == nil`；如果存在 layer，则检查其 opacity 为 1。不要为了让测试通过而给玻璃强行创建额外 layer 或加入自定义模糊滤镜。
+
+### 任务卡片
+
+| 项目 | 当前值 |
+| --- | --- |
+| 单张卡片 | 330 × 56 pt，圆角 28 pt |
+| 面板宽度 | 350 pt，卡片左右各留 10 pt |
+| 标题 | 系统字体 13 pt、Semibold、`labelColor` |
+| 最新消息 | 系统字体 12 pt、Regular、`secondaryLabelColor` |
+| 文字左边距 | 16 pt；布局时扣除玻璃的半像素内缩，使最终坐标仍为 16 pt |
+| 标题可用宽度 | 298 pt，不再为右上计数预留位置 |
+| 计数 | 卡片上不显示；总数保留在脚下状态条、VoiceOver 和提示文字中 |
+| 默认状态 | 前卡片显示标题和最新消息，后方最多露出两层卡片 |
+| 后层偏移 | 每层向内缩 8 pt、向下错开 6 pt，宽度每层减少 16 pt |
+| 展开列表 | 行距 64 pt，即卡片高 56 pt＋间隔 8 pt；最高 332 pt，超过后滚动 |
+| 操作 | 点击堆叠展开；点击外部、状态条或打开某个聊天后收回堆叠；消息更新不自动展开 |
+
+展开列表的滚动文档使用 `NSGlassEffectContainerView`，`spacing = 0`，让相邻玻璃共享采样，同时保留行间的空隙。容器和文档高度同步更新，折叠、消息刷新后保留滚动位置。
+
+**重叠的堆叠卡片不整体放进合并容器。** 实测这样会把几层轮廓融成一整块，丢失堆叠边缘；当前堆叠保留独立的原生 Regular 玻璃层。
+
+### 脚下状态条
+
+状态条与任务卡片使用相同的 Regular 材料，几何和文字配置保持自身的紧凑尺寸：
+
+| 项目 | 当前值 |
+| --- | --- |
+| 胶囊高度／圆角 | 40 / 20 pt |
+| 最小宽度 | 140 pt，根据文字宽度自适应 |
+| 透明附件窗口 | 高 60 pt，宽度比胶囊多 24 pt；不扩大角色窗口 |
+| 文字 | 系统字体 13 pt、Medium、居中；文字框起点距胶囊左侧 32 pt |
+| 活动圆点 | 6 × 6 pt，圆角 3 pt；起点距胶囊左侧 16 pt |
+| 点击范围 | 完整胶囊，不随玻璃半像素内缩而缩小 |
+| 既有容器阴影 | 作者参数 opacity .12、radius 4、offset (0, -1.5)；系统合成后的表现可能调整 |
+
+状态条移除的是额外 HUD 材料，角色窗口、相机和胶囊的尺寸、位置不因此改变。
+
+## 左右缺像素的修复过程
+
+现象是胶囊最左、最右的圆弧中部有很小的轮廓断点。起初怀疑透明窗口裁剪，但实际试验**没有证明外层窗口裁剪就是根因**；半像素边缘对齐是本机验证有效的修复。
+
+| 阶段 | 处理和结论 |
+| --- | --- |
+| 状态条早期试验 | 增加透明画布／窗口留白，实际缺口仍存在，未采用 |
+| 等待原生窗口稳定 | 等 UniWinC 完成最终尺寸和位置后再创建状态条，保留此生命周期处理；它单独不足以消除断点 |
+| 第 155 版 | 玻璃左右各内缩半个 backing pixel，并补偿文字、圆点坐标；用户反馈“断点没了，或者说很轻微了” |
+| 其他候选 | `cornerRadius = 999` 曾编译，但没有嵌入或运行，不能把它记为已验证方案 |
+| 第 198 版 | 任务卡片漏用了状态条的边缘对齐；将同样的处理补到展开行、堆叠前层及后层 |
+| 当前版本 | 两种组件都保留该对齐方法，材料统一为 Regular；仍须结合背景、缩放和实际截图检查 |
+
+核心公式，单位为原生点：
+
+```objc
+CGFloat edgeInset = .5 / MAX(1, view.window.backingScaleFactor);
+glass.frame = NSInsetRect(authoredBounds, edgeInset, 0);
+```
+
+在本机 2× 显示环境中，`edgeInset = 0.25 pt`。330 pt 宽的卡片，其玻璃宽为 329.5 pt；140 pt 宽的状态条，其玻璃宽为 139.5 pt。只调整玻璃采样／绘制边缘，不改变作者胶囊、窗口、点击范围或角色大小。
+
+因为玻璃的起点向右移动了 `edgeInset`，内部内容需要向左补偿同样的距离。例如任务卡片：
+
+```objc
+glass.frame = NSInsetRect(row.bounds, edgeInset, 0);
+content.frame = NSMakeRect(0, 0,
+    row.bounds.size.width - 2 * edgeInset, row.bounds.size.height);
+// title/message 仍位于 glass.contentView 中。
+titleFrame.origin.x = messageFrame.origin.x = 16 - edgeInset;
+button.frame = row.bounds;
+```
+
+状态条的文字、圆点分别使用 `32 - edgeInset`、`16 - edgeInset`。任务卡片在 `viewDidMoveToWindow` 和 `viewDidChangeBackingProperties` 中请求重新布局；状态条通过 `LayoutStatus` 随窗口移动、屏幕变化和状态刷新重算 backing scale。不要把 0.25 pt 写死为所有显示器的值，也不要只挪动玻璃而遗漏文字补偿。
+
+## 为什么没有继续调 Material 透明度
+
+第 199 版曾保留 Clear 玻璃，把额外 HUD 底层从 .58 降到 .18。虽然背景更浅，用户仍认为它像普通 Material，未接受该质感。它确实包含 `NSGlassEffectView`，但仅检查类名或调低底层透明度不足以证明视觉效果符合目标。
+
+第 200 版在相同背景下比较了“HUD＋Clear”“纯 Clear”“纯 Regular”，最终选用纯原生 Regular，移除额外 HUD。任务卡片效果随后获用户确认，状态条也按用户后续要求统一到此配置。
+
+以下为当时的原生组件对照，从左到右依次是 HUD＋Clear、纯 Clear、纯 Regular：
+
+![原生组件材料对照](images/liquid-glass-variants.jpg)
+
+当前统一配置的组件预览：左侧为任务卡片堆叠及状态条，右侧为展开列表。
+
+![统一 Regular Liquid Glass 的卡片和状态条](images/liquid-glass-components.jpg)
+
+两张图均使用固定示例任务和合成代码／色块背景，不含真实聊天消息；不是 Codex Mini 截图，也不是完整桌面截图。普通窗口截图有时会遗漏窗口背后的内容或将透明区域合成为白色，不能单凭白底 app 截图推断所有桌面背景下的通透度。
+
+## 失焦时维持玻璃效果
+
+状态条和任务列表都是透明、无边框、非激活的附属 `NSPanel`，`hidesOnDeactivate = NO`。它们不能成为真实 key/main window，因此不会为了维持玻璃而抢键盘焦点。
+
+当前 `FishActiveStatusPanel` 仅对 `_hasActiveAppearance`、`_hasActiveAppearanceIgnoringKeyFocus` 返回 YES，影响绘制外观；`isKeyWindow` 和 `NSApp.keyWindow` 保持真实状态。刷新时对 `_setForceActiveControls:`、`setNativeGlassForcesActiveAppearance:`、`_sendForcedWindowChangedKeyState` 逐一检查是否支持，再调用；`refreshingAppearance`、`layingOut` 防止通知递归。
+
+这些外观钩子属于 AppKit SPI，不能当成公开、稳定的跨版本保证。后续修改必须保留 selector 检查，并核对实际失焦状态。不要通过伪造 `isKeyWindow` 或强制激活应用修复玻璃。
+
+## 构建与验证
+
+以下命令从仓库根目录执行，需要已登录图形桌面的 macOS 和支持相关 API 的 Xcode Command Line Tools／SDK：
+
+```sh
+mkdir -p work/glass-check
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_task_stack.m -o work/glass-check/task-stack-test
+work/glass-check/task-stack-test
+python3 Native/FishStatusGlass/build.py
+```
+
+原生测试覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无可见计数、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
+
+`build.py` 为 arm64 构建插件，最低部署目标为 macOS 12；Liquid Glass 分支要求 macOS 26。脚本按 `FishGlassStatus.m` 与自身内容生成指纹，签名并验证插件。仅编译原生插件不会更新已经运行的应用；还须构建应用并重启对应进程。先将 `UNITY_EDITOR_PATH` 指向本机 Unity 2022.3.22f1 的可执行文件：
+
+```sh
+mkdir -p Logs
+"$UNITY_EDITOR_PATH" -batchmode -projectPath "$PWD" \
+  -executeMethod DesktopFish.Editor.FishLowPoly5KDelivery.Build \
+  -quit -logFile Logs/task-glass-build.log
+codesign --verify --strict Assets/DesktopFish/Plugins/macOS/FishGlassStatus.bundle
+codesign --verify --deep --strict Builds/RebuiltBigFish.app
+```
+
+必须检查完整 Unity 日志，拒绝 `error CS...`、异常、着色器错误或 executeMethod 抛错；即使退出码为 0、后面又出现成功也不能通过。成功日志还应同时包含 `Build Finished, Result: Success.` 和 `5K application build completed.`。构建后核对应用内插件与选定插件一致，用构建前快照恢复仅由本次构建引入的 ProjectSettings 变化、保留用户已有修改，再启动新进程；不覆盖旧 `Builds/BigFatBlueFish.app`。
+
+人工验收需看白底和有颜色／文字的背景，分别检查堆叠、展开、滚动和真实任务更新，并核对聚焦与失焦。第 200 版已核对实际应用的初始失焦状态，不能把一次初始状态截图当作全部焦点切换过程的证明。界面改动若未改变模型、蒙皮、表情或骨骼，无须机械重跑整套模型动作；保留模型、旧应用及运行时文件的 SHA 核对。
+
+## 历史基线与材料位置
+
+| 记录 | 作用 |
+| --- | --- |
+| `2ef85e5`（155） | 状态条半像素对齐获用户认可；当时仍用旧材料配置 |
+| `08cfe91`（198） | 半像素对齐补到任务卡片 |
+| `30415c0`（199） | 收窄至 330×56、去掉可见计数；此版 Material-like 质感随后被否决 |
+| `4371f88`（200） | 用户确认的任务卡片纯原生 Regular 配置 |
+| 本文档对应源码 | 状态条按用户后续要求也统一为纯原生 Regular |
+
+本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`；`work/` 不入库，本文及上方两张固定示例图不依赖这些本机记录即可阅读。
+
+官方原理参考：[NSGlassEffectView](https://developer.apple.com/documentation/appkit/nsglasseffectview)、[Build an AppKit app with the new design](https://developer.apple.com/videos/play/wwdc2025/310/)。实现和验证范围以当前源码、原生测试及上述记录为准，不宣称精确复刻 Mini 或覆盖全部系统版本、壁纸和缩放组合。
