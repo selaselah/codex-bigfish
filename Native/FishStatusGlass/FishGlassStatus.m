@@ -4,6 +4,7 @@
 #import <objc/message.h>
 
 #define FISH_EXPORT __attribute__((visibility("default")))
+typedef NS_ENUM(NSInteger,FishTaskMode) { FishTaskHidden, FishTaskFolded, FishTaskExpanded };
 static atomic_int ready = 0;
 static void ToggleTasks(void);
 static void LayoutTasks(void);
@@ -12,6 +13,9 @@ static void EnsureTaskPanel(void);
 static void LayoutStatus(void);
 static void SetTasksExpanded(BOOL expanded, BOOL animated);
 static void CancelTaskAnimation(void);
+static void CycleTaskCards(void);
+static void PreparePetDrag(void);
+static void SetTaskMode(FishTaskMode mode, BOOL animated);
 
 @interface FishTaskButton : NSButton
 @end
@@ -43,6 +47,7 @@ static void CancelTaskAnimation(void);
     NSPoint screen = [event.window convertPointToScreen:event.locationInWindow];
     NSPoint delta = NSMakePoint(screen.x-self.downScreen.x,screen.y-self.downScreen.y);
     if (!self.dragged && hypot(delta.x,delta.y) <= 4) return;
+    if (!self.dragged) { PreparePetDrag(); self.downOrigin=self.dragWindow.frame.origin; }
     self.dragged = YES;
     [self highlight:NO];
     // Absolute desktop coordinates avoid feedback as this button's own window
@@ -79,7 +84,7 @@ static void CancelTaskAnimation(void);
 @property(nonatomic, strong) NSButton *disclosureButton;
 @property(nonatomic) BOOL liquidGlass;
 - (void)updateCaption:(NSString *)caption tone:(NSString *)tone;
-- (void)updateDisclosure:(BOOL)expanded upward:(BOOL)upward;
+- (void)updateDisclosure:(BOOL)expanded shown:(BOOL)shown upward:(BOOL)upward;
 @end
 
 @implementation FishStatusOverlay
@@ -88,7 +93,7 @@ static void CancelTaskAnimation(void);
     if (NSPointInRect(point, [self convertRect:self.disclosureButton.bounds fromView:self.disclosureButton])) return self.disclosureButton;
     return NSPointInRect(point, self.pill.frame) ? self.taskButton : nil;
 }
-- (void)toggleTasks:(id)sender { ToggleTasks(); }
+- (void)toggleTasks:(id)sender { CycleTaskCards(); }
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self = [super initWithFrame:frame])) return nil;
     self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -140,7 +145,7 @@ static void CancelTaskAnimation(void);
     self.disclosureButton.target = self;
     self.disclosureButton.action = @selector(toggleTasks:);
     [self.content addSubview:self.disclosureButton];
-    [self updateDisclosure:NO upward:YES];
+    [self updateDisclosure:NO shown:NO upward:YES];
     self.taskButton = [[FishStatusDragButton alloc] initWithFrame:NSZeroRect];
     self.taskButton.bordered = NO;
     self.taskButton.transparent = YES;
@@ -158,13 +163,13 @@ static void CancelTaskAnimation(void);
     self.needsLayout = YES;
     [self layoutSubtreeIfNeeded];
 }
-- (void)updateDisclosure:(BOOL)expanded upward:(BOOL)upward {
-    BOOL pointsUp = expanded ? !upward : upward;
+- (void)updateDisclosure:(BOOL)expanded shown:(BOOL)shown upward:(BOOL)upward {
+    BOOL pointsUp = shown ? !upward : upward;
     NSImage *image = [NSImage imageWithSystemSymbolName:pointsUp ? @"chevron.up" : @"chevron.down" accessibilityDescription:nil];
     self.disclosureButton.image = [image imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
-    self.disclosureButton.accessibilityLabel = expanded ? @"收起任务卡片" : @"展开任务卡片";
+    self.disclosureButton.accessibilityLabel = expanded ? @"折叠任务列表" : (shown ? @"收缩任务卡片" : @"显示任务卡片");
     self.disclosureButton.accessibilityValue = upward ? @"卡片向上展开" : @"卡片向下展开";
-    self.disclosureButton.toolTip = expanded ? @"点击收起卡片；拖动移动桌宠" : (upward ? @"点击向上展开卡片；拖动移动桌宠" : @"点击向下展开卡片；拖动移动桌宠");
+    self.disclosureButton.toolTip = expanded ? @"点击折叠列表；拖动移动桌宠" : (shown ? @"点击完全收缩卡片；拖动移动桌宠" : @"点击显示折叠卡片；拖动移动桌宠");
 }
 - (void)layout {
     [super layout];
@@ -220,7 +225,11 @@ static NSView *taskListSurface;
 static NSMutableDictionary *taskRows;
 static NSArray<NSDictionary *> *taskData;
 static BOOL tasksExpanded = NO;
+static BOOL taskCardsShown = YES;
+static CGFloat petTaskOffset = 0;
+static BOOL applyingPetOffset = NO;
 static BOOL statusAtTop = NO;
+static BOOL petNeedsSideSelection = YES;
 static BOOL tasksExpandUpward = YES;
 static BOOL taskRowsExpandUpward = YES;
 static id outsideClickMonitor;
@@ -237,12 +246,45 @@ static NSArray *taskAnimationEntries;
 static CFTimeInterval taskAnimationStart;
 static NSUInteger taskAnimationGeneration;
 static CGFloat taskAnimationStackFrom;
+static CGFloat taskAnimationStackTo;
+static CGFloat taskAnimationPetFrom;
+static CGFloat taskAnimationPetTo;
+static BOOL taskAnimationListTransition;
 
 static const CGFloat TaskCardWidth = 330;
 static const CGFloat TaskCardHeight = 56;
 static const CGFloat TaskPanelWidth = 350;
 static const CGFloat TaskRowStep = 64;
 static const CGFloat TaskListMaxHeight = 332;
+
+static BOOL TaskCardsPresent(void) { return taskCardsShown && (taskData.count>0 || tasksExpanded); }
+static NSRect PetDockFrame(void) {
+    NSRect frame=petWindow.frame;
+    frame.origin.y-=petTaskOffset;
+    return frame;
+}
+static NSScreen *PetDockScreen(void) {
+    NSPoint center=NSMakePoint(NSMidX(PetDockFrame()),NSMidY(PetDockFrame()));
+    for (NSScreen *screen in NSScreen.screens) if (NSPointInRect(center,screen.frame)) return screen;
+    return petWindow.screen ?: NSScreen.mainScreen;
+}
+static CGFloat DesiredPetTaskOffset(void) {
+    if (!wantsVisible || !TaskCardsPresent()) return 0;
+    CGFloat reserve=TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+8;
+    return tasksExpandUpward ? reserve : -reserve;
+}
+static void ApplyPetTaskOffset(CGFloat offset) {
+    if (!petWindow || fabs(offset-petTaskOffset)<.001) return;
+    NSRect dock=PetDockFrame(),status=statusPanel.frame,cards=taskPanel.frame;
+    applyingPetOffset=YES;
+    [petWindow setFrameOrigin:NSMakePoint(dock.origin.x,dock.origin.y+offset)];
+    // NSWindow snaps positions to screen points. Keep the actual applied offset
+    // so repeated animation ticks never accumulate a virtual-anchor drift.
+    petTaskOffset=petWindow.frame.origin.y-dock.origin.y;
+    if (statusPanel) [statusPanel setFrame:status display:NO];
+    if (taskPanel) [taskPanel setFrame:cards display:NO];
+    applyingPetOffset=NO;
+}
 
 @interface FishTaskRow : NSView
 @property(nonatomic, strong) NSVisualEffectView *backdrop;
@@ -460,6 +502,7 @@ static void UpdateTaskRows(void) {
     }
     [taskStack updateTasks:taskData];
     taskRowsExpandUpward = tasksExpandUpward;
+    if (!layingOut) LayoutStatus();
     LayoutTasks();
     CGFloat maxOffset = MAX(0,height-taskScroll.contentView.bounds.size.height);
     CGFloat offset = MIN(distanceFromAnchor,maxOffset);
@@ -468,7 +511,7 @@ static void UpdateTaskRows(void) {
     LayoutTasks();
 }
 static NSRect TaskPanelRect(BOOL expanded) {
-    NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
+    NSRect screen = PetDockScreen().visibleFrame;
     CGFloat height = expanded ? MIN(TaskListMaxHeight, MAX(TaskRowStep+12, (taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
     NSRect pill = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
     // Grow toward the desktop interior without moving or resizing the avatar.
@@ -480,7 +523,7 @@ static NSRect TaskPanelRect(BOOL expanded) {
 }
 static void LayoutTasks(void) {
     if (!taskPanel || !petWindow || !statusPanel || layingOutTasks || preparingTaskAnimation) return;
-    if ((!taskData.count && !tasksExpanded) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) {
+    if ((!TaskCardsPresent() && !taskAnimationActive) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) {
         CancelTaskAnimation(); [taskPanel orderOut:nil]; UpdateTaskAccessibility(); return;
     }
     NSRect frame=TaskPanelRect(tasksExpanded);
@@ -514,9 +557,10 @@ static void UpdateTaskAccessibility(void) {
     if (statusPanel.visible) [children addObjectsFromArray:@[overlay.taskButton,overlay.disclosureButton]];
     if (taskPanel.visible && !taskAnimationActive) [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
     petWindow.accessibilityChildren = children;
-    overlay.taskButton.accessibilityLabel = tasksExpanded ? @"收起任务列表" : @"查看任务消息";
-    overlay.taskButton.toolTip = tasksExpanded ? @"点击收起卡片；拖动移动桌宠" : @"点击展开任务消息；拖动移动桌宠";
-    [overlay updateDisclosure:tasksExpanded upward:tasksExpandUpward];
+    BOOL shown=TaskCardsPresent();
+    overlay.taskButton.accessibilityLabel = tasksExpanded ? @"折叠任务列表" : (shown ? @"收缩任务卡片" : @"显示任务卡片");
+    overlay.taskButton.toolTip = tasksExpanded ? @"点击折叠列表；拖动移动桌宠" : (shown ? @"点击完全收缩卡片；拖动移动桌宠" : @"点击显示折叠卡片；拖动移动桌宠");
+    [overlay updateDisclosure:tasksExpanded shown:shown upward:tasksExpandUpward];
 }
 static void EnsureTaskPanel(void) {
     if (!taskPanel) {
@@ -554,6 +598,9 @@ static void CancelTaskAnimation(void) {
 }
 static void AdvanceTaskAnimation(NSTimeInterval elapsed) {
     if (!taskAnimationActive) return;
+    CGFloat t=MIN(1,MAX(0,elapsed/.28));
+    CGFloat ease=1-pow(1-t,3);
+    ApplyPetTaskOffset(taskAnimationPetFrom+(taskAnimationPetTo-taskAnimationPetFrom)*ease);
     for (FishTaskAnimationEntry *entry in taskAnimationEntries) {
         CGFloat t=MIN(1,MAX(0,(elapsed-entry.delay)/.24));
         CGFloat ease=1-pow(1-t,3);
@@ -563,19 +610,19 @@ static void AdvanceTaskAnimation(NSTimeInterval elapsed) {
         entry.row.alphaValue=entry.fromAlpha+(entry.toAlpha-entry.fromAlpha)*ease;
         entry.row.needsLayout=YES; [entry.row layoutSubtreeIfNeeded];
     }
-    CGFloat t=MIN(1,MAX(0,elapsed/.28));
-    CGFloat ease=1-pow(1-t,3);
-    taskStack.alphaValue=taskAnimationStackFrom+((tasksExpanded ? 0 : 1)-taskAnimationStackFrom)*ease;
+    taskStack.alphaValue=taskAnimationStackFrom+(taskAnimationStackTo-taskAnimationStackFrom)*ease;
     if (elapsed>=.30) {
         BOOL refresh=taskAnimationNeedsRefresh;
         CancelTaskAnimation();
         if (refresh) UpdateTaskRows(); else LayoutTasks();
     }
 }
-static void SetTasksExpanded(BOOL expanded, BOOL animated) {
+static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     EnsureTaskPanel();
-    if (tasksExpanded==expanded) return;
-    BOOL wasExpanded=tasksExpanded, interrupted=taskAnimationActive, wasVisible=taskPanel.visible;
+    BOOL expanded=mode==FishTaskExpanded,shown=mode!=FishTaskHidden;
+    if (tasksExpanded==expanded && taskCardsShown==shown) return;
+    BOOL wasExpanded=tasksExpanded,wasShown=TaskCardsPresent(),interrupted=taskAnimationActive,wasVisible=taskPanel.visible;
+    BOOL listTransition=wasExpanded || expanded || (interrupted && taskAnimationListTransition);
     NSRect oldCanvas=taskPanel.frame;
     CGFloat oldStackAlpha=taskStack.alphaValue;
     NSMutableDictionary *previous=[NSMutableDictionary new];
@@ -583,13 +630,18 @@ static void SetTasksExpanded(BOOL expanded, BOOL animated) {
         @"frame":[NSValue valueWithRect:entry.row.frame],@"alpha":@(entry.row.alphaValue)};
     CancelTaskAnimation();
     tasksExpanded=expanded;
+    taskCardsShown=shown;
     BOOL animate=animated && wantsVisible && petWindow.visible && statusPanel.visible &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+    preparingTaskAnimation=animate;
+    LayoutStatus();
     if (!animate) { UpdateTaskRows(); return; }
+    taskAnimationPetFrom=petTaskOffset;
+    taskAnimationPetTo=DesiredPetTaskOffset();
     CGFloat distance=MAX(0,taskRowsExpandUpward ? NSMinY(taskScroll.contentView.bounds) : taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
     preparingTaskAnimation=YES;
     UpdateTaskRows();
-    NSRect canvas=TaskPanelRect(YES),collapsed=TaskPanelRect(NO);
+    NSRect canvas=TaskPanelRect(listTransition),collapsed=TaskPanelRect(NO);
     [taskPanel setFrame:canvas display:NO];
     taskScroll.frame=taskPanel.contentView.bounds;
     [taskScroll tile];
@@ -604,7 +656,9 @@ static void SetTasksExpanded(BOOL expanded, BOOL animated) {
     taskStack.needsLayout=YES; [taskStack layoutSubtreeIfNeeded];
     NSRect front=[taskPanel.contentView convertRect:taskStack.front.bounds fromView:taskStack.front];
     taskStack.front.hidden=YES; taskStack.button.hidden=YES;
-    taskAnimationStackFrom=interrupted ? oldStackAlpha : (wasExpanded ? 0 : 1);
+    taskAnimationStackFrom=interrupted ? oldStackAlpha : (wasShown && !wasExpanded && wasVisible ? 1 : 0);
+    BOOL targetPresent=TaskCardsPresent();
+    taskAnimationStackTo=targetPresent && !expanded ? 1 : 0;
     taskStack.alphaValue=taskAnimationStackFrom;
     taskAnimationHost=[[NSView alloc] initWithFrame:taskPanel.contentView.bounds];
     taskAnimationHost.wantsLayer=YES; taskAnimationHost.layer.masksToBounds=YES;
@@ -618,7 +672,7 @@ static void SetTasksExpanded(BOOL expanded, BOOL animated) {
         FishTaskRow *source=taskRows[item[@"session_id"] ?: @""];
         NSRect target=[taskPanel.contentView convertRect:source.bounds fromView:source];
         BOOL visible=NSIntersectsRect(target,taskAnimationHost.bounds);
-        if (i!=0 && !visible) continue;
+        if (i!=0 && (!listTransition || !visible)) continue;
         CGFloat depth=MIN(i,2);
         NSRect folded=NSMakeRect(front.origin.x+depth*8,front.origin.y+(tasksExpandUpward ? 1.0 : -1.0)*depth*6,TaskCardWidth-depth*16,TaskCardHeight);
         FishTaskAnimationEntry *entry=[FishTaskAnimationEntry new];
@@ -627,12 +681,13 @@ static void SetTasksExpanded(BOOL expanded, BOOL animated) {
         NSDictionary *prior=previous[item[@"session_id"] ?: @""];
         entry.fromFrame=prior ? NSOffsetRect([prior[@"frame"] rectValue],oldCanvas.origin.x-canvas.origin.x,oldCanvas.origin.y-canvas.origin.y) : (wasExpanded ? target : folded);
         entry.toFrame=expanded ? target : folded;
-        entry.fromAlpha=prior ? [prior[@"alpha"] doubleValue] : (wasExpanded ? visible : (i==0 && wasVisible ? 1 : 0));
-        entry.toAlpha=expanded ? visible : (i==0 ? 1 : 0);
+        entry.fromAlpha=prior ? [prior[@"alpha"] doubleValue] : (wasExpanded ? visible : (i==0 && wasShown && wasVisible ? 1 : 0));
+        entry.toAlpha=!targetPresent ? 0 : (expanded ? visible : (i==0 ? 1 : 0));
         entry.delay=interrupted ? 0 : MIN(i,4)*.014;
         [taskAnimationHost addSubview:entry.row]; [entries addObject:entry];
     }
     taskAnimationEntries=entries;
+    taskAnimationListTransition=listTransition;
     taskAnimationUpward=tasksExpandUpward;
     taskAnimationAnchor=NSMakePoint(NSMinX(canvas),tasksExpandUpward ? NSMinY(canvas) : NSMaxY(canvas));
     preparingTaskAnimation=NO;
@@ -650,6 +705,19 @@ static void SetTasksExpanded(BOOL expanded, BOOL animated) {
     }];
     taskAnimationTimer.tolerance=.002;
     [NSRunLoop.mainRunLoop addTimer:taskAnimationTimer forMode:NSRunLoopCommonModes];
+}
+static void SetTasksExpanded(BOOL expanded, BOOL animated) { SetTaskMode(expanded ? FishTaskExpanded : FishTaskFolded,animated); }
+static void CycleTaskCards(void) {
+    if (tasksExpanded) SetTaskMode(FishTaskFolded,YES);
+    else if (TaskCardsPresent()) SetTaskMode(FishTaskHidden,YES);
+    else SetTaskMode(taskData.count ? FishTaskFolded : FishTaskExpanded,YES);
+}
+static void PreparePetDrag(void) {
+    if (!taskAnimationActive) return;
+    BOOL refresh=taskAnimationNeedsRefresh;
+    CancelTaskAnimation();
+    LayoutStatus();
+    if (refresh) UpdateTaskRows();
 }
 static void ToggleTasks(void) {
     SetTasksExpanded(!tasksExpanded,YES);
@@ -691,15 +759,24 @@ static void RefreshActiveAppearance(void) {
     }
 }
 static void LayoutStatus(void) {
-    if (!statusPanel || !petWindow || layingOut) return;
+    if (!statusPanel || !petWindow || layingOut || applyingPetOffset) return;
     layingOut = YES;
     NSView *content = petWindow.contentView;
-    NSRect screen = (petWindow.screen ?: NSScreen.mainScreen).visibleFrame;
+    NSRect screen = PetDockScreen().visibleFrame;
     BOOL tracking = ((FishStatusDragButton *)overlay.taskButton).pressed || ((FishStatusDragButton *)overlay.disclosureButton).pressed;
-    if (!tracking) statusAtTop = NSMidY(petWindow.frame) > NSMidY(screen);
+    if (!tracking && petNeedsSideSelection) {
+        statusAtTop = NSMidY(petWindow.frame) > NSMidY(screen);
+        petNeedsSideSelection=NO;
+    }
     BOOL directionChanged = tasksExpandUpward != !statusAtTop;
     tasksExpandUpward = !statusAtTop;
     if (directionChanged) CancelTaskAnimation();
+    CGFloat offset=DesiredPetTaskOffset();
+    if (directionChanged && petTaskOffset!=0 && offset!=0) {
+        // A user drag changing sides keeps its exact avatar endpoint. Rebase
+        // the dock to the new reservation direction instead of jumping the pet.
+        petTaskOffset=offset;
+    } else if (!taskAnimationActive && !preparingTaskAnimation) ApplyPetTaskOffset(offset);
     CGFloat textWidth = overlay.caption.cell.cellSize.width;
     CGFloat capsuleWidth = MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
     CGFloat panelWidth = capsuleWidth+24;
@@ -707,6 +784,7 @@ static void LayoutStatus(void) {
     CGFloat statusY = statusAtTop ? NSMaxY(content.bounds)-34 : -16;
     NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, statusY, panelWidth, 60) toView:nil];
     rect = [petWindow convertRectToScreen:rect];
+    rect.origin.y-=petTaskOffset;
     // Clamp the painted capsule, retaining its transparent edge/shadow padding.
     rect.origin.x = MIN(MAX(rect.origin.x,NSMinX(screen)+8-12),NSMaxX(screen)-8-capsuleWidth-12);
     rect.origin.y = MIN(MAX(rect.origin.y,NSMinY(screen)+8-5),NSMaxY(screen)-8-45);
@@ -741,7 +819,7 @@ static void InstallObservers(void) {
     for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
         NSWindowDidChangeScreenNotification, NSWindowDidMiniaturizeNotification, NSWindowDidDeminiaturizeNotification]) {
         [observers addObject:[center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-            if (note.object == petWindow) LayoutStatus();
+            if (note.object == petWindow && !applyingPetOffset) { petNeedsSideSelection=YES; PreparePetDrag(); LayoutStatus(); }
         }]];
     }
     for (NSNotificationName name in @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification,
@@ -784,9 +862,13 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
             created = YES;
         }
         if (petWindow != window) {
+            CancelTaskAnimation();
+            ApplyPetTaskOffset(0);
             petWindow.accessibilityChildren = originalAccessibilityChildren;
             [petWindow removeChildWindow:statusPanel];
             petWindow = window;
+            petTaskOffset=0;
+            petNeedsSideSelection=YES;
             originalAccessibilityChildren = [window.accessibilityChildren copy];
             statusPanel.collectionBehavior = window.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
         }
@@ -843,12 +925,16 @@ FISH_EXPORT void FishGlassStatusShowTasks(void) {
 FISH_EXPORT void FishGlassStatusDestroy(void) {
     OnMain(^{
         CancelTaskAnimation();
+        wantsVisible=NO;
+        ApplyPetTaskOffset(0);
         if (outsideClickMonitor) [NSEvent removeMonitor:outsideClickMonitor];
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
         taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
         statusAtTop=NO; tasksExpandUpward=YES; taskRowsExpandUpward=YES;
+        taskCardsShown=YES; petTaskOffset=0;
+        petNeedsSideSelection=YES;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
         observers = nil;
         [petWindow removeChildWindow:statusPanel];

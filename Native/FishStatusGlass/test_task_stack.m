@@ -15,7 +15,12 @@ static void SettleTaskAnimation(void) {
     while(taskAnimationActive && CACurrentMediaTime()<limit) PumpFor(.01);
     Require(!taskAnimationActive && !taskAnimationTimer && !taskAnimationHost, @"Task transition completes and releases its driver and temporary views");
 }
-static void ClickControl(NSButton *button) { [button performClick:nil]; SettleTaskAnimation(); }
+static void ClickControl(NSButton *button) {
+    // Legacy list tests now open the folded stack, while the status arrow's
+    // separate three-state cycle is exercised explicitly below.
+    if (button==overlay.disclosureButton && TaskCardsPresent() && !tasksExpanded) button=taskStack.button;
+    [button performClick:nil];SettleTaskAnimation();
+}
 static void SetTasks(NSUInteger count, NSString *summary) {
     NSMutableArray *items = [NSMutableArray new];
     for (NSUInteger i=0; i<count; i++) [items addObject:@{
@@ -44,7 +49,7 @@ static void CheckStatusGlass(void) {
     NSRect arrow=[overlay.pill convertRect:overlay.disclosureButton.bounds fromView:overlay.disclosureButton];
     Require([overlay.disclosureButton.accessibilityValue isEqualToString:tasksExpandUpward ? @"卡片向上展开" : @"卡片向下展开"], @"VoiceOver reports the actual expansion direction");
     Require(overlay.disclosureButton.image && NSContainsRect(overlay.pill.bounds,arrow) && arrow.size.width==24 && arrow.size.height==24 && NSMidY(arrow)==20, @"Visible native chevron stays centered inside the status pill");
-    Require([overlay.disclosureButton.accessibilityLabel isEqualToString:tasksExpanded ? @"收起任务卡片" : @"展开任务卡片"], @"Disclosure label follows actual expanded state");
+    Require([overlay.disclosureButton.accessibilityLabel isEqualToString:tasksExpanded ? @"折叠任务列表" : (TaskCardsPresent() ? @"收缩任务卡片" : @"显示任务卡片")], @"Disclosure label follows actual expanded state");
     NSPoint arrowCenter=[overlay convertPoint:NSMakePoint(12,12) fromView:overlay.disclosureButton];
     Require([overlay hitTest:arrowCenter]==overlay.disclosureButton, @"Disclosure receives its own clicks despite the caption hit target");
     Require([petWindow.accessibilityChildren containsObject:overlay.disclosureButton], @"Disclosure is directly accessible from the pet window");
@@ -52,9 +57,9 @@ static void CheckStatusGlass(void) {
 }
 static void CheckPlacement(void) {
     NSRect pill=[statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
-    NSRect screen=petWindow.screen.visibleFrame;
+    NSRect screen=PetDockScreen().visibleFrame;
     Require(tasksExpandUpward==!statusAtTop, @"Expansion direction points toward the desktop interior");
-    Require(statusAtTop ? NSMidY(pill)>NSMidY(petWindow.frame) : NSMidY(pill)<NSMidY(petWindow.frame), @"Status follows the top or bottom of the pet");
+    Require(statusAtTop ? NSMidY(pill)>NSMidY(PetDockFrame()) : NSMidY(pill)<NSMidY(PetDockFrame()), @"Status follows the top or bottom of the pet");
     Require(fabs(tasksExpandUpward ? NSMinY(taskPanel.frame)-NSMaxY(pill) : NSMaxY(taskPanel.frame)-NSMinY(pill))<1e-6, @"Task panel attaches to the correct status edge");
     Require(NSContainsRect(NSInsetRect(screen,8,8),pill), @"Painted status remains inside the usable desktop");
     Require(NSContainsRect(NSInsetRect(screen,8,8),taskPanel.frame), @"Task cards fit within the usable desktop");
@@ -85,8 +90,8 @@ static void CheckRowEdges(FishTaskRow *row) {
 static void CheckCollapsed(NSUInteger count) {
     SettleTaskAnimation();
     Require(!tasksExpanded, @"Data updates must not expand the list");
-    Require(taskPanel.visible == (count>0), @"Collapsed stack visibility follows the task count");
-    if (!count) return;
+    Require(taskPanel.visible == (count>0 && taskCardsShown), @"Folded visibility follows the task count and explicit shown preference");
+    if (!count || !taskCardsShown) return;
     CheckPlacement();
     Require(taskScroll.hidden && !taskStack.hidden, @"Collapsed content selection");
     Require(taskStack.expandsUpward==tasksExpandUpward, @"Stack backing layers follow the expansion direction");
@@ -115,7 +120,7 @@ static NSEvent *StatusMouse(NSEventType type, NSPoint screen) {
 static void CheckStatusDrag(NSButton *control) {
     Require([control isKindOfClass:FishStatusDragButton.class], @"Both caption and chevron support dragging");
     FishStatusDragButton *button=(FishStatusDragButton *)control;
-    NSRect parent=petWindow.frame, status=statusPanel.frame, cards=taskPanel.frame;
+    NSRect parent=petWindow.frame, status=statusPanel.frame, cards=taskPanel.frame, dock=PetDockFrame();
     BOOL expanded=tasksExpanded;
     NSPoint start=[statusPanel convertPointToScreen:[button convertPoint:NSMakePoint(NSMidX(button.bounds),NSMidY(button.bounds)) toView:nil]];
     [button mouseDown:StatusMouse(NSEventTypeLeftMouseDown,start)];
@@ -134,9 +139,9 @@ static void CheckStatusDrag(NSButton *control) {
     [button mouseDragged:StatusMouse(NSEventTypeLeftMouseDragged,NSMakePoint(start.x+2,start.y+1))];
     [button mouseUp:StatusMouse(NSEventTypeLeftMouseUp,NSMakePoint(start.x+2,start.y+1))];
     SettleTaskAnimation();
-    Require(tasksExpanded!=expanded && NSEqualRects(petWindow.frame,parent), @"A click with minor jitter still toggles once without moving the pet");
-    ClickControl(overlay.disclosureButton);
-    Require(tasksExpanded==expanded, @"Accessible or keyboard button activation still toggles normally");
+    Require(!tasksExpanded && taskCardsShown==expanded && NSEqualRects(PetDockFrame(),dock) && NSEqualRects(statusPanel.frame,status), @"A click with minor jitter steps expanded to folded or folded to hidden with a fixed dock/status");
+    SetTaskMode(expanded ? FishTaskExpanded : FishTaskFolded,YES);SettleTaskAnimation();
+    Require(tasksExpanded==expanded && NSEqualRects(petWindow.frame,parent), @"Restoring the previous card mode restores the exact reserved avatar frame");
 }
 static FishTaskAnimationEntry *MotionEntry(NSString *sid) {
     for (FishTaskAnimationEntry *entry in taskAnimationEntries) if ([entry.row.sessionID isEqualToString:sid]) return entry;
@@ -144,7 +149,7 @@ static FishTaskAnimationEntry *MotionEntry(NSString *sid) {
 }
 static void CheckTaskMotion(BOOL upward) {
     if (tasksExpanded) ClickControl(overlay.disclosureButton);
-    NSRect screen=petWindow.screen.visibleFrame;
+    NSRect screen=PetDockScreen().visibleFrame;
     NSPoint position=NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+20 : NSMaxY(screen)-petWindow.frame.size.height-20);
     [petWindow setFrameOrigin:position];
     SetTasks(6,@"动画检查");
@@ -199,9 +204,51 @@ static void CheckTaskMotion(BOOL upward) {
     FishGlassStatusSetVisible(1);
     CheckCollapsed(3);
 }
+static void ArrowClick(void) { [overlay.disclosureButton performClick:nil];SettleTaskAnimation(); }
+static void CheckThreeStates(BOOL upward) {
+    SetTaskMode(FishTaskHidden,NO);
+    NSRect screen=PetDockScreen().visibleFrame;
+    [petWindow setFrameOrigin:NSMakePoint(NSMinX(screen)+400,upward ? NSMinY(screen)+60 : NSMaxY(screen)-petWindow.frame.size.height-100)];
+    SetTasks(3,@"三态检查");
+    NSRect hiddenPet=petWindow.frame,bar=statusPanel.frame;
+    Require(!TaskCardsPresent() && !taskPanel.visible && petTaskOffset==0, @"Hidden state shows no cards and restores the unreserved avatar");
+    [overlay.disclosureButton performClick:nil];
+    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        PumpFor(.08);
+        Require(taskAnimationActive && fabs(petTaskOffset)>0 && fabs(petTaskOffset)<fabs(DesiredPetTaskOffset()), @"Showing the folded stack animates the avatar's reserved space");
+        Require(NSEqualRects(statusPanel.frame,bar), @"Status anchor stays fixed during reservation animation");
+    }
+    SettleTaskAnimation();
+    NSRect foldedPet=petWindow.frame,foldedCards=taskPanel.frame;
+    Require(taskCardsShown && !tasksExpanded && taskPanel.visible && fabs(petTaskOffset)==92, @"Folded state reserves one stack height plus its gap");
+    Require(upward ? foldedPet.origin.y==hiddenPet.origin.y+92 : foldedPet.origin.y==hiddenPet.origin.y-92, @"The avatar moves away from the fixed status toward the desktop interior");
+    Require(NSEqualRects(statusPanel.frame,bar), @"Hidden and folded status frames are identical");
+    ClickControl(taskStack.button);
+    Require(tasksExpanded && taskPanel.frame.size.height>foldedCards.size.height, @"Clicking the stack expands the full list");
+    Require(NSEqualRects(petWindow.frame,foldedPet) && NSEqualRects(statusPanel.frame,bar), @"Expansion keeps both the reserved avatar and status completely fixed");
+    Require(upward ? NSMinY(taskPanel.frame)==NSMinY(foldedCards) : NSMaxY(taskPanel.frame)==NSMaxY(foldedCards), @"Folded and expanded cards share the same near-status edge");
+    ArrowClick();
+    Require(taskCardsShown && !tasksExpanded && taskPanel.visible && NSEqualRects(taskPanel.frame,foldedCards), @"First arrow click from expanded folds the list, without hiding it");
+    Require(NSEqualRects(petWindow.frame,foldedPet) && NSEqualRects(statusPanel.frame,bar), @"Expanded-to-folded does not move the avatar or status");
+    ArrowClick();
+    Require(!taskCardsShown && !taskPanel.visible && NSEqualRects(petWindow.frame,hiddenPet) && NSEqualRects(statusPanel.frame,bar), @"Second arrow click hides the stack and restores the exact hidden-state avatar while keeping status fixed");
+    SetTasks(6,@"收缩时的新消息");
+    Require(!taskPanel.visible && petTaskOffset==0 && NSEqualRects(petWindow.frame,hiddenPet), @"Live messages respect the explicitly hidden preference");
+    [overlay.disclosureButton performClick:nil];
+    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        AdvanceTaskAnimation(.10);
+        CGFloat offset=petTaskOffset;
+        [overlay.disclosureButton performClick:nil];
+        Require(petTaskOffset==offset, @"A rapid show/hide reversal starts from the current avatar offset without snapping");
+    } else [overlay.disclosureButton performClick:nil];
+    SettleTaskAnimation();
+    Require(!TaskCardsPresent() && NSEqualRects(petWindow.frame,hiddenPet) && NSEqualRects(statusPanel.frame,bar), @"Interrupted reservation finishes back at the original hidden geometry");
+    SetTaskMode(FishTaskFolded,NO);
+    CheckCollapsed(6);
+}
 int main(void) { @autoreleasepool {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyProhibited];
-    NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(920,450,312,416)
+    NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(920,550,312,416)
         styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     window.title=@"BigFatBlueFish";
     [window orderFront:nil];
@@ -300,18 +347,23 @@ int main(void) { @autoreleasepool {
     SettleTaskAnimation();
     Require(tasksExpanded && taskPanel.visible && taskRows.count==1, @"Explicit empty-list opening shows a placeholder");
     ToggleTasks();
+    if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) Require(((FishTaskAnimationEntry *)taskAnimationEntries.firstObject).toAlpha==0, @"An empty list fades out when folding leaves no visible cards");
     SettleTaskAnimation();
     CheckCollapsed(0);
     CheckTaskMotion(NO);
     CheckTaskMotion(YES);
+    CheckThreeStates(NO);
+    CheckThreeStates(YES);
     SetTasksExpanded(YES,NO);
     Require(tasksExpanded && !taskAnimationActive && !taskScroll.hidden, @"The nonanimated/reduced-motion path uses final native views directly");
     ClickControl(overlay.disclosureButton);
     ToggleTasks();
+    NSRect dockBeforeDestroy=PetDockFrame();
     FishGlassStatusDestroy();
+    Require(NSEqualRects(window.frame,dockBeforeDestroy), @"Destroy restores the unreserved avatar frame");
     PumpFor(.35);
     Require(!taskPanel && !taskStack && !taskListSurface && !statusPanel && !outsideClickMonitor && !localClickMonitor && !taskAnimationActive && !taskAnimationTimer && !taskAnimationHost && !taskAnimationEntries, @"Destroy releases views, event monitors and in-flight animation without late callbacks");
     [window orderOut:nil];
-    NSLog(@"PASS: live native unfold/refold in both directions, intermediate frames, continuous reversal, queued snapshots, drag/hide/destroy cancellation and immediate path; lower status/cards up, upper status/cards down, anchor-aware stack/order/scroll, no avatar relocation or resizing, held-side until drag release; caption/chevron drag and click,0/1/2/3/6/64, outside collapse/AX/focus/Regular glass/half-pixel edges/hide/empty/cleanup");
+    NSLog(@"PASS: three states hidden/folded/expanded, fixed status and shared card edge, animated avatar reservation only for folded row, arrow expanded-folded-hidden cycle, hidden-update preference and reversible reservation; live native unfold/refold in both directions, intermediate frames, continuous reversal, queued snapshots, drag/hide/destroy cancellation and immediate path; lower status/cards up, upper status/cards down, anchor-aware stack/order/scroll, no avatar relocation or resizing, held-side until drag release; caption/chevron drag and click,0/1/2/3/6/64, outside collapse/AX/focus/Regular glass/half-pixel edges/hide/empty/cleanup");
     return 0;
 } }
