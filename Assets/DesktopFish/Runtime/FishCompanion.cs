@@ -283,7 +283,7 @@ namespace DesktopFish
             statusGlass.Draw(label, noticeUntil > now ? "complete" : state, scale, menuFont);
         }
 
-        void OnDestroy() { statusGlass?.Dispose(); workStation?.Dispose(); }
+        void OnDestroy() { statusGlass?.Dispose(); workStation?.Dispose(); motion?.Dispose(); }
 
         void CloseMenu()
         {

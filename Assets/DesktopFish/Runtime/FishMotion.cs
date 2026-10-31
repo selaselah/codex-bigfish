@@ -5,7 +5,7 @@ namespace DesktopFish
 {
     // Procedural 3D gestures inspired by dsh-pet's idle/action/idle timing.
     // Each pose is evaluated from rest, so gestures blend back without accumulating rotations.
-    public sealed class FishMotion
+    public sealed class FishMotion : System.IDisposable
     {
         public enum Gesture { None, Wave, Bow, Doze, Step, Cheer }
         public const float WaveDuration = 5.2f;
@@ -36,6 +36,10 @@ namespace DesktopFish
         public static readonly Vector3 WorkingOffset=new Vector3(-.065f,0,-.025f);
         int previousRandom = -1;
         public bool randomActions = true;
+        public bool secondaryHair = true;
+        public float secondaryHairScale = 1;
+        FishHairFollow hairFollow;
+        public void Dispose(){hairFollow?.Dispose();hairFollow=null;}
         public float ClosedEyes { get; private set; }
         public float SmileEyes { get; private set; }
         public float BlinkWeight(float blink = 0) => Mathf.Max(ClosedEyes, blink) * (1 - SmileEyes * .01f);
@@ -302,11 +306,14 @@ namespace DesktopFish
             Rotate("J_Bip_L_Foot",Vector3.zero);Rotate("J_Bip_R_Foot",Vector3.zero);
             if(workBlend>.0001f){WorkLeg("L",workBlend);WorkLeg("R",workBlend);}
             Rotate("J_Opt_C_FoxTail1_01", new Vector3(0, Mathf.Sin(now * 1.9f) * 5, 0));
-            // Gentle authored sway, independent of the unavailable VRChat PhysBone runtime.
+            // Delayed low-poly hair follow-through; keep the original bone
+            // poses/hand-crank solver and allocate a mesh only when working.
+            if(rebuiltRig&&secondaryHair){if(hairFollow==null&&workBlend>.0001f)hairFollow=new FishHairFollow(model);hairFollow?.Tick(now,workBlend*secondaryHairScale);}
             for (int i = 1; i <= 5; i++)
             {
-                Rotate("J_Sec_Hair" + i + "_01", new Vector3(Mathf.Sin(now * 1.5f + i * 0.5f) * 0.7f,
-                    0, Mathf.Sin(now * 1.3f + i) * 0.8f));
+                Vector3 sway=new Vector3(Mathf.Sin(now * 1.5f + i * 0.5f) * 0.7f,
+                    0, Mathf.Sin(now * 1.3f + i) * 0.8f);
+                Rotate("J_Sec_Hair" + i + "_01",sway);
                 string name = "J_Sec_Hair" + i + "_01";
                 if (!rebuiltRig && bones.TryGetValue(name, out Transform hair))
                     hair.rotation = Quaternion.Slerp(hair.rotation, model.rotation * worldRest[name], 0.55f);

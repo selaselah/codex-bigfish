@@ -42,7 +42,7 @@ namespace DesktopFish.Editor {
                 skin.sharedMesh=AssetDatabase.LoadAssetAtPath<Mesh>("Assets/DesktopFish/Rebuilt/"+(skin.name=="Face"?"Face":"Body")+".asset");
             }
         }
-        public static Mesh Reduce(Mesh source,bool face=false) {
+        public static Mesh Reduce(Mesh source,bool face=false,bool updatedHair=true) {
             var recipe=JsonUtility.FromJson<Recipe>(File.ReadAllText("Assets/DesktopFish/Editor/FishLowPoly5KRecipe.json"));
             if(source.vertexCount!=(face?recipe.faceSourceVertices:recipe.sourceVertices)||source.triangles.Length/3!=(face?recipe.faceSourceTriangles:recipe.sourceTriangles)||Signature(source)!=(face?recipe.faceSourcePositionIndexSHA256:recipe.sourcePositionIndexSHA256))throw new InvalidOperationException("5K recipe does not match the selected full-detail model.");
             string attributes=face?recipe.faceAttributeSHA256:recipe.sourceAttributeSHA256;if(!string.IsNullOrEmpty(attributes)&&AttributeSignature(source)!=attributes)throw new InvalidOperationException("5K source UV/color/skin/expression attributes no longer match the recipe.");
@@ -57,6 +57,7 @@ namespace DesktopFish.Editor {
             if(!face&&Environment.GetEnvironmentVariable("FISH_LOD_SCALP_COVERAGE")!="0")CoverRearScalp(mesh);
             if(!face)FishRearAlphaCards.RemoveOldUnderlayers(mesh);
             if(!face)FishHandsShoes5K.Apply(mesh);
+            if(!face&&updatedHair)FishHairSmooth5K.Apply(mesh);
             mesh.RecalculateBounds();return mesh;
         }
         [Serializable] sealed class ScalpAudit {public int triangles,capTriangles,capVertices;public int[] originalLowIndices,capIndices;public float maximumOutset;}
@@ -97,9 +98,9 @@ namespace DesktopFish.Editor {
             string folder="work/scalp-cover-193";Directory.CreateDirectory(folder);File.WriteAllText(folder+"/Scalp-Coverage.json",JsonUtility.ToJson(new ScalpAudit{triangles=triangles.Length/3,capTriangles=selected.Count(s=>s),capVertices=cap.Count,originalLowIndices=mapping.ToArray(),capIndices=target.Values.OrderBy(i=>i).ToArray(),maximumOutset=.002f},true));
         }
         static T[] Pick<T>(T[] data,int[] used)=>data.Length==0?new T[0]:used.Select(i=>data[i]).ToArray();
-        public static void Apply(GameObject model,bool saveAssets) {
+        public static void Apply(GameObject model,bool saveAssets,bool updatedHair=true) {
             var skins=model.GetComponentsInChildren<SkinnedMeshRenderer>();
-            var reductions=skins.Select(s=>Reduce(s.sharedMesh,s.name=="Face")).ToArray();var cards=FishRearAlphaCards.Create(skins.First(s=>s.name!="Face").sharedMesh);int triangles=reductions.Sum(m=>m.triangles.Length/3)+cards.triangles.Length/3;
+            var reductions=skins.Select(s=>Reduce(s.sharedMesh,s.name=="Face",updatedHair)).ToArray();var cards=FishRearAlphaCards.Create(skins.First(s=>s.name!="Face").sharedMesh);int triangles=reductions.Sum(m=>m.triangles.Length/3)+cards.triangles.Length/3;
             if(triangles>5000||skins.Any(s=>s.bones.Length!=58)||reductions.Any(m=>m.blendShapeCount!=6))throw new InvalidOperationException("5K triangle/rig/expression contract failed.");
             if(saveAssets){Directory.CreateDirectory(Folder);AssetDatabase.Refresh();}
             for(int i=0;i<skins.Length;i++){
