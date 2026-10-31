@@ -5,8 +5,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
-WORK = ROOT / "work/demo-native-210"
-OUT = ROOT / "outputs/BigFish-Task-Demo-210"
+WORK = ROOT / "work/demo-native-211"
+OUT = ROOT / "outputs/BigFish-Task-Demo-211"
 SR = 48000
 
 def storyboard_font():
@@ -87,16 +87,21 @@ def finish():
     for i, frame in enumerate(audit):
         t = i / 30
         jobs = 0 if t < 3 else 1 if t < 11 else 2 if t < 19 else 3 if t < 37 else 2
-        mode = 0 if t < 27 else 1 if t < 31 else 2 if t < 34 else 0
+        mode = 0 if t < 29 else 1 if t < 31 else 2 if t < 34 else 0
         assert frame["frame"] == i and frame["jobs"] == jobs and frame["mode"] == mode
-        assert frame["diagram"] == (29 <= t < 31) and frame["nativeRegular"]
+        assert frame["diagram"] == (24 <= t < 29) and frame["nativeRegular"]
+        opacity = max(0, min(1, (t-24)/.5, (29-t)/.5))
+        assert abs(frame["diagramOpacity"]-opacity) < 1e-6
+        assert not frame["diagram"] or frame["mode"] == 0
         assert frame["statusY"] == 112 and frame["statusCenterX"] == 270
     assert any(x["animation"] and 8 < x["petOffset"] < 76 for x in audit)
-    assert all(audit[i]["petOffset"] == 76 for i in (840, 960, 1000))
+    assert all(audit[i]["petOffset"] == 76 for i in (900, 960, 1000))
     assert all(audit[i]["petOffset"] == 8 for i in (60, 1050, 1499))
     (WORK / "native-validation.json").write_text(json.dumps({"passed": True, "frames": len(audit),
         "native_regular_all_frames": True, "statusY_pt": 112, "statusCenterX_pt": 270,
-        "diagram_frames": sum(x["diagram"] for x in audit), "animation_has_intermediate_reservation": True,
+        "diagram_frames": sum(x["diagram"] for x in audit), "diagram_seconds": 5,
+        "diagram_fade_in_seconds": .5, "diagram_fade_out_seconds": .5,
+        "diagram_before_folded": True, "animation_has_intermediate_reservation": True,
         "hidden_offset_pt": 8, "folded_expanded_offset_pt": 76}, indent=2)+"\n")
     text = ";FFMETADATA1\n"
     for stage in plan["timeline"]:
@@ -112,14 +117,14 @@ def finish():
     assert (v["width"],v["height"],v["nb_frames"]) == (1080,1080,"1500") and v["r_frame_rate"]=="30/1" and abs(float(probe["format"]["duration"])-50)<.05
     with (WORK/"decode.log").open("w") as log: subprocess.run(["/opt/homebrew/bin/ffmpeg","-v","error","-i",str(video),"-f","null","-"],stdout=log,stderr=subprocess.STDOUT,check=True)
     assert (WORK/"decode.log").stat().st_size == 0
-    samples=[(2,"Idle · 3 秒"),(7,"一个任务"),(15,"两个任务"),(23,"三个任务"),(28,"折叠"),(30,"精美的交互设计（胡说）"),(32,"展开"),(35,"收起"),(37.4,"完成一个任务"),(43,"还剩两个任务")]
+    samples=[(2,"Idle · 3 秒"),(7,"一个任务"),(15,"两个任务"),(23,"三个任务"),(26,"精美的交互设计（胡说）"),(30,"折叠"),(32,"展开"),(35,"收起"),(37.4,"完成一个任务"),(43,"还剩两个任务")]
     (WORK/"encoded-samples").mkdir(exist_ok=True)
     sheet=Image.new("RGB",(1080,4*390),"white"); font=storyboard_font()
     for i,(t,label) in enumerate(samples):
         p=WORK/"encoded-samples"/f"sample{i:02d}.png"
         subprocess.run(["/opt/homebrew/bin/ffmpeg","-v","error","-y","-ss",str(t),"-i",str(video),"-frames:v","1",str(p)],check=True)
         frame=Image.open(p).convert("RGB");x=(i%3)*360;y=(i//3)*390;sheet.paste(frame.resize((360,360),Image.Resampling.LANCZOS),(x,y+30));ImageDraw.Draw(sheet).text((x+10,y+3),label,font=font,fill="#252525")
-        if t==28:frame.save(OUT/"Poster.png")
+        if t==30:frame.save(OUT/"Poster.png")
     sheet.save(OUT/"Storyboard.png")
     (WORK/"media-validation.json").write_text(json.dumps({"passed":True,"video":str(video.relative_to(ROOT)),"sha256":hashlib.sha256(video.read_bytes()).hexdigest(),"bytes":video.stat().st_size,"width":1080,"height":1080,"fps":30,"frames":1500,"duration":50,"idle_seconds":3,"full_decode_clean":True,"stages":plan["timeline"]},ensure_ascii=False,indent=2)+"\n")
     print(video)

@@ -27,6 +27,10 @@
 @end
 
 static void MovieRequire(BOOL condition,NSString *message){if(!condition){NSLog(@"MOVIE FAIL: %@",message);exit(1);}}
+static CGFloat MovieDiagramOpacity(CGFloat t){
+    if(t<24||t>=29)return 0;
+    return MIN(1,MIN((t-24)/.5,(29-t)/.5));
+}
 @interface MovieCapture:NSObject
 @property NSString *folder;
 @property BOOL preview;
@@ -48,7 +52,7 @@ static void MovieRequire(BOOL condition,NSString *message){if(!condition){NSLog(
 @implementation MovieCapture
 - (void)start {
     self.audit=[NSMutableArray new];self.lastCount=-1;self.lastMode=-1;
-    self.probes=[NSSet setWithArray:@[@0,@240,@510,@720,@825,@900,@960,@1050,@1122,@1260,@1499]];
+    self.probes=[NSSet setWithArray:@[@0,@720,@727,@735,@810,@855,@863,@869,@870,@876,@900,@960,@1050,@1122,@1260,@1499]];
     NSNumber *expiry=@(NSDate.date.timeIntervalSince1970+3600);
     self.sampleTasks=@[@{@"session_id":@"00000000-0000-4000-8000-000000000001",@"expires_at":expiry,@"title":@"绘制鲸鱼背景",@"summary":@"正在检查图案"},@{@"session_id":@"00000000-0000-4000-8000-000000000002",@"expires_at":expiry,@"title":@"优化发电动画",@"summary":@"正在摇动发电机"},@{@"session_id":@"00000000-0000-4000-8000-000000000003",@"expires_at":expiry,@"title":@"准备演示视频",@"summary":@"正在生成画面"}];
     NSRect area=NSMakeRect(100,200,540,540);
@@ -92,7 +96,7 @@ static void MovieRequire(BOOL condition,NSString *message){if(!condition){NSLog(
         NSData *audit=[NSJSONSerialization dataWithJSONObject:self.audit options:NSJSONWritingPrettyPrinted error:nil];[audit writeToFile:[self.folder stringByAppendingPathComponent:self.preview?@"native-preview-audit.json":@"native-frame-audit.json"] atomically:YES];
         FishGlassStatusDestroy();[self.avatar orderOut:nil];[self.boardWindow orderOut:nil];[self.diagramWindow orderOut:nil];NSLog(@"Native task movie capture passed: %lu frames, real Regular glass, own app only",(unsigned long)self.audit.count);exit(0);
     }
-    CGFloat t=self.frame/30.0;NSInteger count=t<3?0:t<11?1:t<19?2:t<37?3:2;FishTaskMode mode=t<27?FishTaskHidden:t<31?FishTaskFolded:t<34?FishTaskExpanded:FishTaskHidden;
+    CGFloat t=self.frame/30.0;NSInteger count=t<3?0:t<11?1:t<19?2:t<37?3:2;FishTaskMode mode=t<29?FishTaskHidden:t<31?FishTaskFolded:t<34?FishTaskExpanded:FishTaskHidden;
     if(count!=self.lastCount){NSArray *items=[self.sampleTasks subarrayWithRange:NSMakeRange(count==2&&t>=37?1:0,count)];NSData *data=[NSJSONSerialization dataWithJSONObject:@{@"tasks":items} options:0 error:nil];FishGlassStatusUpdateTasks([[NSString alloc]initWithData:data encoding:NSUTF8StringEncoding].UTF8String);self.lastCount=count;}
     NSString *caption=count?[NSString stringWithFormat:@"工作中 · %ld 项",(long)count]:@"休息中";if(t>=37&&t<39.4)caption=@"一个任务结束啦";
     if(![caption isEqualToString:self.lastCaption]){FishGlassStatusUpdate(caption.UTF8String,count?"working":"idle");self.lastCaption=caption;}
@@ -100,7 +104,8 @@ static void MovieRequire(BOOL condition,NSString *message){if(!condition){NSLog(
     if(mode!=self.lastMode){SetTaskMode(mode,YES);[taskAnimationTimer invalidate];taskAnimationTimer=nil;self.transitionStart=t;self.lastMode=mode;}
     if(taskAnimationActive)AdvanceTaskAnimation(t-self.transitionStart);
     taskPanel.ignoresMouseEvents=YES;
-    BOOL diagram=t>=29&&t<31;if(diagram)[self.diagramWindow orderFront:nil];else[self.diagramWindow orderOut:nil];
+    self.diagramWindow.alphaValue=MovieDiagramOpacity(t);
+    if(self.diagramWindow.alphaValue>0)[self.diagramWindow orderFront:nil];else[self.diagramWindow orderOut:nil];
     BOOL capture=!self.preview||[self.probes containsObject:@(self.frame)];
     if(!capture){self.frame++;dispatch_async(dispatch_get_main_queue(),^{[self nextFrame];});return;}
     NSString *path=[self.folder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@/frame%04ld.png",self.preview?@"preview-model":@"model-frames",(long)self.frame]];NSImage *model=[[NSImage alloc]initWithContentsOfFile:path];MovieRequire(model!=nil,[NSString stringWithFormat:@"Model frame missing: %@",path]);self.imageView.image=model;
@@ -112,7 +117,7 @@ static void MovieRequire(BOOL condition,NSString *message){if(!condition){NSLog(
                 MovieRequire(CGImageGetWidth(owned)==1080&&CGImageGetHeight(owned)==1080,@"Native output size mismatch");NSBitmapImageRep *rep=[[NSBitmapImageRep alloc]initWithCGImage:owned];NSData *png=[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];CGImageRelease(owned);
                 if(self.preview){NSString *out=[self.folder stringByAppendingPathComponent:[NSString stringWithFormat:@"native-preview/frame%04ld.png",(long)self.frame]];MovieRequire([png writeToFile:out atomically:YES],@"Preview write failed");}else[self.encoderInput writeData:png];
                 MovieRequire(overlay.liquidGlass&&taskStack.front.liquidGlass&&!overlay.backdrop&&!taskStack.front.backdrop,@"Movie lost native glass");
-                [self.audit addObject:@{@"frame":@(self.frame),@"time":@(self.frame/30.0),@"jobs":@(self.lastCount),@"mode":@(self.lastMode),@"diagram":@(self.frame>=870&&self.frame<930),@"petOffset":@(petTaskOffset),@"statusY":@(statusPanel.frame.origin.y-self.boardWindow.frame.origin.y),@"statusCenterX":@(NSMidX(statusPanel.frame)-self.boardWindow.frame.origin.x),@"animation":@(taskAnimationActive),@"nativeRegular":@YES}];
+                [self.audit addObject:@{@"frame":@(self.frame),@"time":@(self.frame/30.0),@"jobs":@(self.lastCount),@"mode":@(self.lastMode),@"diagram":@(self.frame>=720&&self.frame<870),@"diagramOpacity":@(self.diagramWindow.alphaValue),@"petOffset":@(petTaskOffset),@"statusY":@(statusPanel.frame.origin.y-self.boardWindow.frame.origin.y),@"statusCenterX":@(NSMidX(statusPanel.frame)-self.boardWindow.frame.origin.x),@"animation":@(taskAnimationActive),@"nativeRegular":@YES}];
                 if(self.frame%150==0||self.preview)NSLog(@"Native movie frame %ld/1500",(long)self.frame);self.frame++;dispatch_async(dispatch_get_main_queue(),^{[self nextFrame];});
             }});
         }];
