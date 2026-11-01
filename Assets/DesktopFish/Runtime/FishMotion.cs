@@ -38,7 +38,9 @@ namespace DesktopFish
         public bool randomActions = true;
         public bool secondaryHair = true;
         public float secondaryHairScale = 1;
+        public bool centralHairOnly = false;
         FishHairFollow hairFollow;
+        public FishHairFollow HairSimulation=>hairFollow;
         public void Dispose(){hairFollow?.Dispose();hairFollow=null;}
         public float ClosedEyes { get; private set; }
         public float SmileEyes { get; private set; }
@@ -308,11 +310,13 @@ namespace DesktopFish
             Rotate("J_Opt_C_FoxTail1_01", new Vector3(0, Mathf.Sin(now * 1.9f) * 5, 0));
             // Delayed low-poly hair follow-through; keep the original bone
             // poses/hand-crank solver and allocate a mesh only when working.
-            if(rebuiltRig&&secondaryHair){if(hairFollow==null&&workBlend>.0001f)hairFollow=new FishHairFollow(model);hairFollow?.Tick(now,workBlend*secondaryHairScale);}
+            if(rebuiltRig&&secondaryHair){if(hairFollow==null&&workBlend>.0001f)hairFollow=new FishHairFollow(model,centralHairOnly);hairFollow?.Tick(now,secondaryHairScale,workBlend);}
+            else if(hairFollow!=null){hairFollow.Dispose();hairFollow=null;}
             for (int i = 1; i <= 5; i++)
             {
                 Vector3 sway=new Vector3(Mathf.Sin(now * 1.5f + i * 0.5f) * 0.7f,
                     0, Mathf.Sin(now * 1.3f + i) * 0.8f);
+                if(rebuiltRig&&secondaryHair&&hairFollow!=null&&hairFollow.Active&&i>=2&&i<=4)sway=Vector3.zero;
                 Rotate("J_Sec_Hair" + i + "_01",sway);
                 string name = "J_Sec_Hair" + i + "_01";
                 if (!rebuiltRig && bones.TryGetValue(name, out Transform hair))
