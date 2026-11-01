@@ -10,6 +10,7 @@ namespace DesktopFish.Editor {
         [Serializable] sealed class Report {
             public float stationaryMaximum,impulsePeak,residualAfterStop,settledResidual,frameRateMaximumDifference,derivativeMaximumError,averageTickMilliseconds;
             public float sideImpulsePeak,sideResidualAfterStop,sideSettledResidual,sideRenderedMiddleAfterStop,sideRenderedTipAfterStop,sideRootMaximum,sideDerivativeMaximumError;public int sideDomains;
+            public float frontRootMaximum,frontAfterStop,tuftRootMaximum,tuftPeak,tuftAfterStop,frontSettled,tuftSettled,frontDerivativeMaximumError;
             public bool teleportReset,longFrameReset,meshLifecycleRestored,colliderProjection;
         }
         static FishCompanion Scene() {EditorSceneManager.OpenScene("Assets/Scenes/DesktopFish.unity");return UnityEngine.Object.FindObjectOfType<FishCompanion>();}
@@ -27,6 +28,9 @@ namespace DesktopFish.Editor {
                 int[] selected=(int[])sideField.GetType().GetField("VertexStrands").GetValue(sideField);
                 var skin=c.model.GetComponentsInChildren<SkinnedMeshRenderer>().Single(x=>x.sharedMesh.name=="Body");var neutral=originals[Array.IndexOf(skins,skin)].vertices;
                 float[] top=Enumerable.Range(0,2).Select(side=>Enumerable.Range(0,selected.Length).Where(i=>selected[i]==side).Max(i=>neutral[i].y)).ToArray();
+                var front=typeof(FishHairFollow).GetField("frontHair",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(sim);
+                int[] groups=(int[])front.GetType().GetField("Groups").GetValue(front);
+                float[] tuftWeight=(float[])front.GetType().GetField("TuftWeight").GetValue(front);
                 Vector3 origin=c.model.localPosition;
                 for(int frame=1;frame<=360;frame++) {
                     float t=frame/60f;c.model.localPosition=origin+Vector3.right*(.06f*Mathf.SmoothStep(0,1,Mathf.Clamp01(t/.4f)));
@@ -36,6 +40,12 @@ namespace DesktopFish.Editor {
                     float side=sim.CaptureSideOffsets().Max(v=>v.magnitude);result.sideImpulsePeak=Mathf.Max(result.sideImpulsePeak,side);
                     if(frame==42)result.sideResidualAfterStop=side;if(frame==360)result.sideSettledResidual=side;
                     var rendered=skin.sharedMesh.vertices;
+                    for(int i=0;i<groups.Length;i++)if(groups[i]>=0) {
+                        float d=(rendered[i]-neutral[i]).magnitude;
+                        if(groups[i]==6){result.tuftPeak=Mathf.Max(result.tuftPeak,d);if(tuftWeight[i]==0)result.tuftRootMaximum=Mathf.Max(result.tuftRootMaximum,d);if(frame==42)result.tuftAfterStop=Mathf.Max(result.tuftAfterStop,d);if(frame==360)result.tuftSettled=Mathf.Max(result.tuftSettled,d);}
+                        else {if(neutral[i].y>=.80f)result.frontRootMaximum=Mathf.Max(result.frontRootMaximum,d);if(frame==42)result.frontAfterStop=Mathf.Max(result.frontAfterStop,d);if(frame==360)result.frontSettled=Mathf.Max(result.frontSettled,d);}
+                    }
+                    foreach(var n in skin.sharedMesh.normals)Require(!float.IsNaN(n.x)&&Mathf.Abs(n.magnitude-1)<1e-4f,"finite unit transported normal");
                     for(int i=0;i<selected.Length;i++)if(selected[i]>=0) {
                         float d=(rendered[i]-neutral[i]).magnitude;
                         if(neutral[i].y==top[selected[i]])result.sideRootMaximum=Mathf.Max(result.sideRootMaximum,d);
@@ -43,6 +53,7 @@ namespace DesktopFish.Editor {
                         if(frame==42&&neutral[i].y<.40f)result.sideRenderedTipAfterStop=Mathf.Max(result.sideRenderedTipAfterStop,d);
                     }
                 }
+                Require(result.frontRootMaximum==0&&result.tuftRootMaximum==0&&result.frontAfterStop>.0005f&&result.tuftAfterStop>.0005f&&result.tuftPeak>.001f&&result.frontSettled<.002f&&result.tuftSettled<.002f,"new front/tuft inertia, fixed roots and settling");
                 Require(result.impulsePeak>.005f&&result.residualAfterStop>.001f,"real motion must create a continuing inertial response after stop");
                 Require(result.sideRootMaximum==0&&result.sideRenderedMiddleAfterStop>.002f&&result.sideRenderedTipAfterStop>.002f,"side middle/tip must bend after stop while both roots stay exact");
                 Require(result.sideImpulsePeak>.005f&&result.sideResidualAfterStop>.001f&&result.sideSettledResidual<.002f,"side curls must have independent inertia and settle");
@@ -62,7 +73,7 @@ namespace DesktopFish.Editor {
                 using(var sim=new FishHairFollow(c.model)) {
                     sim.Tick(100,1);
                     for(int frame=1;frame<=2*rates[run];frame++) {float t=frame/(float)rates[run];c.model.localPosition=origin+Vector3.right*(.04f*Mathf.Sin(t*3.5f));sim.Tick(100+t,1);}
-                    samples[run]=sim.CaptureOffsets().Concat(sim.CaptureSideOffsets()).ToArray();Require(sim.SafetyResets==0,"frame-rate test fallback");
+                    samples[run]=sim.CaptureOffsets().Concat(sim.CaptureSideOffsets()).Concat(c.model.GetComponentsInChildren<SkinnedMeshRenderer>().Single(x=>x.sharedMesh.name=="Body").sharedMesh.vertices).ToArray();Require(sim.SafetyResets==0,"frame-rate test fallback");
                     if(run==1) {
                         var sides=typeof(FishHairFollow).GetField("sideStrands",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(sim);
                         var sideField=typeof(FishHairFollow).GetMethod("SideField",BindingFlags.NonPublic|BindingFlags.Instance);
@@ -71,6 +82,13 @@ namespace DesktopFish.Editor {
                             var p=new Vector3(side==0?-.28f:.28f,y,-.13f);const float e=.0001f;
                             var derivative=(sideEvaluate(side,p+Vector3.up*e)[0]-sideEvaluate(side,p-Vector3.up*e)[0])/(2*e);
                             result.sideDerivativeMaximumError=Mathf.Max(result.sideDerivativeMaximumError,(derivative-sideEvaluate(side,p)[1]).magnitude);
+                        }
+                        var frontField=typeof(FishHairFollow).GetMethod("FrontField",BindingFlags.NonPublic|BindingFlags.Instance);
+                        Func<int,Vector3,Vector3[]> evaluateFront=(vertex,p)=>{object[] args={vertex,p,Vector3.zero,Vector3.zero};frontField.Invoke(sim,args);return new[]{(Vector3)args[2],(Vector3)args[3]};};
+                        foreach(int vertex in new[]{804,847,876,1531,1577,1622})foreach(float y in new[]{.49f,.61f,.72f}) {
+                            var p=new Vector3(0,y,0);const float e=.0001f;
+                            var derivative=(evaluateFront(vertex,p+Vector3.up*e)[0]-evaluateFront(vertex,p-Vector3.up*e)[0])/(2*e);
+                            result.frontDerivativeMaximumError=Mathf.Max(result.frontDerivativeMaximumError,(derivative-evaluateFront(vertex,p)[1]).magnitude);
                         }
                         var field=typeof(FishHairFollow).GetMethod("Field",BindingFlags.Instance|BindingFlags.NonPublic);
                         Func<Vector3,Vector3[]> evaluate=p=>{object[] args={p,Vector3.zero,Vector3.zero,Vector3.zero};field.Invoke(sim,args);return new[]{(Vector3)args[1],(Vector3)args[2],(Vector3)args[3]};};
@@ -83,9 +101,9 @@ namespace DesktopFish.Editor {
                 }
             }
             for(int run=0;run<2;run++)for(int i=0;i<samples[run].Length;i++)result.frameRateMaximumDifference=Mathf.Max(result.frameRateMaximumDifference,(samples[run][i]-samples[2][i]).magnitude);
-            Require(result.frameRateMaximumDifference<.006f,"30/60/120fps response diverged");Require(result.sideDerivativeMaximumError<.002f,"side normal transport derivative must match finite differences");Require(result.derivativeMaximumError<.002f,"field derivatives must match independent finite differences");
+            Require(result.frontDerivativeMaximumError<.002f,"actual sideburn derivative finite difference");Require(result.frameRateMaximumDifference<.006f,"30/60/120fps response diverged");Require(result.sideDerivativeMaximumError<.002f,"side normal transport derivative must match finite differences");Require(result.derivativeMaximumError<.002f,"field derivatives must match independent finite differences");
             result.averageTickMilliseconds=(float)(ticks*1000.0/System.Diagnostics.Stopwatch.Frequency/count);
-            Directory.CreateDirectory("work/hair-cohesion-215");File.WriteAllText("work/hair-cohesion-215/Behavior-Tests.json",JsonUtility.ToJson(result,true));
+            Directory.CreateDirectory("work/hair-front-216");File.WriteAllText("work/hair-front-216/Behavior-Tests.json",JsonUtility.ToJson(result,true));
             Debug.Log("Stateful hair behavior tests passed: "+JsonUtility.ToJson(result));
         }
     }

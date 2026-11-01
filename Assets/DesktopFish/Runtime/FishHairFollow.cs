@@ -14,12 +14,13 @@ namespace DesktopFish {
             public Vector3[] positions,normals,animatedPositions,animatedNormals;
             public bool[] hair;
             public bool[] legacySide;
-            public int[] triangles,activeFaces,strands;
+            public int[] triangles,activeFaces,strands,front;
             public Vector3[] restCross,beforeProjectionCross,normalCorrection;
             public float[] inverseMass,normalWeight;
         }
         readonly Part[] parts;
         readonly FishHairSideStrands sideStrands;
+        readonly FishFrontHairFollow frontHair;
         public int SideDomainCount=>sideStrands?.DomainCount??0;
         public Vector3[] CaptureSideOffsets()=>sideStrands?.CaptureOffsets()??new Vector3[0];
         readonly SkinnedMeshRenderer body;
@@ -48,19 +49,20 @@ namespace DesktopFish {
             if(!skins.Any(s=>s.sharedMesh.name=="RearHairCards")){parts=new Part[0];return;}
             body=skins.Single(s=>s.sharedMesh.name=="Body");
             bones=body.bones;binds=body.sharedMesh.bindposes;
-            if(!centralOnly)sideStrands=new FishHairSideStrands(body.sharedMesh,bones);
+            if(!centralOnly){sideStrands=new FishHairSideStrands(body.sharedMesh,bones);frontHair=new FishFrontHairFollow(body.sharedMesh);}
             parts=skins.Where(s=>s.sharedMesh.name=="Body"||s.sharedMesh.name=="RearHairCards").Select(s=>{
                 var source=s.sharedMesh;bool card=source.name=="RearHairCards";
                 var part=new Part{renderer=s,original=source,mesh=UnityEngine.Object.Instantiate(source),positions=source.vertices,normals=source.normals};
                 part.mesh.name=source.name;part.mesh.MarkDynamic();part.animatedPositions=(Vector3[])part.positions.Clone();part.animatedNormals=(Vector3[])part.normals.Clone();
-                // Rear domains only. Fringe, crown and the front side curls keep
-                // their original authored response. Cards share the same field.
+                // Rear selection stays unchanged. New front/tuft domains are
+                // selected separately; cards retain the accepted rear field.
                 part.hair=source.boneWeights.Select((w,i)=>card?(!centralOnly||(i>=15&&i<30)):new[]{w.boneIndex0,w.boneIndex1,w.boneIndex2,w.boneIndex3}.Any(j=>centralOnly?j==7:j>=6&&j<=8)).ToArray();
                 part.strands=card||sideStrands==null?Enumerable.Repeat(-1,part.positions.Length).ToArray():sideStrands.VertexStrands;
+                part.front=card||frontHair==null?Enumerable.Repeat(-1,part.positions.Length).ToArray():frontHair.Groups;
                 part.legacySide=source.boneWeights.Select((w,i)=>part.strands[i]<0&&!card&&new[]{w.boneIndex0,w.boneIndex1,w.boneIndex2,w.boneIndex3}.Any(j=>j==5||j==9)).ToArray();
-                part.triangles=source.triangles;part.activeFaces=Enumerable.Range(0,part.triangles.Length/3).Where(f=>Enumerable.Range(0,3).Any(j=>(part.hair[part.triangles[3*f+j]]||part.strands[part.triangles[3*f+j]]>=0))).ToArray();
+                part.triangles=source.triangles;part.activeFaces=Enumerable.Range(0,part.triangles.Length/3).Where(f=>Enumerable.Range(0,3).Any(j=>(part.hair[part.triangles[3*f+j]]||part.strands[part.triangles[3*f+j]]>=0||part.front[part.triangles[3*f+j]]>=0))).ToArray();
                 part.restCross=new Vector3[part.triangles.Length/3];part.beforeProjectionCross=new Vector3[part.restCross.Length];
-                part.inverseMass=part.positions.Select((p,i)=>part.hair[i]?Mathf.SmoothStep(0,1,Mathf.InverseLerp(RootY,.30f,p.y)):(!card&&sideStrands!=null?sideStrands.FreeWeight(i,p):0)).ToArray();
+                part.inverseMass=part.positions.Select((p,i)=>part.hair[i]?Mathf.SmoothStep(0,1,Mathf.InverseLerp(RootY,.30f,p.y)):(part.front[i]>=0?frontHair.FreeWeight(i,p):(!card&&sideStrands!=null?sideStrands.FreeWeight(i,p):0))).ToArray();
                 part.normalCorrection=new Vector3[part.positions.Length];part.normalWeight=new float[part.positions.Length];
                 foreach(int f in part.activeFaces){int a=part.triangles[3*f],b=part.triangles[3*f+1],c=part.triangles[3*f+2];part.restCross[f]=Vector3.Cross(part.positions[b]-part.positions[a],part.positions[c]-part.positions[a]);}
                 s.sharedMesh=part.mesh;return part;
@@ -132,6 +134,7 @@ namespace DesktopFish {
                 previousHead=head;previousTime=time;
             }
             sideStrands?.Tick(time);
+            if(frontHair!=null){Sample(-1,RootY-.30f,out Vector3 common,out Vector3 derivative);frontHair.Tick(time,head,common*.24f);}
             if(!Apply(Mathf.Clamp01(intensity),time,sideWorkWeight)) {SafetyResets++;Reset(head,time);Apply(0,time,sideWorkWeight);}
         }
         internal static Vector3 ConstrainDirection(Vector3 direction,Vector3 restDirection) {
@@ -194,6 +197,13 @@ namespace DesktopFish {
             Sample(a,p.y,out Vector3 da,out Vector3 ya);Sample(b,p.y,out Vector3 db,out Vector3 yb);
             d=Vector3.Lerp(da,db,s);dx=(db-da)*ds;dy=Vector3.Lerp(ya,yb,s);
         }
+        void FrontField(int vertex,Vector3 p,out Vector3 d,out Vector3 gradient) {
+            if(frontHair.Groups[vertex]==6){d=frontHair.TuftDelta*frontHair.TuftWeight[vertex];gradient=frontHair.TuftGradient[vertex];return;}
+            float u=frontHair.Progress(vertex,p.y),span=frontHair.Span(vertex);
+            Sample(-1,RootY-u*Spacing*(Nodes-1),out d,out Vector3 dy);
+            d*=.32f*span/(Spacing*(Nodes-1));dy*=.32f;
+            FishFrontHairFollow.SoftLimit(ref d,ref dy,.018f);gradient=dy;
+        }
         bool Apply(float intensity,float time,float sideWorkWeight) {
             foreach(var part in parts) {
                 for(int i=0;i<part.positions.Length;i++) {
@@ -210,6 +220,14 @@ namespace DesktopFish {
                         float determinant=1+dy.y;MinimumJacobian=Mathf.Min(MinimumJacobian,determinant);
                         if(determinant<=.15f||!Finite(d))return false;
                         p+=d;n=new Vector3(n.x*determinant,n.y-dy.x*n.x-dy.z*n.z,n.z*determinant).normalized;
+                    }
+                    else if(part.front[i]>=0&&intensity>0) {
+                        FrontField(i,p,out Vector3 d,out Vector3 gradient);d*=intensity;
+                        Vector3 direction=part.front[i]==6?frontHair.TuftDelta*intensity:gradient*intensity;
+                        if(part.front[i]!=6)gradient=Vector3.up;
+                        float determinant=1+Vector3.Dot(direction,gradient);MinimumJacobian=Mathf.Min(MinimumJacobian,determinant);
+                        if(determinant<=.15f||!Finite(d))return false;
+                        p+=d;n=(n*determinant-gradient*Vector3.Dot(direction,n)).normalized;
                     }
                     else if(part.legacySide[i]&&p.y<.80f&&sideWorkWeight>.0001f) {
                         // Preserve the accepted212 side-curl response. Front locks
