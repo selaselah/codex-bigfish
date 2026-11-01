@@ -7,7 +7,7 @@ namespace DesktopFish {
     // used as a force. The existing skin/rig and neutral mesh remain untouched.
     public sealed class FishHairFollow : IDisposable {
         const int Chains=3,Nodes=5;
-        const float RootY=.74f,Spacing=.125f,Width=.24f,MaxStep=1f/120;
+        const float RootY=.74f,Spacing=.125f,Width=.24f,MaxStep=1f/120,LocalMotion=.12f;
         sealed class Part {
             public SkinnedMeshRenderer renderer;
             public Mesh original,mesh;
@@ -27,6 +27,7 @@ namespace DesktopFish {
         readonly Matrix4x4[] binds;
         Vector3 neckA,neckB,chestA,chestB;
         readonly Vector3[,] rest=new Vector3[Chains,Nodes],position=new Vector3[Chains,Nodes],velocity=new Vector3[Chains,Nodes],offset=new Vector3[Chains,Nodes];
+        readonly Vector3[] coherent=new Vector3[Nodes];
         Matrix4x4 previousHead;
         float previousTime;
         bool initialized;
@@ -75,6 +76,7 @@ namespace DesktopFish {
         Matrix4x4 HeadMatrix()=>bones[4].localToWorldMatrix*binds[4];
         void Reset(Matrix4x4 head,float time) {
             for(int c=0;c<Chains;c++)for(int i=0;i<Nodes;i++){position[c,i]=head.MultiplyPoint3x4(rest[c,i]);velocity[c,i]=offset[c,i]=Vector3.zero;}
+            Array.Clear(coherent,0,coherent.Length);
             previousHead=head;previousTime=time;initialized=true;ResetCount++;
         }
         // Sphere/capsule proxies follow the head, neck and chest independently.
@@ -126,6 +128,7 @@ namespace DesktopFish {
                 var inverse=head.inverse;
                 for(int c=0;c<Chains;c++)for(int i=0;i<Nodes;i++)offset[c,i]=inverse.MultiplyVector(position[c,i]-head.MultiplyPoint3x4(rest[c,i]));
                 LimitTransferStrain();
+                SynchronizeTransfer();
                 previousHead=head;previousTime=time;
             }
             sideStrands?.Tick(time);
@@ -156,14 +159,30 @@ namespace DesktopFish {
                 }
             }
         }
+        void SynchronizeTransfer() {
+            // A dominant shared mode keeps the complete hair mass together.
+            // Local spring responses contribute only a small secondary motion.
+            for(int i=0;i<Nodes;i++)coherent[i]=(offset[0,i]+2*offset[1,i]+offset[2,i])*.25f;
+            for(int c=0;c<Chains;c++)for(int i=0;i<Nodes;i++)offset[c,i]=Vector3.Lerp(coherent[i],offset[c,i],LocalMotion);
+        }
+        Vector3 Control(int chain,int node)=>chain<0?coherent[node]:offset[chain,node];
+        void SideField(int strand,Vector3 p,out Vector3 value,out Vector3 derivative) {
+            sideStrands.Field(strand,p,out Vector3 local,out Vector3 localDerivative);
+            float span=sideStrands.Span(strand),u=sideStrands.Progress(strand,p.y),mainSpan=Spacing*(Nodes-1);
+            Sample(-1,RootY-u*mainSpan,out Vector3 common,out Vector3 commonDerivative);
+            // Only displacement is shared. Each curl keeps its own root/rest
+            // curve; no rear particle position is used as a side-hair target.
+            value=Vector3.Lerp(common*(span/mainSpan),local,LocalMotion);
+            derivative=Vector3.Lerp(commonDerivative,localDerivative,LocalMotion);
+        }
         void Sample(int chain,float y,out Vector3 value,out Vector3 derivative) {
             if(y>=RootY){value=derivative=Vector3.zero;return;}
             float u=(RootY-y)/Spacing;
-            if(u>=Nodes-1){value=offset[chain,Nodes-1];derivative=Vector3.zero;return;}
+            if(u>=Nodes-1){value=Control(chain,Nodes-1);derivative=Vector3.zero;return;}
             int i=Mathf.FloorToInt(u);float t=u-i,t2=t*t,t3=t2*t;
-            Vector3 a=offset[chain,i],b=offset[chain,i+1];
-            Vector3 ma=i==0?Vector3.zero:(b-offset[chain,i-1])*.5f;
-            Vector3 mb=i+1==Nodes-1?Vector3.zero:(offset[chain,i+2]-a)*.5f;
+            Vector3 a=Control(chain,i),b=Control(chain,i+1);
+            Vector3 ma=i==0?Vector3.zero:(b-Control(chain,i-1))*.5f;
+            Vector3 mb=i+1==Nodes-1?Vector3.zero:(Control(chain,i+2)-a)*.5f;
             value=(2*t3-3*t2+1)*a+(t3-2*t2+t)*ma+(-2*t3+3*t2)*b+(t3-t2)*mb;
             derivative=-((6*t2-6*t)*a+(3*t2-4*t+1)*ma+(-6*t2+6*t)*b+(3*t2-2*t)*mb)/Spacing;
         }
@@ -187,7 +206,7 @@ namespace DesktopFish {
                         p+=d;n=(Vector3.Cross(y,z)*n.x+Vector3.Cross(z,x)*n.y+Vector3.Cross(x,y)*n.z).normalized;
                     }
                     else if(part.strands[i]>=0&&intensity>0) {
-                        sideStrands.Field(part.strands[i],p,out Vector3 d,out Vector3 dy);d*=intensity;dy*=intensity;
+                        SideField(part.strands[i],p,out Vector3 d,out Vector3 dy);d*=intensity;dy*=intensity;
                         float determinant=1+dy.y;MinimumJacobian=Mathf.Min(MinimumJacobian,determinant);
                         if(determinant<=.15f||!Finite(d))return false;
                         p+=d;n=new Vector3(n.x*determinant,n.y-dy.x*n.x-dy.z*n.z,n.z*determinant).normalized;

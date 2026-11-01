@@ -65,8 +65,8 @@ namespace DesktopFish.Editor {
                     samples[run]=sim.CaptureOffsets().Concat(sim.CaptureSideOffsets()).ToArray();Require(sim.SafetyResets==0,"frame-rate test fallback");
                     if(run==1) {
                         var sides=typeof(FishHairFollow).GetField("sideStrands",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(sim);
-                        var sideField=sides.GetType().GetMethod("Field");
-                        Func<int,Vector3,Vector3[]> sideEvaluate=(side,p)=>{object[] args={side,p,Vector3.zero,Vector3.zero};sideField.Invoke(sides,args);return new[]{(Vector3)args[2],(Vector3)args[3]};};
+                        var sideField=typeof(FishHairFollow).GetMethod("SideField",BindingFlags.NonPublic|BindingFlags.Instance);
+                        Func<int,Vector3,Vector3[]> sideEvaluate=(side,p)=>{object[] args={side,p,Vector3.zero,Vector3.zero};sideField.Invoke(sim,args);return new[]{(Vector3)args[2],(Vector3)args[3]};};
                         for(int side=0;side<2;side++)foreach(float y in new[]{.32f,.43f,.56f,.68f,.78f}) {
                             var p=new Vector3(side==0?-.28f:.28f,y,-.13f);const float e=.0001f;
                             var derivative=(sideEvaluate(side,p+Vector3.up*e)[0]-sideEvaluate(side,p-Vector3.up*e)[0])/(2*e);
@@ -85,7 +85,7 @@ namespace DesktopFish.Editor {
             for(int run=0;run<2;run++)for(int i=0;i<samples[run].Length;i++)result.frameRateMaximumDifference=Mathf.Max(result.frameRateMaximumDifference,(samples[run][i]-samples[2][i]).magnitude);
             Require(result.frameRateMaximumDifference<.006f,"30/60/120fps response diverged");Require(result.sideDerivativeMaximumError<.002f,"side normal transport derivative must match finite differences");Require(result.derivativeMaximumError<.002f,"field derivatives must match independent finite differences");
             result.averageTickMilliseconds=(float)(ticks*1000.0/System.Diagnostics.Stopwatch.Frequency/count);
-            Directory.CreateDirectory("work/hair-inertia-214");File.WriteAllText("work/hair-inertia-214/Behavior-Tests.json",JsonUtility.ToJson(result,true));
+            Directory.CreateDirectory("work/hair-cohesion-215");File.WriteAllText("work/hair-cohesion-215/Behavior-Tests.json",JsonUtility.ToJson(result,true));
             Debug.Log("Stateful hair behavior tests passed: "+JsonUtility.ToJson(result));
         }
     }

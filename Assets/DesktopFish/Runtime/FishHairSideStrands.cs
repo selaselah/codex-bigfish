@@ -46,6 +46,8 @@ namespace DesktopFish {
             }
         }
         Matrix4x4 Carrier(int c){int bone=c==0?5:9;return bones[bone].localToWorldMatrix*binds[bone];}
+        public float Span(int strand)=>spacing[strand]*(Nodes-1);
+        public float Progress(int strand,float y)=>Mathf.Clamp01((top[strand]-y)/Span(strand));
         public float FreeWeight(int vertex,Vector3 p)=>VertexStrands[vertex]<0?0:Mathf.SmoothStep(0,1,Mathf.InverseLerp(top[VertexStrands[vertex]],top[VertexStrands[vertex]]-.16f,p.y));
         public void Tick(float time) {
             float elapsed=time-previousTime;
