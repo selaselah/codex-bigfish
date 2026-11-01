@@ -14,11 +14,14 @@ namespace DesktopFish {
             public Vector3[] positions,normals,animatedPositions,animatedNormals;
             public bool[] hair;
             public bool[] legacySide;
-            public int[] triangles,activeFaces;
+            public int[] triangles,activeFaces,strands;
             public Vector3[] restCross,beforeProjectionCross,normalCorrection;
             public float[] inverseMass,normalWeight;
         }
         readonly Part[] parts;
+        readonly FishHairSideStrands sideStrands;
+        public int SideDomainCount=>sideStrands?.DomainCount??0;
+        public Vector3[] CaptureSideOffsets()=>sideStrands?.CaptureOffsets()??new Vector3[0];
         readonly SkinnedMeshRenderer body;
         readonly Transform[] bones;
         readonly Matrix4x4[] binds;
@@ -44,6 +47,7 @@ namespace DesktopFish {
             if(!skins.Any(s=>s.sharedMesh.name=="RearHairCards")){parts=new Part[0];return;}
             body=skins.Single(s=>s.sharedMesh.name=="Body");
             bones=body.bones;binds=body.sharedMesh.bindposes;
+            if(!centralOnly)sideStrands=new FishHairSideStrands(body.sharedMesh,bones);
             parts=skins.Where(s=>s.sharedMesh.name=="Body"||s.sharedMesh.name=="RearHairCards").Select(s=>{
                 var source=s.sharedMesh;bool card=source.name=="RearHairCards";
                 var part=new Part{renderer=s,original=source,mesh=UnityEngine.Object.Instantiate(source),positions=source.vertices,normals=source.normals};
@@ -51,10 +55,11 @@ namespace DesktopFish {
                 // Rear domains only. Fringe, crown and the front side curls keep
                 // their original authored response. Cards share the same field.
                 part.hair=source.boneWeights.Select((w,i)=>card?(!centralOnly||(i>=15&&i<30)):new[]{w.boneIndex0,w.boneIndex1,w.boneIndex2,w.boneIndex3}.Any(j=>centralOnly?j==7:j>=6&&j<=8)).ToArray();
-                part.legacySide=source.boneWeights.Select(w=>!card&&new[]{w.boneIndex0,w.boneIndex1,w.boneIndex2,w.boneIndex3}.Any(j=>j==5||j==9)).ToArray();
-                part.triangles=source.triangles;part.activeFaces=Enumerable.Range(0,part.triangles.Length/3).Where(f=>Enumerable.Range(0,3).Any(j=>part.hair[part.triangles[3*f+j]])).ToArray();
+                part.strands=card||sideStrands==null?Enumerable.Repeat(-1,part.positions.Length).ToArray():sideStrands.VertexStrands;
+                part.legacySide=source.boneWeights.Select((w,i)=>part.strands[i]<0&&!card&&new[]{w.boneIndex0,w.boneIndex1,w.boneIndex2,w.boneIndex3}.Any(j=>j==5||j==9)).ToArray();
+                part.triangles=source.triangles;part.activeFaces=Enumerable.Range(0,part.triangles.Length/3).Where(f=>Enumerable.Range(0,3).Any(j=>(part.hair[part.triangles[3*f+j]]||part.strands[part.triangles[3*f+j]]>=0))).ToArray();
                 part.restCross=new Vector3[part.triangles.Length/3];part.beforeProjectionCross=new Vector3[part.restCross.Length];
-                part.inverseMass=part.positions.Select((p,i)=>part.hair[i]?Mathf.SmoothStep(0,1,Mathf.InverseLerp(RootY,.30f,p.y)):0).ToArray();
+                part.inverseMass=part.positions.Select((p,i)=>part.hair[i]?Mathf.SmoothStep(0,1,Mathf.InverseLerp(RootY,.30f,p.y)):(!card&&sideStrands!=null?sideStrands.FreeWeight(i,p):0)).ToArray();
                 part.normalCorrection=new Vector3[part.positions.Length];part.normalWeight=new float[part.positions.Length];
                 foreach(int f in part.activeFaces){int a=part.triangles[3*f],b=part.triangles[3*f+1],c=part.triangles[3*f+2];part.restCross[f]=Vector3.Cross(part.positions[b]-part.positions[a],part.positions[c]-part.positions[a]);}
                 s.sharedMesh=part.mesh;return part;
@@ -101,7 +106,7 @@ namespace DesktopFish {
                         for(int i=1;i<Nodes;i++) {
                             Vector3 target=Vector3.Lerp(previousHead.MultiplyPoint3x4(rest[c,i]),head.MultiplyPoint3x4(rest[c,i]),alpha);
                             Vector3 parentTarget=Vector3.Lerp(previousHead.MultiplyPoint3x4(rest[c,i-1]),head.MultiplyPoint3x4(rest[c,i-1]),alpha);
-                            Vector3 before=position[c,i];float stiffness=Mathf.Lerp(125,42,(i-1)/3f)*(1+(c-1)*.07f),drag=Mathf.Lerp(9,5.2f,(i-1)/3f);
+                            Vector3 before=position[c,i];float stiffness=Mathf.Lerp(70,22,(i-1)/3f)*(1+(c-1)*.07f),drag=Mathf.Lerp(3.8f,2.6f,(i-1)/3f);
                             velocity[c,i]+=(target-position[c,i])*stiffness*dt;
                             velocity[c,i]*=Mathf.Exp(-drag*dt);
                             Vector3 p=before+velocity[c,i]*dt,restDirection=target-parentTarget;float length=restDirection.magnitude;
@@ -123,9 +128,10 @@ namespace DesktopFish {
                 LimitTransferStrain();
                 previousHead=head;previousTime=time;
             }
+            sideStrands?.Tick(time);
             if(!Apply(Mathf.Clamp01(intensity),time,sideWorkWeight)) {SafetyResets++;Reset(head,time);Apply(0,time,sideWorkWeight);}
         }
-        static Vector3 ConstrainDirection(Vector3 direction,Vector3 restDirection) {
+        internal static Vector3 ConstrainDirection(Vector3 direction,Vector3 restDirection) {
             Vector3 rest=restDirection.normalized;direction=direction.normalized;
             const float cosine=.8480481f,sine=.5299193f;float dot=Vector3.Dot(rest,direction);
             // Keep small motions exactly; only project beyond the 32deg cone.
@@ -179,6 +185,12 @@ namespace DesktopFish {
                         float determinant=Vector3.Dot(x,Vector3.Cross(y,z));MinimumJacobian=Mathf.Min(MinimumJacobian,determinant);
                         if(determinant<=.15f||!Finite(d))return false;
                         p+=d;n=(Vector3.Cross(y,z)*n.x+Vector3.Cross(z,x)*n.y+Vector3.Cross(x,y)*n.z).normalized;
+                    }
+                    else if(part.strands[i]>=0&&intensity>0) {
+                        sideStrands.Field(part.strands[i],p,out Vector3 d,out Vector3 dy);d*=intensity;dy*=intensity;
+                        float determinant=1+dy.y;MinimumJacobian=Mathf.Min(MinimumJacobian,determinant);
+                        if(determinant<=.15f||!Finite(d))return false;
+                        p+=d;n=new Vector3(n.x*determinant,n.y-dy.x*n.x-dy.z*n.z,n.z*determinant).normalized;
                     }
                     else if(part.legacySide[i]&&p.y<.80f&&sideWorkWeight>.0001f) {
                         // Preserve the accepted212 side-curl response. Front locks
