@@ -485,10 +485,18 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 @property(nonatomic) BOOL insertionActive,oldFrontVisible;
 @property(nonatomic) CFTimeInterval insertionStart;
 @property(nonatomic) NSUInteger insertionGeneration;
+@property(nonatomic, strong) NSTimer *shakeTimer;
+@property(nonatomic) BOOL shakeActive,pendingShake;
+@property(nonatomic) CFTimeInterval shakeStart;
+@property(nonatomic) NSUInteger shakeGeneration;
+@property(nonatomic) CGFloat shakeOffset;
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks;
 - (void)insertTasks:(NSArray<NSDictionary *> *)tasks animated:(BOOL)animated;
 - (void)cancelInsertion;
 - (void)advanceInsertion:(NSTimeInterval)elapsed;
+- (void)shake;
+- (void)cancelShake;
+- (void)advanceShake:(NSTimeInterval)elapsed;
 @end
 @implementation FishTaskStack
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -517,9 +525,13 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.accessibilityChildren = @[self.button];
     return self;
 }
-- (void)expandTasks:(id)sender { if (!tasksExpanded) ToggleTasks(); }
+- (void)expandTasks:(id)sender {
+    if(self.count==1)[self.front openTask:sender];
+    else if (!tasksExpanded) ToggleTasks();
+}
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks {
     if(self.insertionActive && ![self.incoming.sessionID isEqualToString:tasks.firstObject[@"session_id"]])[self cancelInsertion];
+    if((self.shakeActive || self.pendingShake) && ![self.items.firstObject[@"session_id"] isEqualToString:tasks.firstObject[@"session_id"]])[self cancelShake];
     self.items=[tasks copy];
     self.count = tasks.count;
     if(self.insertionActive)[self.incoming updateTask:tasks.firstObject ?: @{}];
@@ -528,10 +540,10 @@ static void ApplyPetTaskOffset(CGFloat offset) {
         NSUInteger depth=2-i;
         [self.backs[i] updateTask:depth<tasks.count ? tasks[depth] : @{}];
     }
-    self.button.accessibilityLabel = [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
+    self.button.accessibilityLabel = self.count==1 ? @"在 Codex 中打开任务，共 1 项" : [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
     FishTaskRow *top=self.insertionActive ? self.incoming : self.front;
     self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",top.titleLabel.stringValue,top.messageLabel.stringValue];
-    self.button.toolTip = [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,top.button.toolTip];
+    self.button.toolTip = self.count==1 ? [NSString stringWithFormat:@"点击在 Codex 中打开\n%@",top.button.toolTip] : [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,top.button.toolTip];
     self.needsLayout = YES;
 }
 - (void)cancelInsertion {
@@ -542,6 +554,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     [self updateTasks:self.items ?: @[]];
 }
 - (void)insertTasks:(NSArray<NSDictionary *> *)tasks animated:(BOOL)animated {
+    [self cancelShake];
     [self cancelInsertion];
     if(!animated || !tasks.count) { [self updateTasks:tasks];return; }
     self.oldFrontVisible=self.window.visible && !self.hidden && self.count>0;
@@ -576,9 +589,37 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     if(t>=1 && !layingOutTasks) {
         // Keep the lens already on screen. Removing it and repainting the old
         // receded lens can expose stale native-glass clipping during resize.
+        BOOL shake=self.pendingShake;self.pendingShake=NO;
         [self.front removeFromSuperview];self.front=self.incoming;self.incoming=nil;
         [self cancelInsertion];LayoutTasks();UpdateTaskAccessibility();
+        if(shake)[self shake];
     }
+}
+- (void)cancelShake {
+    self.pendingShake=NO;
+    if(!self.shakeActive && !self.shakeTimer)return;
+    self.shakeGeneration++;[self.shakeTimer invalidate];self.shakeTimer=nil;self.shakeActive=NO;
+    self.front.frame=NSOffsetRect(self.front.frame,-self.shakeOffset,0);self.shakeOffset=0;
+    self.needsLayout=YES;
+}
+- (void)shake {
+    if(self.insertionActive || taskAnimationActive) { self.pendingShake=YES;return; }
+    [self cancelShake];
+    if(!self.window.visible || self.hidden || !self.count || NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion)return;
+    self.shakeActive=YES;self.shakeStart=CACurrentMediaTime();NSUInteger generation=++self.shakeGeneration;
+    __weak FishTaskStack *weakSelf=self;
+    self.shakeTimer=[NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *timer) {
+        FishTaskStack *stack=weakSelf;
+        if(stack && stack.shakeGeneration==generation)[stack advanceShake:CACurrentMediaTime()-stack.shakeStart];
+    }];self.shakeTimer.tolerance=.002;
+    [NSRunLoop.mainRunLoop addTimer:self.shakeTimer forMode:NSRunLoopCommonModes];
+}
+- (void)advanceShake:(NSTimeInterval)elapsed {
+    if(!self.shakeActive)return;
+    CGFloat t=MIN(1,MAX(0,elapsed/.28));
+    if(t>=1)[self cancelShake];
+    else self.shakeOffset=4*sin(6*M_PI*t)*(1-t);
+    self.needsLayout=YES;[self layoutSubtreeIfNeeded];
 }
 - (void)layout {
     [super layout];
@@ -591,7 +632,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
         back.frame = NSMakeRect(10+depth*8,frontY+(self.expandsUpward ? 1.0 : -1.0)*depth*6,TaskCardWidth-depth*16,TaskCardHeight);
     }
     if(self.insertionActive)[self advanceInsertion:CACurrentMediaTime()-self.insertionStart];
-    else self.front.frame = NSMakeRect(10,frontY,TaskCardWidth,TaskCardHeight);
+    else self.front.frame = NSMakeRect(10+self.shakeOffset,frontY,TaskCardWidth,TaskCardHeight);
     self.button.frame = NSMakeRect(0,0,NSWidth(self.bounds),TaskCardHeight+16+(layers-1)*6);
 }
 @end
@@ -628,6 +669,8 @@ static void UpdateTaskRows(void) {
     // A live snapshot may arrive during the 300ms transition. Apply it once the
     // current visual gesture settles instead of snapping its moving cards.
     if (taskAnimationActive) { taskAnimationNeedsRefresh=YES; return; }
+    // A single task has one card, not a second expanded representation.
+    if(tasksExpanded && taskData.count==1) { SetTaskMode(FishTaskFolded,YES);return; }
     CGFloat distanceFromAnchor = MAX(0, taskRowsExpandUpward ? NSMinY(taskScroll.contentView.bounds) : taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
     NSArray *items = DisplayedTaskItems();
     CGFloat height = items.count * TaskRowStep + 12;
@@ -863,6 +906,7 @@ static void EnsureTaskPanel(void) {
     }
 }
 static void CancelTaskAnimation(void) {
+    [taskStack cancelShake];
     [taskStack cancelInsertion];
     taskAnimationGeneration++;
     [taskAnimationTimer invalidate]; taskAnimationTimer=nil;
@@ -888,11 +932,14 @@ static void AdvanceTaskAnimation(NSTimeInterval elapsed) {
     taskStack.alphaValue=taskAnimationStackFrom+(taskAnimationStackTo-taskAnimationStackFrom)*ease;
     if (elapsed>=.30) {
         BOOL refresh=taskAnimationNeedsRefresh;
+        BOOL shake=taskStack.pendingShake;
         CancelTaskAnimation();
         if (refresh) UpdateTaskRows(); else LayoutTasks();
+        if(shake && !tasksExpanded && TaskCardsPresent())[taskStack shake];
     }
 }
 static void SetTaskMode(FishTaskMode mode, BOOL animated) {
+    if(mode==FishTaskExpanded && taskData.count==1)mode=FishTaskFolded;
     EnsureTaskPanel();
     BOOL expanded=mode==FishTaskExpanded,shown=mode!=FishTaskHidden;
     if (tasksExpanded==expanded && taskCardsShown==shown) return;
@@ -1208,12 +1255,14 @@ FISH_EXPORT void FishGlassStatusShowTask(const char *sessionUTF8) {
     OnMain(^{
         if(!TaskWithID(sessionID))return;
         BOOL same=[stackOrder.firstObject isEqualToString:sessionID];
+        BOOL wasShown=TaskCardsPresent();
         PromoteStackTask(sessionID);
         if(tasksExpanded) { stackInsertionPending=nil;SetTasksExpanded(NO,YES); }
         else {
             if(!same || !taskCardsShown)stackInsertionPending=[sessionID copy];
             taskCardsShown=YES;UpdateTaskRows();
         }
+        if(same && wasShown)[taskStack shake];
         RefreshActiveAppearance();
     });
 }
