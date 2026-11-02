@@ -16,6 +16,9 @@ static void CancelTaskAnimation(void);
 static void CycleTaskCards(void);
 static void PreparePetDrag(void);
 static void SetTaskMode(FishTaskMode mode, BOOL animated);
+static void CancelEdgeReturn(void);
+static void FinishPetDrag(void);
+static NSWindow *FindPetWindow(void);
 
 @interface FishTaskButton : NSButton
 @end
@@ -35,6 +38,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated);
 @implementation FishStatusDragButton
 - (BOOL)mouseDownCanMoveWindow { return NO; }
 - (void)mouseDown:(NSEvent *)event {
+    CancelEdgeReturn();
     self.dragWindow = self.window.parentWindow;
     self.downScreen = [event.window convertPointToScreen:event.locationInWindow];
     self.downOrigin = self.dragWindow.frame.origin;
@@ -65,7 +69,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated);
     [self highlight:NO];
     if (click) [self sendAction:self.action to:self.target];
     // Refresh attached controls after the complete drag.
-    if (moved) LayoutStatus();
+    if (moved) FinishPetDrag();
 }
 - (void)viewWillMoveToWindow:(NSWindow *)window {
     if (!window) { self.pressed=NO; self.dragWindow=nil; [self highlight:NO]; }
@@ -253,6 +257,13 @@ static const CGFloat TaskCardHeight = 56;
 static const CGFloat TaskPanelWidth = 350;
 static const CGFloat TaskRowStep = 64;
 static const CGFloat TaskListMaxHeight = 332;
+static const CGFloat PetEdgeMargin = 16;
+static NSTimer *edgeReturnTimer;
+static __weak NSWindow *edgeReturnWindow;
+static NSPoint edgeReturnFrom,edgeReturnTo;
+static CFTimeInterval edgeReturnStart;
+static NSUInteger edgeReturnGeneration;
+static BOOL applyingEdgeReturn = NO;
 
 static BOOL TaskCardsPresent(void) { return taskCardsShown && (taskData.count>0 || tasksExpanded); }
 static NSRect PetDockFrame(void) {
@@ -509,9 +520,90 @@ static void UpdateTaskRows(void) {
     [taskScroll reflectScrolledClipView:taskScroll.contentView];
     LayoutTasks();
 }
+static CGFloat TaskPanelHeight(BOOL expanded) {
+    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,(taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
+}
+static NSRect NaturalStatusRect(void) {
+    NSView *content=petWindow.contentView;
+    CGFloat textWidth=overlay.caption.cell.cellSize.width;
+    CGFloat width=MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
+    NSRect rect=[content convertRect:NSMakeRect(floor((content.bounds.size.width-width)/2)-12,24,width+24,60) toView:nil];
+    rect=[petWindow convertRectToScreen:rect];rect.origin.y-=petTaskOffset;
+    return rect;
+}
+// Use the unclamped, centered group: accessories may already have been clamped
+// separately during the drag, which must not hide the avatar's overflow.
+static NSRect PetGroupBounds(NSWindow *window) {
+    NSRect bounds=window.frame;
+    if (window!=petWindow || !statusPanel || !overlay || !wantsVisible) return bounds;
+    NSRect status=NaturalStatusRect();bounds=NSUnionRect(bounds,status);
+    if (TaskCardsPresent()) {
+        NSRect cards=NSMakeRect(NSMidX(status)-TaskPanelWidth/2,NSMinY(status)+45,TaskPanelWidth,TaskPanelHeight(tasksExpanded));
+        bounds=NSUnionRect(bounds,cards);
+    }
+    return bounds;
+}
+static NSPoint EdgeCorrection(NSRect bounds,NSRect visible) {
+    NSRect safe=NSInsetRect(visible,PetEdgeMargin,PetEdgeMargin);NSPoint delta=NSZeroPoint;
+    // An unusually small desktop cannot contain an oversized group. Keep the
+    // status reachable at the bottom and center horizontally, without scaling.
+    if (NSWidth(bounds)>NSWidth(safe)) delta.x=round(NSMidX(safe)-NSMidX(bounds));
+    else if (NSMinX(bounds)<NSMinX(safe)) delta.x=ceil(NSMinX(safe)-NSMinX(bounds));
+    else if (NSMaxX(bounds)>NSMaxX(safe)) delta.x=floor(NSMaxX(safe)-NSMaxX(bounds));
+    if (NSHeight(bounds)>NSHeight(safe)) delta.y=ceil(NSMinY(safe)-NSMinY(bounds));
+    else if (NSMinY(bounds)<NSMinY(safe)) delta.y=ceil(NSMinY(safe)-NSMinY(bounds));
+    else if (NSMaxY(bounds)>NSMaxY(safe)) delta.y=floor(NSMaxY(safe)-NSMaxY(bounds));
+    return delta;
+}
+static NSScreen *EdgeScreen(NSWindow *window,NSRect bounds) {
+    NSScreen *best=window.screen ?: NSScreen.mainScreen;CGFloat bestArea=-1,bestDistance=CGFLOAT_MAX;
+    NSPoint middle=NSMakePoint(NSMidX(bounds),NSMidY(bounds));
+    for (NSScreen *screen in NSScreen.screens) {
+        NSRect overlap=NSIntersectionRect(bounds,screen.frame);CGFloat area=NSWidth(overlap)*NSHeight(overlap);
+        CGFloat x=MIN(MAX(middle.x,NSMinX(screen.frame)),NSMaxX(screen.frame)),y=MIN(MAX(middle.y,NSMinY(screen.frame)),NSMaxY(screen.frame));
+        CGFloat distance=(middle.x-x)*(middle.x-x)+(middle.y-y)*(middle.y-y);
+        if (area>bestArea || (area==bestArea && distance<bestDistance)) { best=screen;bestArea=area;bestDistance=distance; }
+    }
+    return best;
+}
+static void CancelEdgeReturn(void) {
+    edgeReturnGeneration++;[edgeReturnTimer invalidate];edgeReturnTimer=nil;edgeReturnWindow=nil;
+}
+static void AdvanceEdgeReturn(CFTimeInterval elapsed) {
+    NSWindow *window=edgeReturnWindow;
+    if (!window || !window.visible) { CancelEdgeReturn();return; }
+    CGFloat t=MIN(1,MAX(0,elapsed/.22)),eased=1-pow(1-t,3);
+    NSPoint point=NSMakePoint(edgeReturnFrom.x+(edgeReturnTo.x-edgeReturnFrom.x)*eased,edgeReturnFrom.y+(edgeReturnTo.y-edgeReturnFrom.y)*eased);
+    if (window==petWindow) point.y+=petTaskOffset;
+    applyingEdgeReturn=YES;[window setFrameOrigin:point];LayoutStatus();
+    if (t>=1) {
+        // A task count/mode or display may change during these220ms. Refit the
+        // current footprint once, rather than leaving its new top outside.
+        NSRect bounds=PetGroupBounds(window);NSScreen *screen=EdgeScreen(window,bounds);
+        NSPoint correction=screen ? EdgeCorrection(bounds,screen.visibleFrame) : NSZeroPoint;
+        if (!NSEqualPoints(correction,NSZeroPoint)) { [window setFrameOrigin:NSMakePoint(window.frame.origin.x+correction.x,window.frame.origin.y+correction.y)];LayoutStatus(); }
+    }
+    applyingEdgeReturn=NO;
+    if (t>=1) CancelEdgeReturn();
+}
+static void FinishPetDrag(void) {
+    PreparePetDrag();LayoutStatus();
+    NSWindow *window=petWindow ?: FindPetWindow();if (!window || !window.visible || window.miniaturized) return;
+    NSRect bounds=PetGroupBounds(window);NSScreen *screen=EdgeScreen(window,bounds);if (!screen) return;
+    NSPoint delta=EdgeCorrection(bounds,screen.visibleFrame);if (NSEqualPoints(delta,NSZeroPoint)) return;
+    edgeReturnWindow=window;edgeReturnFrom=window.frame.origin;
+    if (window==petWindow) edgeReturnFrom.y-=petTaskOffset;
+    edgeReturnTo=NSMakePoint(edgeReturnFrom.x+delta.x,edgeReturnFrom.y+delta.y);
+    if (NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) { AdvanceEdgeReturn(.22);return; }
+    edgeReturnStart=CACurrentMediaTime();NSUInteger generation=edgeReturnGeneration;
+    edgeReturnTimer=[NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *timer) {
+        if (generation==edgeReturnGeneration) AdvanceEdgeReturn(CACurrentMediaTime()-edgeReturnStart);
+    }];edgeReturnTimer.tolerance=.002;
+    [NSRunLoop.mainRunLoop addTimer:edgeReturnTimer forMode:NSRunLoopCommonModes];
+}
 static NSRect TaskPanelRect(BOOL expanded) {
     NSRect screen = PetDockScreen().visibleFrame;
-    CGFloat height = expanded ? MIN(TaskListMaxHeight, MAX(TaskRowStep+12, (taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
+    CGFloat height = TaskPanelHeight(expanded);
     NSRect pill = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
     // Grow toward the desktop interior without moving or resizing the avatar.
     CGFloat available = tasksExpandUpward ? NSMaxY(screen)-8-NSMaxY(pill) : NSMinY(pill)-NSMinY(screen)-8;
@@ -712,6 +804,7 @@ static void CycleTaskCards(void) {
     else SetTaskMode(taskData.count ? FishTaskFolded : FishTaskExpanded,YES);
 }
 static void PreparePetDrag(void) {
+    CancelEdgeReturn();
     if (!taskAnimationActive) return;
     BOOL refresh=taskAnimationNeedsRefresh;
     CancelTaskAnimation();
@@ -760,19 +853,10 @@ static void RefreshActiveAppearance(void) {
 static void LayoutStatus(void) {
     if (!statusPanel || !petWindow || layingOut || applyingPetOffset) return;
     layingOut = YES;
-    NSView *content = petWindow.contentView;
     NSRect screen = PetDockScreen().visibleFrame;
     CGFloat offset=DesiredPetTaskOffset();
     if (!taskAnimationActive && !preparingTaskAnimation) ApplyPetTaskOffset(offset);
-    CGFloat textWidth = overlay.caption.cell.cellSize.width;
-    CGFloat capsuleWidth = MIN(MAX(140,2*ceil((textWidth+60)/2)),MAX(140,2*floor((content.bounds.size.width-24)/2)));
-    CGFloat panelWidth = capsuleWidth+24;
-    // Transparent horizontal room preserves the native capsule edge rendering.
-    // Always use the accepted foot-level anchor, including above screen center.
-    CGFloat statusY = 24;
-    NSRect rect = [content convertRect:NSMakeRect(floor((content.bounds.size.width-capsuleWidth)/2)-12, statusY, panelWidth, 60) toView:nil];
-    rect = [petWindow convertRectToScreen:rect];
-    rect.origin.y-=petTaskOffset;
+    NSRect rect=NaturalStatusRect();CGFloat capsuleWidth=NSWidth(rect)-24;
     // Clamp the painted capsule, retaining its transparent edge/shadow padding.
     rect.origin.x = MIN(MAX(rect.origin.x,NSMinX(screen)+8-12),NSMaxX(screen)-8-capsuleWidth-12);
     rect.origin.y = MIN(MAX(rect.origin.y,NSMinY(screen)+8-5),NSMaxY(screen)-8-45);
@@ -797,6 +881,7 @@ static void InstallObservers(void) {
     observers = [NSMutableArray new];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     void (^outsideClick)(NSEvent *) = ^(NSEvent *event) {
+        if (event.window==petWindow || event.window==statusPanel) CancelEdgeReturn();
         NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
         if (tasksExpanded && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
             SetTasksExpanded(NO,YES);
@@ -807,7 +892,7 @@ static void InstallObservers(void) {
     for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
         NSWindowDidChangeScreenNotification, NSWindowDidMiniaturizeNotification, NSWindowDidDeminiaturizeNotification]) {
         [observers addObject:[center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
-            if (note.object == petWindow && !applyingPetOffset) { PreparePetDrag(); LayoutStatus(); }
+            if (note.object == petWindow && !applyingPetOffset && !applyingEdgeReturn) { PreparePetDrag(); LayoutStatus(); }
         }]];
     }
     for (NSNotificationName name in @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification,
@@ -878,7 +963,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
     return atomic_load(&ready);
 }
 FISH_EXPORT void FishGlassStatusSetVisible(int visible) {
-    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelTaskAnimation(); tasksExpanded=NO; } LayoutStatus(); });
+    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelEdgeReturn(); CancelTaskAnimation(); tasksExpanded=NO; } LayoutStatus(); });
 }
 FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
@@ -906,11 +991,13 @@ FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     }
     OnMain(^{ if (![taskData isEqualToArray:tasks]) { taskData=[tasks copy]; if (taskData.count) EnsureTaskPanel(); UpdateTaskRows(); } });
 }
+FISH_EXPORT void FishGlassStatusFinishDrag(void) { OnMain(^{ FinishPetDrag(); }); }
 FISH_EXPORT void FishGlassStatusShowTasks(void) {
     OnMain(^{ SetTasksExpanded(YES,YES); RefreshActiveAppearance(); });
 }
 FISH_EXPORT void FishGlassStatusDestroy(void) {
     OnMain(^{
+        CancelEdgeReturn();
         CancelTaskAnimation();
         wantsVisible=NO;
         ApplyPetTaskOffset(0);

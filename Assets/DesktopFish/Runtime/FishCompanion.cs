@@ -154,7 +154,11 @@ namespace DesktopFish
             {
                 dragging = false;
                 if (!moved) motion.Click(t);
-                else Debug.Log("Desktop Fish moved to: " + window.windowPosition);
+                else {
+                    if (statusGlass == null) statusGlass = new FishStatusGlass();
+                    statusGlass.FinishDrag();
+                    Debug.Log("Desktop Fish drag released at: " + window.windowPosition);
+                }
             }
             if (state != previousMotionState)
             {

@@ -28,6 +28,7 @@ namespace DesktopFish
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusUpdateTasks(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusShowTasks();
+        [DllImport("FishGlassStatus")] static extern void FishGlassStatusFinishDrag();
 #endif
         public void Draw(string label, string tone, float scale, Font font)
         {
@@ -76,6 +77,15 @@ namespace DesktopFish
             if(!nativeFailed)try { PollTasks();FishGlassStatusUpdateTasks(tasksJson);FishGlassStatusShowTasks(); }
             catch(DllNotFoundException){nativeFailed=true;}
             catch(EntryPointNotFoundException){nativeFailed=true;}
+#endif
+        }
+
+        public void FinishDrag()
+        {
+#if UNITY_STANDALONE_OSX && !UNITY_EDITOR
+            if (!nativeFailed) try { nativeAttempted=true; FishGlassStatusFinishDrag(); }
+            catch (DllNotFoundException) { nativeFailed=true; }
+            catch (EntryPointNotFoundException) { nativeFailed=true; }
 #endif
         }
 
