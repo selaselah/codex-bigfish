@@ -94,6 +94,12 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 
 新任务加入、点击其他锅切换顶卡，都播放约360ms的放卡动画：新卡从上方略偏右落到最前面，原顶卡缩窄并后退一层。动画沿用原来的 Regular 玻璃卡片，不增加材质底层；通过临时透明留白容纳入场，结束后恢复原堆叠窗口高度。小屏空间不足时缩短入场距离，避免裁断；减少动态效果时直接显示最终堆叠。快速切换以最后一次选择为准，同一顶卡重复点击和消息更新不重播动画。
 
+### 放卡结束时的裁剪修复（223）
+
+用户曾截到卡片上半截和标题沿水平线被裁断。222在临时留白伸缩时调用`setFrame:display:YES`，窗口可能先显示新尺寸，卡片容器仍是旧尺寸；仅在截图前强制布局会漏掉这个交接过程。223改为`display:NO`调整窗口，在禁用隐式图层动画的事务中同步卡片与玻璃子树布局，再调用`displayIfNeeded`。正常结束时直接将已经落下的原生玻璃行保留为顶卡，不删除它再切回旧玻璃行；快速中断时文字宽度随实际行宽重算。Regular材质、半像素内缩、最终堆叠尺寸和状态条锚点保持。
+
+`test_stack_presentation.m`在独立进程观察实际呈现请求，不先补做布局；旧版在新旧画布尺寸不一致处失败。回归检查伸缩交接时的完整玻璃和两行文字范围、已落下玻璃行的身份、连续切换、任务增减和列表中断。这证明该布局交接缺陷得到修正，不代表穷尽所有系统合成器、桌面背景和缩放组合。
+
 点击沿用221的原始窗口事件、相机射线和4pt拖动阈值：拖动锅仍移动桌宠，蒸汽、电线和电光不增加点击区域。点击堆叠或菜单仍展开全部任务；从完整列表点击锅，会折叠回堆叠并把对应卡片放到最前面。完整列表的箭头仍按“展开→折叠→收缩”切换；锅只切换顶卡，因此保持折叠态，箭头可直接收缩。收缩状态下收到新任务不会擅自重新显示。人物大小、玻璃材质和220屏幕边距规则保持。
 
 ## 状态栏拖动与屏幕边距（220）
@@ -197,6 +203,9 @@ mkdir -p work/glass-check
 xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_task_stack.m -o work/glass-check/task-stack-test
 work/glass-check/task-stack-test
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_stack_presentation.m -o work/glass-check/presentation-test
+work/glass-check/presentation-test
 python3 Native/FishStatusGlass/build.py
 ```
 
@@ -237,7 +246,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 218（行为随后被否决） | 松手整组回弹16pt；用户反馈拖动抖动、松手状态条回居中，已由220替换 |
 | 220 | 单屏预先限制状态胶囊、多屏按住自由移动／松手按光标屏幕校正；宽卡片独立避让、状态栏保留拖动落点 |
 | 221（已由222修正） | 电饭锅关联任务，但单张卡片曾替换整个堆叠 |
-| 本文档对应源码（222） | 点锅保留堆叠并把对应卡片置顶；新任务和切换锅共用360ms放卡动画，消息更新不重播 |
+| 222 | 点锅保留堆叠并把对应卡片置顶；新任务和切换锅共用360ms放卡动画，消息更新不重播 |
+| 本文档对应源码（223） | 放卡交接时先同步窗口、卡片和玻璃布局再显示，并保留已落下的新玻璃行，修复新旧画布交错呈现 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 

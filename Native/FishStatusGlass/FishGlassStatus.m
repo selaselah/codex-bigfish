@@ -449,6 +449,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     NSRect title = self.titleLabel.frame;
     NSRect message = self.messageLabel.frame;
     title.origin.x = message.origin.x = 16-edgeInset;
+    title.size.width = message.size.width = self.bounds.size.width-32;
     self.titleLabel.frame = title;
     self.messageLabel.frame = message;
     self.button.frame = self.bounds;
@@ -572,7 +573,12 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.front.content.alphaValue=MAX(0,1-t/.22);
     self.incoming.needsLayout=YES;self.front.needsLayout=YES;
     [self.incoming layoutSubtreeIfNeeded];[self.front layoutSubtreeIfNeeded];
-    if(t>=1 && !layingOutTasks) { [self cancelInsertion];LayoutTasks();UpdateTaskAccessibility(); }
+    if(t>=1 && !layingOutTasks) {
+        // Keep the lens already on screen. Removing it and repainting the old
+        // receded lens can expose stale native-glass clipping during resize.
+        [self.front removeFromSuperview];self.front=self.incoming;self.incoming=nil;
+        [self cancelInsertion];LayoutTasks();UpdateTaskAccessibility();
+    }
 }
 - (void)layout {
     [super layout];
@@ -795,13 +801,21 @@ static void LayoutTasks(void) {
         if (refresh) { UpdateTaskRows(); return; }
     }
     layingOutTasks = YES;
-    [taskPanel setFrame:frame display:YES];
+    BOOL resized=!NSEqualSizes(taskPanel.frame.size,frame.size);
+    // The placing canvas has extra transparent headroom. Never display its new
+    // size while the stack/glass hierarchy still has the old canvas bounds.
+    [CATransaction begin];[CATransaction setDisableActions:YES];
+    [taskPanel setFrame:frame display:NO];
     taskScroll.hidden = !tasksExpanded;
     taskStack.hidden = tasksExpanded;
     // Keep the hidden scroll viewport intact so collapsing/live updates do not
     // discard the user's distance from the top of the expanded list.
     if (tasksExpanded) taskScroll.frame = taskPanel.contentView.bounds;
     else { taskStack.expandsUpward=tasksExpandUpward; taskStack.frame = taskPanel.contentView.bounds; taskStack.needsLayout=YES; [taskStack layoutSubtreeIfNeeded]; }
+    [taskPanel.contentView layoutSubtreeIfNeeded];
+    if(resized)taskPanel.contentView.needsDisplay=YES;
+    [CATransaction commit];
+    [taskPanel displayIfNeeded];
     taskPanel.level = petWindow.level;
     taskPanel.collectionBehavior = petWindow.collectionBehavior | NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorIgnoresCycle;
     if (taskPanel.parentWindow != petWindow) [petWindow addChildWindow:taskPanel ordered:NSWindowAbove];
