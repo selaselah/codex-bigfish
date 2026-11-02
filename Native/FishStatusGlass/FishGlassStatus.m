@@ -232,6 +232,7 @@ static NSView *taskDocument;
 static NSView *taskListSurface;
 static NSMutableDictionary *taskRows;
 static NSArray<NSDictionary *> *taskData;
+static NSString *selectedTaskID;
 static BOOL tasksExpanded = NO;
 static BOOL taskCardsShown = YES;
 static CGFloat petTaskOffset = 0;
@@ -240,6 +241,22 @@ static const BOOL tasksExpandUpward = YES;
 static BOOL taskRowsExpandUpward = YES;
 static id outsideClickMonitor;
 static id localClickMonitor;
+typedef struct { float x,y,screenX,screenY; int phase; } FishAvatarPointer;
+static FishAvatarPointer avatarPointerQueue[128];
+static NSUInteger avatarPointerHead,avatarPointerCount;
+static void CaptureAvatarPointer(NSEvent *event) {
+    if(event.window!=petWindow || !petWindow.contentView)return;
+    int phase=event.type==NSEventTypeLeftMouseDown ? 1 : event.type==NSEventTypeLeftMouseDragged ? 2 : event.type==NSEventTypeLeftMouseUp ? 3 : 0;
+    if(!phase)return;
+    NSView *content=petWindow.contentView;NSPoint p=[content convertPoint:event.locationInWindow fromView:nil];
+    NSPoint screen=[petWindow convertPointToScreen:event.locationInWindow];
+    FishAvatarPointer value={(p.x-NSMinX(content.bounds))/MAX(1,NSWidth(content.bounds)),(p.y-NSMinY(content.bounds))/MAX(1,NSHeight(content.bounds)),screen.x,screen.y,phase};
+    if(content.flipped)value.y=1-value.y;
+    @synchronized(FishStatusOverlay.class) {
+        if(avatarPointerCount==128) { avatarPointerHead=0;avatarPointerCount=1;avatarPointerQueue[0]=(FishAvatarPointer){0,0,0,0,4};return; }
+        avatarPointerQueue[(avatarPointerHead+avatarPointerCount)%128]=value;avatarPointerCount++;
+    }
+}
 static NSArray *originalAccessibilityChildren;
 static BOOL taskAnimationActive = NO;
 static BOOL preparingTaskAnimation = NO;
@@ -304,6 +321,15 @@ static void InstallAvatarFrameConstraint(NSWindow *window) {
     class_replaceMethod(owner,@selector(constrainFrameRect:toScreen:),(IMP)StatusAnchoredFrame,method_getTypeEncoding(method));
 }
 static BOOL TaskCardsPresent(void) { return taskCardsShown && (taskData.count>0 || tasksExpanded); }
+static NSDictionary *TaskWithID(NSString *sessionID) {
+    for(NSDictionary *task in taskData)if([task[@"session_id"] isEqualToString:sessionID])return task;
+    return nil;
+}
+static NSArray<NSDictionary *> *DisplayedTaskItems(void) {
+    NSDictionary *selected=tasksExpanded && selectedTaskID ? TaskWithID(selectedTaskID) : nil;
+    if(selected)return @[selected];
+    return taskData.count ? taskData : @[@{@"session_id":@"",@"title":@"暂无进行中的任务",@"summary":@"新的任务开始后会显示在这里"}];
+}
 static NSRect PetDockFrame(void) {
     NSRect frame=petWindow.frame;
     frame.origin.y-=petTaskOffset;
@@ -528,7 +554,7 @@ static void UpdateTaskRows(void) {
     // current visual gesture settles instead of snapping its moving cards.
     if (taskAnimationActive) { taskAnimationNeedsRefresh=YES; return; }
     CGFloat distanceFromAnchor = MAX(0, taskRowsExpandUpward ? NSMinY(taskScroll.contentView.bounds) : taskDocument.bounds.size.height-NSMaxY(taskScroll.contentView.bounds));
-    NSArray *items = taskData.count ? taskData : @[@{@"session_id":@"", @"title":@"暂无进行中的任务", @"summary":@"新的任务开始后会显示在这里"}];
+    NSArray *items = DisplayedTaskItems();
     CGFloat height = items.count * TaskRowStep + 12;
     taskListSurface.frame = NSMakeRect(0,0,TaskPanelWidth,height);
     taskDocument.frame = taskListSurface.bounds;
@@ -556,7 +582,7 @@ static void UpdateTaskRows(void) {
     LayoutTasks();
 }
 static CGFloat TaskPanelHeight(BOOL expanded) {
-    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,(taskData.count ?: 1)*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
+    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,DisplayedTaskItems().count*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
 }
 static NSRect NaturalStatusRect(void) {
     NSView *content=petWindow.contentView;
@@ -782,16 +808,20 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     EnsureTaskPanel();
     BOOL expanded=mode==FishTaskExpanded,shown=mode!=FishTaskHidden;
     if (tasksExpanded==expanded && taskCardsShown==shown) return;
+    NSArray *oldItems=DisplayedTaskItems();
     BOOL wasExpanded=tasksExpanded,wasShown=TaskCardsPresent(),interrupted=taskAnimationActive,wasVisible=taskPanel.visible;
     BOOL listTransition=wasExpanded || expanded || (interrupted && taskAnimationListTransition);
     NSRect oldCanvas=taskPanel.frame;
     CGFloat oldStackAlpha=taskStack.alphaValue;
     NSMutableDictionary *previous=[NSMutableDictionary new];
+    if(wasExpanded && !interrupted)for(FishTaskRow *row in taskRows.allValues)previous[row.sessionID ?: @""]=@{
+        @"frame":[NSValue valueWithRect:[taskPanel.contentView convertRect:row.bounds fromView:row]],@"alpha":@1};
     for (FishTaskAnimationEntry *entry in taskAnimationEntries) previous[entry.row.sessionID ?: @""]=@{
         @"frame":[NSValue valueWithRect:entry.row.frame],@"alpha":@(entry.row.alphaValue)};
     CancelTaskAnimation();
     tasksExpanded=expanded;
     taskCardsShown=shown;
+    if(!expanded)selectedTaskID=nil;
     BOOL animate=animated && wantsVisible && petWindow.visible && statusPanel.visible &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     preparingTaskAnimation=animate;
@@ -825,7 +855,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     taskAnimationHost.wantsLayer=YES; taskAnimationHost.layer.masksToBounds=YES;
     taskAnimationHost.accessibilityHidden=YES;
     [taskPanel.contentView addSubview:taskAnimationHost];
-    NSArray *items=taskData.count ? taskData : @[@{@"session_id":@"",@"title":@"暂无进行中的任务",@"summary":@"新的任务开始后会显示在这里"}];
+    NSArray *items=wasExpanded && !expanded ? oldItems : DisplayedTaskItems();
     NSMutableArray *entries=[NSMutableArray new];
     // Farther cards are behind the front card as they leave or rejoin the stack.
     for (NSInteger i=(NSInteger)items.count-1;i>=0;i--) {
@@ -950,18 +980,25 @@ static void LayoutStatus(void) {
     UpdateTaskAccessibility();
     layingOut = NO;
 }
+static void HandleTaskOutsideClick(NSEvent *event) {
+        if (event.window==petWindow || event.window==statusPanel) CancelEdgeReturn();
+        NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
+        // A cooker selects a task to keep watching while using other apps.
+        // Its card stays pinned until the arrow, another cooker, or completion.
+        // The ordinary complete list retains its existing outside-click fold.
+        if (tasksExpanded && !selectedTaskID && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
+            SetTasksExpanded(NO,YES);
+        }
+}
 static void InstallObservers(void) {
     observers = [NSMutableArray new];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    void (^outsideClick)(NSEvent *) = ^(NSEvent *event) {
-        if (event.window==petWindow || event.window==statusPanel) CancelEdgeReturn();
-        NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
-        if (tasksExpanded && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
-            SetTasksExpanded(NO,YES);
-        }
-    };
+    void (^outsideClick)(NSEvent *) = ^(NSEvent *event) { HandleTaskOutsideClick(event); };
     outsideClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:outsideClick];
-    localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) { outsideClick(event); return event; }];
+    localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown|NSEventMaskLeftMouseDragged|NSEventMaskLeftMouseUp handler:^NSEvent *(NSEvent *event) {
+        if(event.type==NSEventTypeLeftMouseDown)outsideClick(event);
+        CaptureAvatarPointer(event);return event;
+    }];
     for (NSNotificationName name in @[NSWindowDidMoveNotification, NSWindowDidResizeNotification,
         NSWindowDidChangeScreenNotification, NSWindowDidMiniaturizeNotification, NSWindowDidDeminiaturizeNotification]) {
         [observers addObject:[center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
@@ -1037,7 +1074,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
     return atomic_load(&ready);
 }
 FISH_EXPORT void FishGlassStatusSetVisible(int visible) {
-    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelStatusDrag(); CancelEdgeReturn(); CancelTaskAnimation(); tasksExpanded=NO; } LayoutStatus(); });
+    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelStatusDrag(); CancelEdgeReturn(); CancelTaskAnimation(); tasksExpanded=NO; selectedTaskID=nil; } LayoutStatus(); });
 }
 FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
@@ -1063,15 +1100,43 @@ FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
         [tasks addObject:safe]; [seen addObject:sid];
         if (tasks.count>=64) break;
     }
-    OnMain(^{ if (![taskData isEqualToArray:tasks]) { taskData=[tasks copy]; if (taskData.count) EnsureTaskPanel(); UpdateTaskRows(); } });
+    OnMain(^{ if (![taskData isEqualToArray:tasks]) {
+        taskData=[tasks copy]; if (taskData.count) EnsureTaskPanel();
+        if(selectedTaskID && !TaskWithID(selectedTaskID))SetTaskMode(FishTaskFolded,YES);
+        else UpdateTaskRows();
+    } });
 }
 FISH_EXPORT void FishGlassStatusFinishDrag(void) { OnMain(^{ FinishPetDrag(); }); }
 FISH_EXPORT void FishGlassStatusShowTasks(void) {
-    OnMain(^{ SetTasksExpanded(YES,YES); RefreshActiveAppearance(); });
+    OnMain(^{ selectedTaskID=nil; UpdateTaskRows(); SetTasksExpanded(YES,YES); RefreshActiveAppearance(); });
+}
+FISH_EXPORT void FishGlassStatusShowTask(const char *sessionUTF8) {
+    if(!sessionUTF8 || strlen(sessionUTF8)>64)return;
+    NSString *sessionID=[NSString stringWithUTF8String:sessionUTF8];
+    if(!sessionID || ![[NSUUID alloc] initWithUUIDString:sessionID])return;
+    OnMain(^{
+        if(!TaskWithID(sessionID))return;
+        selectedTaskID=[sessionID copy];
+        if(tasksExpanded) { CancelTaskAnimation();UpdateTaskRows(); }
+        else SetTasksExpanded(YES,YES);
+        RefreshActiveAppearance();
+    });
+}
+// The Unity input backend can sample the current cursor after a queued click.
+// Preserve the actual window event's position and order, including quick taps.
+FISH_EXPORT int FishGlassStatusPollAvatarPointer(float *x,float *y,float *screenX,float *screenY) {
+    if(!x || !y || !screenX || !screenY)return 0;
+    @synchronized(FishStatusOverlay.class) {
+        if(!avatarPointerCount)return 0;
+        FishAvatarPointer event=avatarPointerQueue[avatarPointerHead];
+        avatarPointerHead=(avatarPointerHead+1)%128;avatarPointerCount--;
+        *x=event.x;*y=event.y;*screenX=event.screenX;*screenY=event.screenY;return event.phase;
+    }
 }
 FISH_EXPORT void FishGlassStatusDestroy(void) {
     OnMain(^{
         CancelStatusDrag();CancelEdgeReturn();
+        @synchronized(FishStatusOverlay.class) { avatarPointerHead=avatarPointerCount=0; }
         CancelTaskAnimation();
         wantsVisible=NO;
         ApplyPetTaskOffset(0);
@@ -1079,7 +1144,7 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; tasksExpanded=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; selectedTaskID=nil; tasksExpanded=NO;
         taskRowsExpandUpward=YES;
         taskCardsShown=YES; petTaskOffset=0;statusDockOffset=NSZeroPoint;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];

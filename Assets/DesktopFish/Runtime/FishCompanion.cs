@@ -28,6 +28,8 @@ namespace DesktopFish
         UniWindowController window;
         Vector2 cursorStart, windowStart, menuPoint;
         bool dragging, moved, menu, menuActions;
+        bool pressedCooker, cookerEventDrag;
+        string pressedCookerTaskId;
         float nextBlink, blinkStart = -10, lastStatePoll;
         string state = "idle", statePath;
         string previousMotionState = "idle";
@@ -128,38 +130,38 @@ namespace DesktopFish
                     localCursor.y / nativeSize.y * Screen.height, 0) : Input.mousePosition;
             bool inWindow = localCursor.x >= 0 && localCursor.y >= 0 &&
                 localCursor.x < nativeSize.x && localCursor.y < nativeSize.y;
-            bool hover = inWindow && Physics.Raycast(view.ScreenPointToRay(pointer), out RaycastHit _, 30);
+            Ray pointerRay=view.ScreenPointToRay(pointer);
+            string cookerTaskId=null;
+            bool overCooker=inWindow && workStation.TryGetCookerTask(pointerRay,out cookerTaskId);
+            bool hover = overCooker || (inWindow && Physics.Raycast(pointerRay, out RaycastHit _, 30));
             var buttons = UniWindowController.GetMouseButtons();
             bool left = (buttons & UniWindowController.MouseButton.Left) != 0;
             bool wasLeft = (previousButtons & UniWindowController.MouseButton.Left) != 0;
+            if(statusGlass!=null)for(int i=0;i<128;i++) {
+                int phase=statusGlass.ReadAvatarPointer(out Vector2 viewport,out Vector2 desktop);
+                if(phase==0)break;
+                HandleCookerPointer(phase,view.ViewportPointToRay(viewport),desktop);
+            }
             window.isClickThrough = !hover && !dragging && !menu;
             float x = Mathf.Clamp((pointer.x / Mathf.Max(Screen.width, 1) - 0.5f) * 2, -1, 1);
             float y = Mathf.Clamp((pointer.y / Mathf.Max(Screen.height, 1) - 0.5f) * 2, -1, 1);
 
-            if (left && !wasLeft && hover && !menu)
+            if (left && !wasLeft && hover && !menu && !cookerEventDrag && !(overCooker && statusGlass!=null && statusGlass.NativePointerEvents))
             {
                 dragging = true;
                 moved = false;
+                pressedCooker=overCooker;pressedCookerTaskId=cookerTaskId;
                 cursorStart = ScreenCursor();
                 windowStart = window.windowPosition;
                 window.isClickThrough = false;
             }
-            if (dragging && left)
+            if (dragging && left && !cookerEventDrag)
             {
                 Vector2 delta = ScreenCursor() - cursorStart;
                 if (delta.sqrMagnitude > 16) moved = true;
                 if (moved && !Application.isEditor) window.windowPosition = windowStart + delta;
             }
-            if (dragging && !left && wasLeft)
-            {
-                dragging = false;
-                if (!moved) motion.Click(t);
-                else {
-                    if (statusGlass == null) statusGlass = new FishStatusGlass();
-                    statusGlass.FinishDrag();
-                    Debug.Log("Desktop Fish drag released at: " + window.windowPosition);
-                }
-            }
+            if (dragging && !left && wasLeft && !cookerEventDrag) FinishPointerDrag(t,overCooker,cookerTaskId);
             if (state != previousMotionState)
             {
                 if (state == "complete") {workStation.CompleteCookers(workStation.CookerCount,t);motion.Play(FishMotion.Gesture.Cheer, t);}
@@ -168,6 +170,8 @@ namespace DesktopFish
             motion.Tick(t, Time.deltaTime, x, y, state, dragging);
             workStation.Tick(t, motion.WorkWeight, state == "working" ? activeCount : 0,
                 state == "working" && activeCount > 0 && !dragging);
+            if(statusGlass==null)statusGlass=new FishStatusGlass();
+            workStation.BindTaskIds(statusGlass.ActiveTaskIds);
             FishWorkStation.FrameWorkingCamera(view,restingViewSize,restingViewPosition,motion.WorkWeight);
             float blinkTime = t - blinkStart;
             float visibleJoy=Expression("Fcl_ALL_Joy", motion.Joy);
@@ -188,6 +192,63 @@ namespace DesktopFish
             // UniWindowController reports native desktop cursor coordinates, avoiding
             // feedback when dragging changes the origin of Input.mousePosition.
             return UniWindowController.GetCursorPosition();
+        }
+
+        void FinishPointerDrag(float time,bool overCooker,string cookerTaskId)
+        {
+            dragging=false;cookerEventDrag=false;
+            if(!moved) {
+                if(pressedCooker) {
+                    if(overCooker && !string.IsNullOrEmpty(pressedCookerTaskId) && cookerTaskId==pressedCookerTaskId) {
+                        if(statusGlass==null)statusGlass=new FishStatusGlass();
+                        if(statusGlass.ShowTask(pressedCookerTaskId)) {
+                            showStatus=true;
+                            Debug.Log("Desktop Fish cooker task selected: "+pressedCookerTaskId);
+                        }
+                    }
+                } else motion.Click(time);
+            } else {
+                if(statusGlass==null)statusGlass=new FishStatusGlass();
+                statusGlass.FinishDrag();
+                Debug.Log("Desktop Fish drag released at: "+window.windowPosition);
+            }
+            pressedCooker=false;pressedCookerTaskId=null;
+        }
+
+        void HandleCookerEvent(Event e)
+        {
+            if(e.button!=0 || menu || workStation==null || !view || !window)return;
+            if(statusGlass!=null && statusGlass.NativePointerEvents)return;
+            if(e.type!=EventType.MouseDown && e.type!=EventType.MouseDrag && e.type!=EventType.MouseUp)return;
+            // Queue-based window events also catch brief/trackpad clicks that
+            // can fall entirely between native button-state polling frames.
+            Vector2 point=new Vector2(e.mousePosition.x,Screen.height-e.mousePosition.y);
+            Vector2 desktop=window.windowPosition+Vector2.Scale(new Vector2(point.x/Mathf.Max(1,Screen.width),point.y/Mathf.Max(1,Screen.height)),window.windowSize);
+            int phase=e.type==EventType.MouseDown?1:e.type==EventType.MouseDrag?2:3;
+            if(HandleCookerPointer(phase,view.ScreenPointToRay(point),desktop))e.Use();
+        }
+
+        bool HandleCookerPointer(int phase,Ray ray,Vector2 desktop)
+        {
+            if(phase==4) { cookerEventDrag=false;dragging=false;pressedCooker=false;pressedCookerTaskId=null;return false; }
+            if(menu || workStation==null || !window)return false;
+            bool hit=workStation.TryGetCookerTask(ray,out string id);
+            if(phase==1 && hit) {
+                cookerEventDrag=true;dragging=true;moved=false;pressedCooker=true;pressedCookerTaskId=id;
+                cursorStart=desktop;windowStart=window.windowPosition;window.isClickThrough=false;return true;
+            } else if(cookerEventDrag && phase==2) {
+                Vector2 delta=desktop-cursorStart;if(delta.sqrMagnitude>16)moved=true;
+                if(moved&&!Application.isEditor)window.windowPosition=windowStart+delta;return true;
+            } else if(cookerEventDrag && phase==3) {
+                if((desktop-cursorStart).sqrMagnitude>16)moved=true;
+                FinishPointerDrag(Time.time,hit,id);return true;
+            }
+            return false;
+        }
+
+        void OnApplicationFocus(bool focused)
+        {
+            if(!focused && cookerEventDrag) { cookerEventDrag=false;dragging=false;pressedCooker=false;pressedCookerTaskId=null; }
         }
 
         void SetShape(string name, float weight)
@@ -243,7 +304,7 @@ namespace DesktopFish
                 {
                     lastCommandId = message.command_id;
                     if(action==FishMotion.Gesture.Cheer&&(state=="complete"||(noticeUntil>now&&!string.IsNullOrEmpty(notice))))
-                        workStation.CompleteCookers(state=="complete"&&activeCount==0?workStation.CookerCount:Mathf.Max(1,previousActiveCount-activeCount),Time.time);
+                        workStation.CompleteCookers(state=="complete"&&activeCount==0?workStation.CookerCount:Mathf.Max(1,previousActiveCount-activeCount),Time.time,statusGlass?.ActiveTaskIds);
                     motion.Play(action, Time.time);
                     previousMotionState = state;
                     Debug.Log("Desktop Fish gesture: " + action);
@@ -301,6 +362,7 @@ namespace DesktopFish
             // Handle the queued window event directly. Polling native button state
             // misses secondary clicks on macOS (including trackpad clicks).
             Event mouseEvent = Event.current;
+            HandleCookerEvent(mouseEvent);
             float scale = MenuScale();
             Vector2 menuPointer = mouseEvent.mousePosition / scale;
             if (mouseEvent.type == EventType.MouseDown && mouseEvent.button == 1)

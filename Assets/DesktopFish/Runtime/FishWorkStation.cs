@@ -95,6 +95,8 @@ namespace DesktopFish
         readonly List<FishRiceBurst> riceBursts=new List<FishRiceBurst>();
         int riceSequence;
         bool completionLayoutDirty;
+        IReadOnlyList<string> lastTaskIds;
+        int lastBoundCount=-1;
         public int CookerCount => pots.Count;
         public int RiceBurstCount => riceBursts.Count;
         public int RiceGrainCount => riceBursts.Count*FishRiceBurst.GrainCount;
@@ -110,6 +112,33 @@ namespace DesktopFish
         public bool WorkingVisible => machine&&machine.gameObject.activeInHierarchy;
         public Transform Root => root;
         public CookerStyle CookerStyleAt(int index) => pots[index].style;
+        public string CookerTaskIdAt(int index) => pots[index].taskId;
+        public Collider CookerHitAreaAt(int index) => pots[index].hitArea;
+
+        // Message recency changes the card order, not the identity of a cooker.
+        public void BindTaskIds(IReadOnlyList<string> ids)
+        {
+            if(ReferenceEquals(ids,lastTaskIds) && lastBoundCount==pots.Count)return;
+            lastTaskIds=ids;lastBoundCount=pots.Count;
+            var remaining=new HashSet<string>(ids ?? Array.Empty<string>());
+            foreach(var p in pots)if(string.IsNullOrEmpty(p.taskId)||!remaining.Remove(p.taskId))p.taskId=null;
+            if(ids==null)return;
+            int slot=0;
+            foreach(string id in ids)if(!string.IsNullOrEmpty(id)&&remaining.Remove(id)) {
+                while(slot<pots.Count&&!string.IsNullOrEmpty(pots[slot].taskId))slot++;
+                if(slot==pots.Count)break;pots[slot++].taskId=id;
+            }
+        }
+
+        public bool TryGetCookerTask(Ray ray,out string taskId)
+        {
+            taskId=null;float nearest=30;bool found=false;
+            foreach(var p in pots)if(p.hitArea && p.hitArea.gameObject.activeInHierarchy &&
+                p.hitArea.Raycast(ray,out RaycastHit hit,nearest)) {
+                nearest=hit.distance;taskId=p.taskId;found=true;
+            }
+            return found;
+        }
 
         sealed class Pot
         {
@@ -121,6 +150,8 @@ namespace DesktopFish
             public Vector3 cableStart, cableEnd;
             public CookerStyle style;
             public float cableSeed;
+            public string taskId;
+            public BoxCollider hitArea;
         }
 
         sealed class Supply {
@@ -396,16 +427,20 @@ namespace DesktopFish
             sparkMesh.vertices=sparkVertices;sparkMesh.colors=sparkColors;sparkMesh.RecalculateBounds();
         }
 
-        public int CompleteCookers(int count,float time)
+        public int CompleteCookers(int count,float time,IReadOnlyList<string> remainingTaskIds=null)
         {
             if(disposed)return 0;
             int completed=Mathf.Min(Mathf.Max(0,count),pots.Count);
+            var remaining=remainingTaskIds!=null && remainingTaskIds.Count==pots.Count-completed ? new HashSet<string>(remainingTaskIds) : null;
             for(int i=0;i<completed;i++) {
-                var p=pots[pots.Count-1];
+                int index=pots.Count-1;
+                if(remaining!=null)for(int j=pots.Count-1;j>=0;j--)if(!string.IsNullOrEmpty(pots[j].taskId)&&!remaining.Contains(pots[j].taskId)){index=j;break;}
+                var p=pots[index];
                 riceBursts.Add(new FishRiceBurst(p.root,p.wobble,p.lid,solid,vapor,Own,++riceSequence,time));
-                pots.RemoveAt(pots.Count-1);ReleaseHierarchy(p.root);
+                pots.RemoveAt(index);ReleaseHierarchy(p.root);
             }
             completionLayoutDirty|=completed>0;
+            if(completed>0)lastBoundCount=-1;
             return completed;
         }
 
@@ -417,6 +452,7 @@ namespace DesktopFish
 
         void Arrange(int count)
         {
+            if(pots.Count!=count)lastBoundCount=-1;
             // Two generator outlets feed direct cookers first, then power strips.
             // Upgraded eight/ten-way strips remain even after job counts fall.
             // Additional rows scale together; no jobs are silently omitted.
@@ -606,6 +642,16 @@ namespace DesktopFish
             var p=new Pot {root=Child(root,"Rice cooker "+(index+1)),style=PickStyle(),cableSeed=index*1.73f};
             p.wobble=Child(p.root,"Cooker wobble");
             BuildCooker(p);
+            // Only the shell/handles/lid are clickable; steam, wires and sparks
+            // remain transparent to input. The hit area follows the wobble.
+            Bounds bounds=new Bounds(Vector3.zero,Vector3.zero);
+            foreach(var filter in p.wobble.GetComponentsInChildren<MeshFilter>()) {
+                Bounds b=filter.sharedMesh.bounds;
+                for(int corner=0;corner<8;corner++)bounds.Encapsulate(p.wobble.InverseTransformPoint(filter.transform.TransformPoint(
+                    b.center+Vector3.Scale(b.extents,new Vector3((corner&1)==0?-1:1,(corner&2)==0?-1:1,(corner&4)==0?-1:1)))));
+            }
+            p.hitArea=p.wobble.gameObject.AddComponent<BoxCollider>();
+            p.hitArea.center=bounds.center;p.hitArea.size=bounds.size+new Vector3(.006f,.012f,.006f);
             var wire=Child(p.root,"Power cable");p.cable=CreateCord(wire,p.cableVertices,"Connected power cable");
             var spark=new Shape();spark.Box(Vector3.zero,new Vector3(.005f,.010f,.005f),Gold);
             p.spark=Part(p.root,"Electric pulse",spark);

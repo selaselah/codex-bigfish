@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
@@ -17,6 +18,11 @@ namespace DesktopFish
         bool nativeFailed, nativeAttempted, nativeVisible;
         string tasksJson="{\"tasks\":[]}";
         float lastTaskPoll=-10;
+        public bool NativePointerEvents { get; private set; }
+        string[] activeTaskIds=Array.Empty<string>();
+        [Serializable] sealed class TaskSnapshot { public TaskItem[] tasks; }
+        [Serializable] sealed class TaskItem { public string session_id; public double expires_at; }
+        public IReadOnlyList<string> ActiveTaskIds { get { PollTasks(); return activeTaskIds; } }
 
 #if UNITY_STANDALONE_OSX && !UNITY_EDITOR
         [DllImport("FishGlassStatus")] static extern int FishGlassStatusIsReady();
@@ -28,7 +34,10 @@ namespace DesktopFish
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusUpdateTasks(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusShowTasks();
+        [DllImport("FishGlassStatus")] static extern void FishGlassStatusShowTask(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string sessionId);
         [DllImport("FishGlassStatus")] static extern void FishGlassStatusFinishDrag();
+        [DllImport("FishGlassStatus")] static extern int FishGlassStatusPollAvatarPointer(out float x,out float y,out float screenX,out float screenY);
 #endif
         public void Draw(string label, string tone, float scale, Font font)
         {
@@ -60,15 +69,56 @@ namespace DesktopFish
             DrawFallback(label, tone, scale, font);
         }
 
-        void PollTasks()
+        void PollTasks(bool force=false)
         {
-            if(Time.unscaledTime-lastTaskPoll<.5f)return;
+            if(!force && Time.unscaledTime-lastTaskPoll<.5f)return;
             lastTaskPoll=Time.unscaledTime;
             try {
                 string path=Path.Combine(Application.persistentDataPath,"codex-tasks.json");
                 var info=new FileInfo(path);
-                tasksJson=info.Exists&&info.Length<=256*1024?File.ReadAllText(path):"{\"tasks\":[]}";
+                string candidate=info.Exists&&info.Length<=256*1024?File.ReadAllText(path):"{\"tasks\":[]}";
+                var snapshot=JsonUtility.FromJson<TaskSnapshot>(candidate);
+                if(snapshot?.tasks==null)return;
+                double now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()/1000.0;
+                var ids=new List<string>();var seen=new HashSet<string>();
+                foreach(var item in snapshot.tasks) {
+                    if(item==null || !Guid.TryParse(item.session_id,out _) || item.expires_at<=now || !seen.Add(item.session_id))continue;
+                    ids.Add(item.session_id);if(ids.Count==64)break;
+                }
+                tasksJson=candidate;activeTaskIds=ids.ToArray();
             } catch(IOException) { } // Keep the preceding complete atomic snapshot.
+            catch(ArgumentException) { } // Partial/invalid JSON must not reassign pots.
+        }
+
+        public bool ShowTask(string sessionId)
+        {
+            PollTasks(true);
+            if(string.IsNullOrEmpty(sessionId) || Array.IndexOf(activeTaskIds,sessionId)<0)return false;
+#if UNITY_STANDALONE_OSX && !UNITY_EDITOR
+            if(!nativeFailed)try {
+                nativeAttempted=true;
+                FishGlassStatusUpdateTasks(tasksJson);FishGlassStatusShowTask(sessionId);return true;
+            }
+            catch(DllNotFoundException){nativeFailed=true;}
+            catch(EntryPointNotFoundException){nativeFailed=true;}
+#endif
+            return false;
+        }
+
+        public int ReadAvatarPointer(out Vector2 viewport,out Vector2 desktop)
+        {
+            viewport=desktop=Vector2.zero;
+#if UNITY_STANDALONE_OSX && !UNITY_EDITOR
+            if(!nativeFailed)try {
+                if(FishGlassStatusIsReady()>0) {
+                    int phase=FishGlassStatusPollAvatarPointer(out float x,out float y,out float sx,out float sy);
+                    NativePointerEvents=true;viewport=new Vector2(x,y);desktop=new Vector2(sx,sy);return phase;
+                }
+            }
+            catch(DllNotFoundException){nativeFailed=true;}
+            catch(EntryPointNotFoundException){nativeFailed=true;}
+#endif
+            return 0;
         }
 
         public void ShowTasks()
