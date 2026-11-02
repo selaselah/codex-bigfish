@@ -12,8 +12,8 @@ static void PumpFor(NSTimeInterval seconds) {
 }
 static void SettleTaskAnimation(void) {
     CFTimeInterval limit=CACurrentMediaTime()+1;
-    while(taskAnimationActive && CACurrentMediaTime()<limit) PumpFor(.01);
-    Require(!taskAnimationActive && !taskAnimationTimer && !taskAnimationHost, @"Task transition completes and releases its driver and temporary views");
+    while((taskAnimationActive || taskStack.insertionActive) && CACurrentMediaTime()<limit) PumpFor(.01);
+    Require(!taskAnimationActive && !taskAnimationTimer && !taskAnimationHost && !taskStack.insertionActive && !taskStack.insertionTimer && !taskStack.incoming, @"Task transitions complete and release their drivers and temporary views");
 }
 static void ClickControl(NSButton *button) {
     // Legacy list tests now open the folded stack, while the status arrow's

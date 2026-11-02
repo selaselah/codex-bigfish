@@ -233,6 +233,8 @@ static NSView *taskListSurface;
 static NSMutableDictionary *taskRows;
 static NSArray<NSDictionary *> *taskData;
 static NSString *selectedTaskID;
+static NSArray<NSString *> *stackOrder;
+static NSString *stackInsertionPending;
 static BOOL tasksExpanded = NO;
 static BOOL taskCardsShown = YES;
 static CGFloat petTaskOffset = 0;
@@ -326,9 +328,16 @@ static NSDictionary *TaskWithID(NSString *sessionID) {
     return nil;
 }
 static NSArray<NSDictionary *> *DisplayedTaskItems(void) {
-    NSDictionary *selected=tasksExpanded && selectedTaskID ? TaskWithID(selectedTaskID) : nil;
-    if(selected)return @[selected];
     return taskData.count ? taskData : @[@{@"session_id":@"",@"title":@"暂无进行中的任务",@"summary":@"新的任务开始后会显示在这里"}];
+}
+static NSArray<NSDictionary *> *StackTaskItems(void) {
+    NSMutableArray *items=[NSMutableArray new];
+    for(NSString *sid in stackOrder) { NSDictionary *task=TaskWithID(sid);if(task)[items addObject:task]; }
+    return items;
+}
+static void PromoteStackTask(NSString *sid) {
+    NSMutableArray *order=[stackOrder mutableCopy] ?: [NSMutableArray new];
+    [order removeObject:sid];[order insertObject:sid atIndex:0];stackOrder=order;selectedTaskID=[sid copy];
 }
 static NSRect PetDockFrame(void) {
     NSRect frame=petWindow.frame;
@@ -469,7 +478,16 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 @property(nonatomic, strong) NSButton *button;
 @property(nonatomic) NSUInteger count;
 @property(nonatomic) BOOL expandsUpward;
+@property(nonatomic, strong) NSArray<NSDictionary *> *items;
+@property(nonatomic, strong) FishTaskRow *incoming;
+@property(nonatomic, strong) NSTimer *insertionTimer;
+@property(nonatomic) BOOL insertionActive,oldFrontVisible;
+@property(nonatomic) CFTimeInterval insertionStart;
+@property(nonatomic) NSUInteger insertionGeneration;
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks;
+- (void)insertTasks:(NSArray<NSDictionary *> *)tasks animated:(BOOL)animated;
+- (void)cancelInsertion;
+- (void)advanceInsertion:(NSTimeInterval)elapsed;
 @end
 @implementation FishTaskStack
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -479,6 +497,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     for (NSUInteger i=0; i<2; i++) {
         FishTaskRow *row = [[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,TaskCardWidth,TaskCardHeight)];
         row.button.hidden = YES;
+        row.titleLabel.hidden=YES;row.messageLabel.hidden=YES;
         row.accessibilityHidden = YES;
         [self addSubview:row];
         [backs addObject:row];
@@ -499,12 +518,61 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 }
 - (void)expandTasks:(id)sender { if (!tasksExpanded) ToggleTasks(); }
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks {
+    if(self.insertionActive && ![self.incoming.sessionID isEqualToString:tasks.firstObject[@"session_id"]])[self cancelInsertion];
+    self.items=[tasks copy];
     self.count = tasks.count;
-    [self.front updateTask:tasks.firstObject ?: @{}];
+    if(self.insertionActive)[self.incoming updateTask:tasks.firstObject ?: @{}];
+    else [self.front updateTask:tasks.firstObject ?: @{}];
+    for(NSUInteger i=0;i<self.backs.count;i++) {
+        NSUInteger depth=2-i;
+        [self.backs[i] updateTask:depth<tasks.count ? tasks[depth] : @{}];
+    }
     self.button.accessibilityLabel = [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
-    self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",self.front.titleLabel.stringValue,self.front.messageLabel.stringValue];
-    self.button.toolTip = [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,self.front.button.toolTip];
+    FishTaskRow *top=self.insertionActive ? self.incoming : self.front;
+    self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",top.titleLabel.stringValue,top.messageLabel.stringValue];
+    self.button.toolTip = [NSString stringWithFormat:@"点击展开 %lu 项任务\n%@",(unsigned long)self.count,top.button.toolTip];
     self.needsLayout = YES;
+}
+- (void)cancelInsertion {
+    if(!self.insertionActive && !self.insertionTimer && !self.incoming)return;
+    self.insertionGeneration++;[self.insertionTimer invalidate];self.insertionTimer=nil;
+    [self.incoming removeFromSuperview];self.incoming=nil;self.insertionActive=NO;
+    self.front.alphaValue=1;self.front.content.alphaValue=1;self.front.hidden=NO;self.button.enabled=YES;
+    [self updateTasks:self.items ?: @[]];
+}
+- (void)insertTasks:(NSArray<NSDictionary *> *)tasks animated:(BOOL)animated {
+    [self cancelInsertion];
+    if(!animated || !tasks.count) { [self updateTasks:tasks];return; }
+    self.oldFrontVisible=self.window.visible && !self.hidden && self.count>0;
+    self.incoming=[[FishTaskRow alloc] initWithFrame:self.front.frame];
+    [self.incoming updateTask:tasks.firstObject];
+    self.incoming.button.hidden=YES;self.incoming.accessibilityHidden=YES;
+    self.insertionActive=YES;self.button.enabled=NO;
+    [self addSubview:self.incoming positioned:NSWindowAbove relativeTo:self.front];
+    [self updateTasks:tasks];
+    self.front.alphaValue=self.oldFrontVisible ? 1 : 0;
+    self.insertionStart=CACurrentMediaTime();NSUInteger generation=++self.insertionGeneration;
+    __weak FishTaskStack *weakSelf=self;
+    self.insertionTimer=[NSTimer timerWithTimeInterval:1.0/60 repeats:YES block:^(NSTimer *timer) {
+        FishTaskStack *stack=weakSelf;
+        if(stack && stack.insertionGeneration==generation)[stack advanceInsertion:CACurrentMediaTime()-stack.insertionStart];
+    }];self.insertionTimer.tolerance=.002;
+    [NSRunLoop.mainRunLoop addTimer:self.insertionTimer forMode:NSRunLoopCommonModes];
+}
+- (void)advanceInsertion:(NSTimeInterval)elapsed {
+    if(!self.insertionActive)return;
+    CGFloat t=MIN(1,MAX(0,elapsed/.36)),ease=1-pow(1-t,3);
+    NSUInteger layers=MIN(MAX(self.count,1),3);
+    CGFloat y=self.expandsUpward ? 8 : 8+(layers-1)*6;
+    NSRect front=NSMakeRect(10,y,TaskCardWidth,TaskCardHeight);
+    CGFloat drop=MIN(34,MAX(0,NSHeight(self.bounds)-NSMaxY(front)-4));
+    self.incoming.frame=NSMakeRect(10+10*(1-ease),y+drop*(1-ease),TaskCardWidth-10*(1-ease),TaskCardHeight);
+    self.incoming.alphaValue=.22+.78*MIN(1,t/.55);
+    self.front.frame=NSMakeRect(10+8*ease,y+(self.expandsUpward ? 6 : -6)*ease,TaskCardWidth-16*ease,TaskCardHeight);
+    self.front.content.alphaValue=MAX(0,1-t/.22);
+    self.incoming.needsLayout=YES;self.front.needsLayout=YES;
+    [self.incoming layoutSubtreeIfNeeded];[self.front layoutSubtreeIfNeeded];
+    if(t>=1 && !layingOutTasks) { [self cancelInsertion];LayoutTasks();UpdateTaskAccessibility(); }
 }
 - (void)layout {
     [super layout];
@@ -513,11 +581,12 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     for (NSUInteger i=0; i<self.backs.count; i++) {
         NSUInteger depth = 2-i;
         FishTaskRow *back = self.backs[i];
-        back.hidden = depth >= layers;
+        back.hidden = depth >= layers || (self.insertionActive && self.oldFrontVisible && depth==1);
         back.frame = NSMakeRect(10+depth*8,frontY+(self.expandsUpward ? 1.0 : -1.0)*depth*6,TaskCardWidth-depth*16,TaskCardHeight);
     }
-    self.front.frame = NSMakeRect(10,frontY,TaskCardWidth,TaskCardHeight);
-    self.button.frame = self.bounds;
+    if(self.insertionActive)[self advanceInsertion:CACurrentMediaTime()-self.insertionStart];
+    else self.front.frame = NSMakeRect(10,frontY,TaskCardWidth,TaskCardHeight);
+    self.button.frame = NSMakeRect(0,0,NSWidth(self.bounds),TaskCardHeight+16+(layers-1)*6);
 }
 @end
 static FishTaskStack *taskStack;
@@ -571,7 +640,11 @@ static void UpdateTaskRows(void) {
     for (NSString *key in [taskRows.allKeys copy]) if (![keep containsObject:key]) {
         [taskRows[key] removeFromSuperview]; [taskRows removeObjectForKey:key];
     }
-    [taskStack updateTasks:taskData];
+    NSArray *stackItems=StackTaskItems();
+    if(stackInsertionPending && !tasksExpanded && !preparingTaskAnimation) {
+        BOOL animate=wantsVisible && petWindow.visible && statusPanel.visible && taskCardsShown && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
+        [taskStack insertTasks:stackItems animated:animate];stackInsertionPending=nil;
+    } else [taskStack updateTasks:stackItems];
     taskRowsExpandUpward = tasksExpandUpward;
     if (!layingOut) LayoutStatus();
     LayoutTasks();
@@ -582,7 +655,7 @@ static void UpdateTaskRows(void) {
     LayoutTasks();
 }
 static CGFloat TaskPanelHeight(BOOL expanded) {
-    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,DisplayedTaskItems().count*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
+    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,DisplayedTaskItems().count*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+(taskStack.insertionActive ? 40 : 0);
 }
 static NSRect NaturalStatusRect(void) {
     NSView *content=petWindow.contentView;
@@ -776,6 +849,7 @@ static void EnsureTaskPanel(void) {
     }
 }
 static void CancelTaskAnimation(void) {
+    [taskStack cancelInsertion];
     taskAnimationGeneration++;
     [taskAnimationTimer invalidate]; taskAnimationTimer=nil;
     [taskAnimationHost removeFromSuperview]; taskAnimationHost=nil;
@@ -808,7 +882,6 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     EnsureTaskPanel();
     BOOL expanded=mode==FishTaskExpanded,shown=mode!=FishTaskHidden;
     if (tasksExpanded==expanded && taskCardsShown==shown) return;
-    NSArray *oldItems=DisplayedTaskItems();
     BOOL wasExpanded=tasksExpanded,wasShown=TaskCardsPresent(),interrupted=taskAnimationActive,wasVisible=taskPanel.visible;
     BOOL listTransition=wasExpanded || expanded || (interrupted && taskAnimationListTransition);
     NSRect oldCanvas=taskPanel.frame;
@@ -821,7 +894,6 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     CancelTaskAnimation();
     tasksExpanded=expanded;
     taskCardsShown=shown;
-    if(!expanded)selectedTaskID=nil;
     BOOL animate=animated && wantsVisible && petWindow.visible && statusPanel.visible &&
         !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
     preparingTaskAnimation=animate;
@@ -855,7 +927,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
     taskAnimationHost.wantsLayer=YES; taskAnimationHost.layer.masksToBounds=YES;
     taskAnimationHost.accessibilityHidden=YES;
     [taskPanel.contentView addSubview:taskAnimationHost];
-    NSArray *items=wasExpanded && !expanded ? oldItems : DisplayedTaskItems();
+    NSArray *items=expanded ? DisplayedTaskItems() : StackTaskItems();
     NSMutableArray *entries=[NSMutableArray new];
     // Farther cards are behind the front card as they leave or rejoin the stack.
     for (NSInteger i=(NSInteger)items.count-1;i>=0;i--) {
@@ -864,7 +936,9 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
         NSRect target=[taskPanel.contentView convertRect:source.bounds fromView:source];
         BOOL visible=NSIntersectsRect(target,taskAnimationHost.bounds);
         if (i!=0 && (!listTransition || !visible)) continue;
-        CGFloat depth=MIN(i,2);
+        NSUInteger stackIndex=[stackOrder indexOfObject:item[@"session_id"]];
+        if(stackIndex==NSNotFound)stackIndex=i;
+        CGFloat depth=MIN(stackIndex,2);
         NSRect folded=NSMakeRect(front.origin.x+depth*8,front.origin.y+(tasksExpandUpward ? 1.0 : -1.0)*depth*6,TaskCardWidth-depth*16,TaskCardHeight);
         FishTaskAnimationEntry *entry=[FishTaskAnimationEntry new];
         entry.row=[[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,TaskCardWidth,TaskCardHeight)];
@@ -872,8 +946,8 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
         NSDictionary *prior=previous[item[@"session_id"] ?: @""];
         entry.fromFrame=prior ? NSOffsetRect([prior[@"frame"] rectValue],oldCanvas.origin.x-canvas.origin.x,oldCanvas.origin.y-canvas.origin.y) : (wasExpanded ? target : folded);
         entry.toFrame=expanded ? target : folded;
-        entry.fromAlpha=prior ? [prior[@"alpha"] doubleValue] : (wasExpanded ? visible : (i==0 && wasShown && wasVisible ? 1 : 0));
-        entry.toAlpha=!targetPresent ? 0 : (expanded ? visible : (i==0 ? 1 : 0));
+        entry.fromAlpha=prior ? [prior[@"alpha"] doubleValue] : (wasExpanded ? visible : (stackIndex==0 && wasShown && wasVisible ? 1 : 0));
+        entry.toAlpha=!targetPresent ? 0 : (expanded ? visible : (stackIndex==0 ? 1 : 0));
         entry.delay=interrupted ? 0 : MIN(i,4)*.014;
         [taskAnimationHost addSubview:entry.row]; [entries addObject:entry];
     }
@@ -983,10 +1057,7 @@ static void LayoutStatus(void) {
 static void HandleTaskOutsideClick(NSEvent *event) {
         if (event.window==petWindow || event.window==statusPanel) CancelEdgeReturn();
         NSPoint point = event.window ? [event.window convertPointToScreen:event.locationInWindow] : NSEvent.mouseLocation;
-        // A cooker selects a task to keep watching while using other apps.
-        // Its card stays pinned until the arrow, another cooker, or completion.
-        // The ordinary complete list retains its existing outside-click fold.
-        if (tasksExpanded && !selectedTaskID && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
+        if (tasksExpanded && !IsInsideStatus(point) && !NSPointInRect(point,taskPanel.frame)) {
             SetTasksExpanded(NO,YES);
         }
 }
@@ -1074,7 +1145,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
     return atomic_load(&ready);
 }
 FISH_EXPORT void FishGlassStatusSetVisible(int visible) {
-    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelStatusDrag(); CancelEdgeReturn(); CancelTaskAnimation(); tasksExpanded=NO; selectedTaskID=nil; } LayoutStatus(); });
+    OnMain(^{ wantsVisible = visible != 0; if (!wantsVisible) { CancelStatusDrag(); CancelEdgeReturn(); CancelTaskAnimation(); tasksExpanded=NO; stackInsertionPending=nil; } LayoutStatus(); });
 }
 FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
@@ -1101,14 +1172,20 @@ FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
         if (tasks.count>=64) break;
     }
     OnMain(^{ if (![taskData isEqualToArray:tasks]) {
+        BOOL hadSnapshot=taskData!=nil;
+        NSMutableArray *order=[NSMutableArray new];
+        for(NSDictionary *task in tasks)if(![stackOrder containsObject:task[@"session_id"]])[order addObject:task[@"session_id"]];
+        NSString *newTop=order.firstObject;
+        for(NSString *sid in stackOrder)if([seen containsObject:sid])[order addObject:sid];
+        stackOrder=order;selectedTaskID=order.firstObject;
         taskData=[tasks copy]; if (taskData.count) EnsureTaskPanel();
-        if(selectedTaskID && !TaskWithID(selectedTaskID))SetTaskMode(FishTaskFolded,YES);
-        else UpdateTaskRows();
+        if(hadSnapshot && newTop && taskCardsShown && !tasksExpanded)stackInsertionPending=newTop;
+        UpdateTaskRows();
     } });
 }
 FISH_EXPORT void FishGlassStatusFinishDrag(void) { OnMain(^{ FinishPetDrag(); }); }
 FISH_EXPORT void FishGlassStatusShowTasks(void) {
-    OnMain(^{ selectedTaskID=nil; UpdateTaskRows(); SetTasksExpanded(YES,YES); RefreshActiveAppearance(); });
+    OnMain(^{ stackInsertionPending=nil; UpdateTaskRows(); SetTasksExpanded(YES,YES); RefreshActiveAppearance(); });
 }
 FISH_EXPORT void FishGlassStatusShowTask(const char *sessionUTF8) {
     if(!sessionUTF8 || strlen(sessionUTF8)>64)return;
@@ -1116,9 +1193,13 @@ FISH_EXPORT void FishGlassStatusShowTask(const char *sessionUTF8) {
     if(!sessionID || ![[NSUUID alloc] initWithUUIDString:sessionID])return;
     OnMain(^{
         if(!TaskWithID(sessionID))return;
-        selectedTaskID=[sessionID copy];
-        if(tasksExpanded) { CancelTaskAnimation();UpdateTaskRows(); }
-        else SetTasksExpanded(YES,YES);
+        BOOL same=[stackOrder.firstObject isEqualToString:sessionID];
+        PromoteStackTask(sessionID);
+        if(tasksExpanded) { stackInsertionPending=nil;SetTasksExpanded(NO,YES); }
+        else {
+            if(!same || !taskCardsShown)stackInsertionPending=[sessionID copy];
+            taskCardsShown=YES;UpdateTaskRows();
+        }
         RefreshActiveAppearance();
     });
 }
@@ -1144,7 +1225,7 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; selectedTaskID=nil; tasksExpanded=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil; selectedTaskID=nil; stackOrder=nil;stackInsertionPending=nil;tasksExpanded=NO;
         taskRowsExpandUpward=YES;
         taskCardsShown=YES; petTaskOffset=0;statusDockOffset=NSZeroPoint;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];
