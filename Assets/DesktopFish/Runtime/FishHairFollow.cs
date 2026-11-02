@@ -134,7 +134,7 @@ namespace DesktopFish {
                 previousHead=head;previousTime=time;
             }
             sideStrands?.Tick(time);
-            if(frontHair!=null){Sample(-1,RootY-.30f,out Vector3 common,out Vector3 derivative);frontHair.Tick(time,head,common*.24f);}
+            if(frontHair!=null){Sample(-1,RootY-.30f,out Vector3 common,out Vector3 derivative);frontHair.Tick(time,head,common);}
             if(!Apply(Mathf.Clamp01(intensity),time,sideWorkWeight)) {SafetyResets++;Reset(head,time);Apply(0,time,sideWorkWeight);}
         }
         internal static Vector3 ConstrainDirection(Vector3 direction,Vector3 restDirection) {
@@ -201,8 +201,11 @@ namespace DesktopFish {
             if(frontHair.Groups[vertex]==6){d=frontHair.TuftDelta*frontHair.TuftWeight[vertex];gradient=frontHair.TuftGradient[vertex];return;}
             float u=frontHair.Progress(vertex,p.y),span=frontHair.Span(vertex);
             Sample(-1,RootY-u*Spacing*(Nodes-1),out d,out Vector3 dy);
-            d*=.32f*span/(Spacing*(Nodes-1));dy*=.32f;
-            FishFrontHairFollow.SoftLimit(ref d,ref dy,.018f);gradient=dy;
+            d*=.85f*span/(Spacing*(Nodes-1));dy*=.85f;
+            Vector3 local=frontHair.FrontDelta(vertex)*.30f;
+            d+=local*Mathf.SmoothStep(0,1,u);
+            if(u>0&&u<1)dy-=local*(6*u*(1-u)/span);
+            FishFrontHairFollow.SoftLimit(ref d,ref dy,.050f);gradient=dy;
         }
         bool Apply(float intensity,float time,float sideWorkWeight) {
             foreach(var part in parts) {

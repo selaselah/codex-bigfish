@@ -11,10 +11,9 @@ namespace DesktopFish {
         public readonly float[] TuftWeight;
         public readonly Vector3[] TuftGradient;
         readonly float[] top=new float[6],span=new float[6];
-        readonly Vector3 restTip;
+        readonly Vector3[] restTip=new Vector3[3],tip=new Vector3[3],velocity=new Vector3[3],tipDelta=new Vector3[3];
         readonly int[] tuft;
         Matrix4x4 previousHead;
-        Vector3 tip,velocity;
         float previousTime;
         bool initialized;
         public Vector3 TuftDelta {get;private set;}
@@ -36,7 +35,12 @@ namespace DesktopFish {
                 if(float.IsInfinity(distance[i]))throw new InvalidOperationException("Disconnected tuft parameterization.");done.Add(i);
                 foreach(int j in adjacency[i])distance[j]=Mathf.Min(distance[j],distance[i]+Vector3.Distance(p[i],p[j]));
             }
-            float length=distance.Values.Max();int end=tuft.OrderByDescending(i=>distance[i]).First();restTip=p[end];
+            float length=distance.Values.Max();int end=tuft.OrderByDescending(i=>distance[i]).First();restTip[2]=p[end];
+            for(int side=0;side<2;side++) {
+                var tips=Enumerable.Range(0,p.Length).Where(i=>Groups[i]>=side*3&&Groups[i]<side*3+3&&p[i].y<.54f).ToArray();
+                if(tips.Length==0)throw new InvalidOperationException("Missing complete cheek-side lock tips.");
+                foreach(int i in tips)restTip[side]+=p[i];restTip[side]/=tips.Length;
+            }
             foreach(int i in tuft)TuftWeight[i]=Mathf.SmoothStep(0,1,distance[i]/length);
             var area=new float[p.Length];
             for(int f=0;f<t.Length;f+=3)if(Groups[t[f]]==6&&Groups[t[f+1]]==6&&Groups[t[f+2]]==6) {
@@ -55,18 +59,29 @@ namespace DesktopFish {
             float a=limit*limit+value.sqrMagnitude,s=limit/Mathf.Sqrt(a);
             derivative=s*(derivative-value*(Vector3.Dot(value,derivative)/a));value*=s;
         }
+        public Vector3 FrontDelta(int vertex)=>tipDelta[Groups[vertex]/3];
         public void Tick(float time,Matrix4x4 head,Vector3 common) {
-            float elapsed=time-previousTime;Vector3 target=head.MultiplyPoint3x4(restTip);
-            bool reset=!initialized||elapsed<0||elapsed>.15f||(target-previousHead.MultiplyPoint3x4(restTip)).magnitude>.30f;
-            if(reset){tip=target;velocity=Vector3.zero;}
-            else if(elapsed>0) {
-                int steps=Mathf.CeilToInt(elapsed/(1f/120));float dt=elapsed/steps;
-                for(int i=1;i<=steps;i++) {
-                    Vector3 goal=Vector3.Lerp(previousHead.MultiplyPoint3x4(restTip),target,i/(float)steps);
-                    velocity+=(goal-tip)*150*dt;velocity*=Mathf.Exp(-7.5f*dt);tip+=velocity*dt;
+            float elapsed=time-previousTime;
+            bool reset=!initialized||elapsed<0||elapsed>.15f;
+            if(initialized)for(int k=0;k<3;k++)if((head.MultiplyPoint3x4(restTip[k])-previousHead.MultiplyPoint3x4(restTip[k])).magnitude>.30f)reset=true;
+            var inverse=head.inverse;
+            for(int k=0;k<3;k++) {
+                Vector3 target=head.MultiplyPoint3x4(restTip[k]);
+                if(reset){tip[k]=target;velocity[k]=Vector3.zero;}
+                else if(elapsed>0) {
+                    int steps=Mathf.CeilToInt(elapsed/(1f/120));float dt=elapsed/steps;
+                    float stiffness=k==2?65:60,damping=k==2?3.8f:5;
+                    for(int i=1;i<=steps;i++) {
+                        Vector3 goal=Vector3.Lerp(previousHead.MultiplyPoint3x4(restTip[k]),target,i/(float)steps);
+                        velocity[k]+=(goal-tip[k])*stiffness*dt;velocity[k]*=Mathf.Exp(-damping*dt);tip[k]+=velocity[k]*dt;
+                    }
                 }
+                tipDelta[k]=inverse.MultiplyVector(tip[k]-target);
             }
-            Vector3 delta=SoftLimit(common*.8f+head.inverse.MultiplyVector(tip-target)*.2f,.025f);
+            // The short curved blade has its own light, underdamped response.
+            // Its head-driven tip contributes most of the motion; the common
+            // mode only keeps the overall sway related to the accepted rear.
+            Vector3 delta=SoftLimit(common*.09f+tipDelta[2]*.85f,.045f);
             float scale=1;foreach(int i in tuft){float d=Vector3.Dot(delta,TuftGradient[i]);if(d<-.65f)scale=Mathf.Min(scale,-.65f/d);}
             TuftDelta=delta*scale;previousHead=head;previousTime=time;initialized=true;
         }
