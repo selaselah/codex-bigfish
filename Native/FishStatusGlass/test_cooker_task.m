@@ -51,7 +51,7 @@ int main(void) { @autoreleasepool {
     if(!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
         Require(taskStack.insertionActive && taskStack.incoming && [taskStack.incoming.sessionID isEqualToString:ID(2)],@"Selecting another cooker starts an incoming front card");
         Require([taskStack.front.sessionID isEqualToString:ID(0)] && taskStack.oldFrontVisible,@"Original front remains visible while moving behind the new card");
-        Require(taskPanel.frame.size.height==124 && !taskStack.hidden,@"Temporary transparent headroom prevents incoming glass from clipping");
+        Require(taskPanel.frame.size.height==84 && !taskStack.hidden,@"Placing uses existing stack padding without resizing its native glass window");
         CGFloat startY=taskStack.incoming.frame.origin.y;Capture(@"incoming-start");PumpFor(.10);
         Require(taskStack.insertionActive && taskStack.incoming.frame.origin.y>8 && taskStack.incoming.frame.origin.y<startY,@"Real timer moves the incoming card down toward the front");
         Require(taskStack.front.frame.size.width<330 && taskStack.front.frame.size.width>314,@"Old front visibly recedes into the rear layer");

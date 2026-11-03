@@ -33,7 +33,7 @@ python3 set-state.py idle --action wave
 
 桌面 Codex 自动状态联动：执行 `python3 Integrations/codex/install-observer.py` 安装本机后台监听器，只提取本机会话日志的生命周期事件。此方式兼容当前客户端，依赖非稳定的日志格式；官方 hooks 适配器另保留用于 CLI。官方 Mini 继续负责聊天，Unity 作为独立 3D 窗口响应状态。详见 [接入说明](Integrations/codex/README.md)。
 
-macOS 26 及以上的状态条与任务卡片统一采用系统原生 Regular Liquid Glass。已确认的配置、左右像素缺口的半像素对齐修复过程、未采用的方案和验证方法见 [原生玻璃文档](Native/FishStatusGlass/README.md)。
+macOS 26 及以上的状态条与任务卡片统一采用系统原生 Regular Liquid Glass。窗口显示优先级（普通浮动层3、原UniWinC置顶101及控制中心遮挡）、左右缺像素的半像素对齐过程，以及卡片半截裁剪／入栈窗口伸缩处理，统一记录在 [原生玻璃与窗口开发文档](Native/FishStatusGlass/README.md)。
 
 ## 实现与验证
 

@@ -720,7 +720,11 @@ static void UpdateTaskRows(void) {
     LayoutTasks();
 }
 static CGFloat TaskPanelHeight(BOOL expanded) {
-    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,DisplayedTaskItems().count*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6+(taskStack.insertionActive ? 40 : 0);
+    // Keep the native-glass window at its settled size throughout placing.
+    // Changing its backing canvas by40pt and shrinking it under a live lens
+    // can leave a stale compositor clip even when AppKit view bounds agree.
+    // advanceInsertion uses only the normal stack's available top padding.
+    return expanded ? MIN(TaskListMaxHeight,MAX(TaskRowStep+12,DisplayedTaskItems().count*TaskRowStep+12)) : TaskCardHeight+16+(MIN(MAX(taskData.count,1),3)-1)*6;
 }
 static NSRect NaturalStatusRect(void) {
     NSView *content=petWindow.contentView;
