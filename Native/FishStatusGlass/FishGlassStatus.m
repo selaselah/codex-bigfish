@@ -292,6 +292,8 @@ static BOOL applyingStatusDrag = NO,statusDragActive = NO;
 static __weak NSWindow *freeFrameWindow;
 static Class freeFrameOriginalClass,freeFrameClass;
 static IMP freeFrameOriginalIMP;
+static IMP freeFrameOriginalLevelIMP;
+static NSWindowLevel freeFrameOriginalLevel;
 static NSPoint statusDockOffset;
 static NSScreen *statusDragScreen,*edgeReturnScreen;
 #ifdef FISH_STATUS_DRAG_TESTING
@@ -305,15 +307,25 @@ static NSArray<NSScreen *> *StatusDragScreens(void) {
 }
 
 // Keep the Unity window's class identity intact: AppKit accessibility caches
-// that identity. Override only its public frame-constraint method, with an
-// instance guard so other windows in this process retain their original rule.
+// that identity. Guard public frame/level setters only for this instance;
+// other windows in this process retain their original rules.
 static NSRect StatusAnchoredFrame(id window,SEL command,NSRect proposed,NSScreen *screen) {
     if (window==freeFrameWindow) return proposed;
     return ((NSRect(*)(id,SEL,NSRect,NSScreen *))freeFrameOriginalIMP)(window,command,proposed,screen);
 }
+static void StatusFloatingLevel(id window,SEL command,NSWindowLevel requested) {
+    // UniWinC's topmost option requests popup-menu level101. Stay above normal
+    // apps at the floating level instead, leaving system panels above the pet.
+    if(window==freeFrameWindow)requested=NSFloatingWindowLevel;
+    ((void(*)(id,SEL,NSWindowLevel))freeFrameOriginalLevelIMP)(window,command,requested);
+}
 static void RestoreAvatarFrameConstraint(void) {
     if (freeFrameClass && method_getImplementation(class_getInstanceMethod(freeFrameClass,@selector(constrainFrameRect:toScreen:)))==(IMP)StatusAnchoredFrame)
         class_replaceMethod(freeFrameClass,@selector(constrainFrameRect:toScreen:),freeFrameOriginalIMP,method_getTypeEncoding(class_getInstanceMethod(freeFrameClass,@selector(constrainFrameRect:toScreen:))));
+    if (freeFrameClass && method_getImplementation(class_getInstanceMethod(freeFrameClass,@selector(setLevel:)))==(IMP)StatusFloatingLevel) {
+        class_replaceMethod(freeFrameClass,@selector(setLevel:),freeFrameOriginalLevelIMP,method_getTypeEncoding(class_getInstanceMethod(freeFrameClass,@selector(setLevel:))));
+        if(freeFrameWindow)freeFrameWindow.level=freeFrameOriginalLevel;
+    }
     freeFrameWindow=nil;freeFrameClass=Nil;freeFrameOriginalClass=Nil;
 }
 static void InstallAvatarFrameConstraint(NSWindow *window) {
@@ -321,6 +333,10 @@ static void InstallAvatarFrameConstraint(NSWindow *window) {
     Class owner=object_getClass(window);Method method=class_getInstanceMethod(owner,@selector(constrainFrameRect:toScreen:));
     freeFrameOriginalIMP=method_getImplementation(method);freeFrameWindow=window;freeFrameOriginalClass=owner;freeFrameClass=owner;
     class_replaceMethod(owner,@selector(constrainFrameRect:toScreen:),(IMP)StatusAnchoredFrame,method_getTypeEncoding(method));
+    Method level=class_getInstanceMethod(owner,@selector(setLevel:));
+    freeFrameOriginalLevelIMP=method_getImplementation(level);freeFrameOriginalLevel=window.level;
+    class_replaceMethod(owner,@selector(setLevel:),(IMP)StatusFloatingLevel,method_getTypeEncoding(level));
+    window.level=NSFloatingWindowLevel;
 }
 static BOOL TaskCardsPresent(void) { return taskCardsShown && (taskData.count>0 || tasksExpanded); }
 static NSDictionary *TaskWithID(NSString *sessionID) {
@@ -1194,6 +1210,7 @@ FISH_EXPORT int FishGlassStatusUpdate(const char *captionUTF8, const char *toneU
         if (created) {
             NSRect capsule = [statusPanel convertRectToScreen:[overlay convertRect:overlay.pill.frame toView:nil]];
             NSLog(@"Desktop Fish status drag frame constraint: %@ ownWindowOnly=%d classUnchanged=%d",NSStringFromClass(object_getClass(window)),freeFrameWindow==window,object_getClass(window)==freeFrameOriginalClass);
+            NSLog(@"Desktop Fish window ordering: floating=%ld original=%ld; avatar/status/tasks below system panels",(long)window.level,(long)freeFrameOriginalLevel);
             NSLog(@"Desktop Fish glass geometry: parent=%@ panel=%@ capsule=%@ scale=%g", NSStringFromRect(petWindow.frame), NSStringFromRect(statusPanel.frame), NSStringFromRect(capsule), statusPanel.backingScaleFactor);
             NSLog(@"Desktop Fish status material: %@; shadow=.12/4/-1.5; height=40 radius=20; activePainting=1",
                 overlay.liquidGlass ? @"NSGlassEffectView.regular tint=nil; HUD=none" : @"NSVisualEffectView.HUDWindow compatibility fallback");

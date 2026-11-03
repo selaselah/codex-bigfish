@@ -1,6 +1,6 @@
 # 原生液态玻璃配置与左右像素缺口修复
 
-当前约定更新于 **2026-11-02**：任务卡片与脚下状态条都使用用户选定的 **Regular Liquid Glass**。状态条始终位于宠物下方，任务卡片统一向上展开；拖到屏幕上半部或跨过中线也不换边。多任务支持收缩、折叠、展开三态；单任务只有隐藏／显示一张卡片，点击卡片直接进入对应Codex聊天。同一停靠点的状态条保持固定，宠物只为卡片让位，列表展开时不追加位移。状态条无活动圆点。此前状态条的 Clear＋HUD 配置只保留为历史记录。
+当前约定更新于 **2026-11-03**：任务卡片与脚下状态条都使用用户选定的 **Regular Liquid Glass**。状态条始终位于宠物下方，任务卡片统一向上展开；拖到屏幕上半部或跨过中线也不换边。多任务支持收缩、折叠、展开三态；单任务只有隐藏／显示一张卡片，点击卡片直接进入对应Codex聊天。同一停靠点的状态条保持固定，宠物只为卡片让位，列表展开时不追加位移。桌宠与附件统一使用普通浮动窗口层级，置于普通应用之上，并让出系统面板。状态条无活动圆点。此前状态条的 Clear＋HUD 配置只保留为历史记录。
 
 实现入口：[FishGlassStatus.m](FishGlassStatus.m)，验证入口：[test_task_stack.m](test_task_stack.m)，插件构建：[build.py](build.py)。任务数据和联动协议见 [Codex 接入说明](../../Integrations/codex/README.md)。
 
@@ -107,6 +107,14 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 `test_stack_presentation.m`在独立进程观察实际呈现请求，不先补做布局；旧版在新旧画布尺寸不一致处失败。回归检查伸缩交接时的完整玻璃和两行文字范围、已落下玻璃行的身份、连续切换、任务增减和列表中断。这证明该布局交接缺陷得到修正，不代表穷尽所有系统合成器、桌面背景和缩放组合。
 
 点击沿用221的原始窗口事件、相机射线和4pt拖动阈值：拖动锅仍移动桌宠，蒸汽、电线和电光不增加点击区域。两项及以上点击堆叠或菜单仍展开全部任务；从完整列表点击锅，会折叠回堆叠并把对应卡片放到最前面。多任务列表的箭头仍按“展开→折叠→收缩”切换；锅用于切换或反馈顶卡，箭头可直接收缩。收缩状态下收到新任务不会擅自重新显示。人物大小、玻璃材质和220屏幕边距规则保持。
+
+## 置顶但不遮挡系统面板（225）
+
+此前UniWinC的`SetTopmost(true)`会把人物窗口设为弹出菜单层级101，状态栏和卡片又继承这个层级。225统一采用公开的`NSFloatingWindowLevel`（本机3），保留普通应用之上的悬浮显示，让模态面板、状态菜单及更高层系统界面显示在上方。不会通过隐藏桌宠、轮询控制中心进程或修改系统窗口来绕开遮挡。
+
+现有原生窗口策略在保持Unity窗口类身份的前提下，同时接管自己的`setLevel:`请求：后续置顶重设仍映射到浮动层级，不产生短暂升回101再下降的抖动。仅对当前人物窗口实例生效；同类的其他窗口调用原方法。状态栏、折叠／展开卡片沿用人物层级和原父子关系；隐藏状态栏也不把人物升回系统层级。销毁或更换人物窗口时恢复原方法和接管前的层级。Regular外观、半像素、尺寸、坐标和键盘焦点保持。
+
+`test_window_level.m`以真实AppKit窗口检查四种层级请求、普通窗口／模态层级测试面板的WindowServer排序、附件同步、列表与入栈、刷新、隐藏和恢复。测试面板是独立进程内的替身，不称为实际控制中心；实际运行还须核对桌宠与系统面板的真实窗口层级。参考公开的[`NSWindow.level`](https://developer.apple.com/documentation/appkit/nswindow/level)。
 
 ## 状态栏拖动与屏幕边距（220）
 
@@ -215,6 +223,9 @@ work/glass-check/presentation-test
 xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_stack_actions.m -o work/glass-check/stack-actions-test
 work/glass-check/stack-actions-test
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_window_level.m -o work/glass-check/window-level-test
+work/glass-check/window-level-test
 python3 Native/FishStatusGlass/build.py
 ```
 
@@ -257,7 +268,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 221（已由222修正） | 电饭锅关联任务，但单张卡片曾替换整个堆叠 |
 | 222 | 点锅保留堆叠并把对应卡片置顶；新任务和切换锅共用360ms放卡动画，消息更新不重播 |
 | 223 | 放卡交接时先同步窗口、卡片和玻璃布局再显示，并保留已落下的新玻璃行，修复新旧画布交错呈现 |
-| 本文档对应源码（224） | 点击已置顶任务的锅时顶卡轻抖；单任务只显示一张卡片，点击直接进入对应Codex聊天 |
+| 224 | 点击已置顶任务的锅时顶卡轻抖；单任务只显示一张卡片，点击直接进入对应Codex聊天 |
+| 本文档对应源码（225） | 人物、状态栏和卡片统一为普通浮动层级，保持应用之上并让出更高层系统面板 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 
