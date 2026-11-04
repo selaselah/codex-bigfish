@@ -410,23 +410,68 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     applyingPetOffset=NO;
 }
 
-// Use the system's interactive glass button rather than painting a translucent
-// circle. The panel overlay still avoids the card's top-left ancestor clipping.
+// A standalone native Glass button bezel can disappear in the transparent task
+// panel. Give each action its own Regular lens, with its glyph inside contentView.
+// The panel overlay still avoids the card's top-left ancestor clipping.
 @interface FishTaskActionButton : FishTaskButton
+@property(nonatomic,strong) NSView *glass;
+@property(nonatomic,strong) NSImageView *symbolView;
 @end
 @implementation FishTaskActionButton
 - (instancetype)initWithFrame:(NSRect)frame {
     if (!(self=[super initWithFrame:frame])) return nil;
     self.title=@"";
-    self.bordered=YES;
     self.controlSize=NSControlSizeSmall;
     if (@available(macOS 26.0, *)) {
-        self.bezelStyle=NSBezelStyleGlass;
-        self.borderShape=NSControlBorderShapeCircle;
+        self.bordered=NO;
+        self.transparent=YES;
+        self.imagePosition=NSNoImage;
+        self.symbolView=[[NSImageView alloc] initWithFrame:self.bounds];
+        self.symbolView.imageAlignment=NSImageAlignCenter;
+        self.symbolView.imageScaling=NSImageScaleNone;
+        self.symbolView.contentTintColor=NSColor.labelColor;
+        self.symbolView.accessibilityElement=NO;
+        NSGlassEffectView *glass=[[NSGlassEffectView alloc] initWithFrame:self.bounds];
+        glass.style=NSGlassEffectViewStyleRegular;
+        glass.contentView=self.symbolView;
+        if (@available(macOS 27.0, *)) glass.effectIsInteractive=YES;
+        self.glass=glass;
+        [self addSubview:glass];
     } else {
+        self.bordered=YES;
         self.bezelStyle=NSBezelStyleCircular;
+        self.imagePosition=NSImageOnly;
     }
     return self;
+}
+- (void)setImage:(NSImage *)image {
+    [super setImage:image];
+    // NSButton may turn image drawing back on when its image changes.
+    if(self.glass)self.imagePosition=NSNoImage;
+    self.symbolView.image=image;
+}
+- (void)setContentTintColor:(NSColor *)color {
+    [super setContentTintColor:color];
+    self.symbolView.contentTintColor=color;
+}
+- (void)highlight:(BOOL)flag {
+    [super highlight:flag];
+    self.symbolView.alphaValue=flag ? .6 : 1;
+}
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];self.needsLayout=YES;
+}
+- (void)viewDidChangeBackingProperties {
+    [super viewDidChangeBackingProperties];self.needsLayout=YES;
+}
+- (void)layout {
+    [super layout];
+    if (@available(macOS 26.0, *)) {
+        CGFloat edge=.5/MAX(1,self.window.backingScaleFactor);
+        self.glass.frame=NSInsetRect(self.bounds,edge,edge);
+        ((NSGlassEffectView *)self.glass).cornerRadius=NSWidth(self.glass.bounds)/2;
+        self.symbolView.frame=self.glass.bounds;
+    }
 }
 @end
 
@@ -508,7 +553,6 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.button.action = @selector(openTask:);
     [self addSubview:self.button];
     self.dismissButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(0,TaskCardHeight-13,20,20)];
-    self.dismissButton.imagePosition=NSImageOnly;
     self.dismissButton.image=[[NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightBold]];
     self.dismissButton.contentTintColor=NSColor.labelColor;
@@ -518,7 +562,6 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.dismissButton.accessibilityLabel=@"关闭本轮通知";
     self.dismissButton.toolTip=@"关闭本轮通知，任务继续运行；点击电饭锅可重新显示";
     self.hideSessionButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(28,TaskCardHeight-13,20,20)];
-    self.hideSessionButton.imagePosition=NSImageOnly;
     self.hideSessionButton.image=[[NSImage imageWithSystemSymbolName:@"eye.slash" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightSemibold]];
     self.hideSessionButton.contentTintColor=NSColor.labelColor;

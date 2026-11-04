@@ -17,11 +17,19 @@ static void CheckControls(FishTaskRow *row) {
         Require(NSContainsRect(taskPanel.contentView.bounds,frame),@"Complete action remains in the existing window");
         Require(NSContainsRect(button.visibleRect,button.bounds),@"The complete circle survives card-ancestor clipping");
         Require([taskPanel.contentView hitTest:NSMakePoint(NSMidX(frame),NSMidY(frame))]==button,@"Overlay action retains hit priority");
-        Require(button.bordered,@"System bezel renders the button surface, not a painted translucent circle");
         if (@available(macOS 26.0, *)) {
-            Require(button.bezelStyle==NSBezelStyleGlass && button.borderShape==NSControlBorderShapeCircle,@"Both actions use the native circular Liquid Glass button");
+            FishTaskActionButton *action=(FishTaskActionButton *)button;
+            NSGlassEffectView *glass=(NSGlassEffectView *)action.glass;
+            Require([glass isKindOfClass:NSGlassEffectView.class] && glass.superview==button,@"Transparent task panel retains a standalone native lens for each action");
+            Require(glass.style==NSGlassEffectViewStyleRegular && !glass.tintColor && glass.alphaValue==1,@"Action lens uses Regular with no painted fill, tint or reduced opacity");
+            Require(!button.bordered && button.transparent && button.imagePosition==NSNoImage,@"The native button cell does not replace the lens or draw a duplicate glyph");
+            Require(glass.contentView==action.symbolView && action.symbolView.image==button.image,@"The actual glyph is inside the native glass contentView");
+            Require(NSWidth(glass.frame)==NSHeight(glass.frame) && glass.cornerRadius==NSWidth(glass.bounds)/2,@"The glass lens itself is circular");
+            CGFloat edge=.5/MAX(1,button.window.backingScaleFactor);
+            Require(NSEqualRects(glass.frame,NSInsetRect(button.bounds,edge,edge)),@"Circular lens keeps half-pixel margins on all four edges");
+            Require(NSContainsRect(glass.visibleRect,glass.bounds),@"Complete native glass surface survives ancestor clipping");
         } else {
-            Require(button.bezelStyle==NSBezelStyleCircular,@"Older systems use the native circular button fallback");
+            Require(button.bordered && button.bezelStyle==NSBezelStyleCircular,@"Older systems use the native circular button fallback");
         }
     }
     Require(NSMinX(row.hideSessionButton.frame)-NSMaxX(row.dismissButton.frame)==8,@"Separate hide action keeps8pt spacing");
@@ -30,6 +38,7 @@ int main(void) { @autoreleasepool {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyProhibited];
     NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(600,400,312,416) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];window.title=@"BigFatBlueFish";[window orderFront:nil];
     FishGlassStatusUpdate("工作中 · 3 项","working");SetTasks(3,@"圆形按钮保持完整");
+    Require(!taskPanel.opaque && taskPanel.backgroundColor.alphaComponent==0,@"Exercise the actual transparent task-panel configuration");
     taskStack.front.clipsToBounds=YES;taskStack.front.layer.masksToBounds=YES;
     Capture(@"folded-card-clips");CheckControls(taskStack.front);
     taskPanel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
@@ -63,5 +72,5 @@ int main(void) { @autoreleasepool {
     SettleTaskAnimation();SetTasks(2,@"移除旧行时清理浮层");SettleTaskAnimation();
     Require(taskActionOverlay.subviews.count==2,@"Retired rows do not leave stale action controls in the overlay");
     FishGlassStatusDestroy();Require(!taskActionOverlay && !taskActionScrollObserver,@"Destroy releases action overlay and scroll observation");[window orderOut:nil];
-    NSLog(@"PASS: native circular Liquid Glass buttons/light-dark appearance; folded/expanded/single actions survive card view/layer clipping; complete20pt circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
+    NSLog(@"PASS: standalone Regular glass lenses in the real transparent task panel/light-dark appearance; contentView glyphs/circular half-pixel margins; folded/expanded/single actions survive card view/layer clipping; complete20pt circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
 } }

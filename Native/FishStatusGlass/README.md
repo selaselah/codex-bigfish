@@ -122,9 +122,11 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 
 两个按钮改为任务面板内独立的透明交互浮层，与卡片和滚动容器并列。位置由对应卡片转换到浮层坐标，滚动／抖动时同步；移出滚动视口时整组隐藏，避免留下半个按钮。空白区域让鼠标事件穿透，保持整卡点击、拖动、无障碍和两种关闭语义。无须扩大窗口，也不改玻璃材质和入栈画布。销毁时清理浮层及滚动观察器。
 
-229曾按截图手绘半透明浅灰蓝圆底，用户随后指出Mini的小按钮也应是玻璃，故该色块不再作为选用材质。230保留独立浮层和完整命中范围，将`FishTaskActionButton`改为系统`NSButton`的`NSBezelStyleGlass`与`NSControlBorderShapeCircle`，不覆写`drawRect:`，不绘背景色、不加HUD或额外描边。玻璃背景、折射、高光、深浅色适应和按下反馈由AppKit处理；20pt直径、较粗叉号及隐藏按钮8pt间距保持。macOS26以前明确回退为原生`NSBezelStyleCircular`按钮，不能称其为Liquid Glass。没有直接读取Mini的内部实现。
+229曾按截图手绘半透明浅灰蓝圆底，用户随后指出Mini的小按钮也应是玻璃，故该色块不再作为选用材质。230曾使用`NSBezelStyleGlass`与`NSControlBorderShapeCircle`；它在有底色的独立预览中有圆底，**真实透明任务面板中却只剩图标**。用户反馈和实际窗口均确认该问题，不能把不透明背景预览当作交付验收。
 
-`test_task_action_overlay.m`检查两种操作均使用原生圆形玻璃样式，并覆盖深／浅色外观、折叠／展开／单卡的强制祖先裁剪、滚动边缘、空白穿透、抖动跟随及旧行／观察器清理；呈现边界测试也检查两个完整圆按钮。`cacheDisplayInRect:`静态图不完整反映系统合成器的玻璃背景效果，最终质感须在实际窗口中查看，不能只用类名或该静态图代替视觉验收。
+231保留独立浮层和完整命中范围，每个`FishTaskActionButton`直接承载一个`NSGlassEffectViewStyleRegular`圆形玻璃视图，符号通过`NSImageView`放在其`contentView`内。按钮本身透明且不绘bezel／cell图标，`setImage:`后也显式保持`NSNoImage`，防止AppKit自动恢复cell图标造成重复绘制。玻璃无手绘底色、无tint、无HUD或额外描边；20pt点击直径及8pt间距保持。玻璃自身在四边各内缩半个backing pixel，宽高一致，圆角为自身直径一半。macOS27+启用原生交互效果；按下时仅对内容符号增加反馈。macOS26以前明确回退为原生`NSBezelStyleCircular`按钮，不能称其为Liquid Glass。没有直接读取Mini内部实现。
+
+`test_task_action_overlay.m`明确使用实际透明任务面板，检查两个操作都有独立Regular玻璃及contentView符号，并覆盖深／浅色外观、折叠／展开／单卡的强制祖先裁剪、滚动边缘、空白穿透、抖动跟随及旧行／观察器清理；呈现边界测试也检查两个完整圆按钮及其玻璃子树。`cacheDisplayInRect:`静态图不完整反映系统合成器的玻璃背景效果，最终质感须在实际桌宠的透明窗口中查看，不能只用类名、非透明背景预览或静态图代替视觉验收。
 
 ### 放卡结束时的裁剪修复（223）
 
@@ -327,7 +329,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 227 | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
 | 228 | 叉号右侧间隔8pt新增永久隐藏按钮，按session持久保存；新轮、重启及点击锅均不恢复，其他聊天继续显示 |
 | 229 | 按钮使用独立交互浮层，避开卡片裁剪；手绘圆底随后被用户否决，裁剪修复继续保留 |
-| 本文档对应源码（230） | 两个小按钮使用系统圆形玻璃按钮，无手绘底色；保留独立浮层、20pt直径、8pt间距和原操作语义 |
+| 230 | 原生Glass button bezel在独立有底色预览可见，但实际透明任务面板圆底消失，未作为最终方案保留 |
+| 本文档对应源码（231） | 按钮各自承载独立Regular圆形玻璃及contentView符号；透明cell不重复绘制，保留独立浮层、20pt点击范围、8pt间距和原操作语义 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 

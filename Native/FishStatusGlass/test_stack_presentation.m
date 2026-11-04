@@ -27,6 +27,11 @@ static void CheckPresentation(void) {
     Require(NSEqualRects(taskActionOverlay.frame,taskPanel.contentView.bounds),@"Action overlay follows the presented canvas before display");
     for(NSButton *button in taskActionOverlay.subviews)if(!button.hidden) {
         Require(NSContainsRect(taskPanel.contentView.bounds,button.frame) && NSContainsRect(button.visibleRect,button.bounds),@"Both complete round actions survive every presentation boundary");
+        if (@available(macOS 26.0, *)) {
+            FishTaskActionButton *action=(FishTaskActionButton *)button;
+            Require(action.glass && NSWidth(action.glass.frame)>0 && NSContainsRect(action.glass.visibleRect,action.glass.bounds),@"Each action presents a complete native lens, not just its glyph");
+            Require(NSWidth(action.glass.frame)==NSHeight(action.glass.frame),@"Presented small glass lenses remain circular");
+        }
     }
 }
 static void SetFrameProbe(id window,SEL command,NSRect frame,BOOL display) {
