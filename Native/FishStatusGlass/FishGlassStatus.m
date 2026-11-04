@@ -28,6 +28,7 @@ static NSScreen *CurrentStatusScreen(void);
 static void DismissTaskNotification(NSString *sessionID, NSString *turnID);
 static void PermanentlyHideTaskNotification(NSString *sessionID);
 static void ApplyVisibleTasks(BOOL refresh);
+static void LayoutTaskActions(void);
 
 @interface FishTaskButton : NSButton
 @end
@@ -234,6 +235,8 @@ static NSScrollView *taskScroll;
 static NSView *taskDocument;
 static NSView *taskListSurface;
 static NSMutableDictionary *taskRows;
+static NSView *taskActionOverlay;
+static id taskActionScrollObserver;
 static NSArray<NSDictionary *> *taskData;
 // Full lifecycle snapshot stays intact; only card presentation is filtered.
 static NSArray<NSDictionary *> *taskSnapshot;
@@ -407,6 +410,32 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     applyingPetOffset=NO;
 }
 
+// Circle and glyph are drawn within their own bounds. Keeping the actions in
+// a panel overlay avoids clipping where they overlap the card's top-left edge.
+@interface FishTaskActionButton : FishTaskButton
+@end
+@implementation FishTaskActionButton
+- (void)drawRect:(NSRect)dirtyRect {
+    BOOL dark=[[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua,NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
+    NSColor *fill=dark ? [NSColor colorWithSRGBRed:.26 green:.28 blue:.31 alpha:.94] : [NSColor colorWithSRGBRed:.86 green:.88 blue:.92 alpha:.88];
+    [fill setFill];[[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(self.bounds,.5,.5)] fill];
+    [super drawRect:dirtyRect];
+}
+- (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance];self.needsDisplay=YES; }
+@end
+
+@interface FishTaskActionOverlay : NSView
+@end
+@implementation FishTaskActionOverlay
+- (NSView *)hitTest:(NSPoint)point {
+    if(self.hidden)return nil;
+    NSPoint local=[self convertPoint:point fromView:self.superview];
+    for(NSButton *button in self.subviews.reverseObjectEnumerator)
+        if(!button.hidden && button.enabled && NSPointInRect(local,button.frame))return button;
+    return nil;
+}
+@end
+
 @interface FishTaskRow : NSView
 @property(nonatomic, strong) NSVisualEffectView *backdrop;
 @property(nonatomic, strong) NSView *glass;
@@ -472,45 +501,29 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.button.target = self;
     self.button.action = @selector(openTask:);
     [self addSubview:self.button];
-    self.dismissButton=[[FishTaskButton alloc] initWithFrame:NSMakeRect(-2,TaskCardHeight-13,20,20)];
+    self.dismissButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(0,TaskCardHeight-13,20,20)];
     self.dismissButton.bordered=NO;
     self.dismissButton.imagePosition=NSImageOnly;
     self.dismissButton.image=[[NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:nil]
-        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightSemibold]];
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightBold]];
     self.dismissButton.contentTintColor=NSColor.labelColor;
     self.dismissButton.wantsLayer=YES;
-    self.dismissButton.layer.backgroundColor=[NSColor.controlBackgroundColor colorWithAlphaComponent:.96].CGColor;
-    self.dismissButton.layer.cornerRadius=10;
-    self.dismissButton.layer.borderWidth=.5;
-    self.dismissButton.layer.borderColor=NSColor.separatorColor.CGColor;
     self.dismissButton.target=self;
     self.dismissButton.action=@selector(dismissNotification:);
     self.dismissButton.accessibilityLabel=@"关闭本轮通知";
     self.dismissButton.toolTip=@"关闭本轮通知，任务继续运行；点击电饭锅可重新显示";
-    [self addSubview:self.dismissButton];
-    self.hideSessionButton=[[FishTaskButton alloc] initWithFrame:NSMakeRect(26,TaskCardHeight-13,20,20)];
+    self.hideSessionButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(28,TaskCardHeight-13,20,20)];
     self.hideSessionButton.bordered=NO;
     self.hideSessionButton.imagePosition=NSImageOnly;
     self.hideSessionButton.image=[[NSImage imageWithSystemSymbolName:@"eye.slash" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightSemibold]];
     self.hideSessionButton.contentTintColor=NSColor.labelColor;
     self.hideSessionButton.wantsLayer=YES;
-    self.hideSessionButton.layer.backgroundColor=[NSColor.controlBackgroundColor colorWithAlphaComponent:.96].CGColor;
-    self.hideSessionButton.layer.cornerRadius=10;
-    self.hideSessionButton.layer.borderWidth=.5;
-    self.hideSessionButton.layer.borderColor=NSColor.separatorColor.CGColor;
     self.hideSessionButton.target=self;
     self.hideSessionButton.action=@selector(hideSession:);
     self.hideSessionButton.accessibilityLabel=@"永久隐藏此聊天的通知";
     self.hideSessionButton.toolTip=@"永久隐藏此聊天的通知，新轮次和重启后也不再显示；任务继续运行";
-    [self addSubview:self.hideSessionButton];
     return self;
-}
-- (NSView *)hitTest:(NSPoint)point {
-    NSPoint local=[self convertPoint:point fromView:self.superview];
-    if(!self.hidden)for(NSButton *control in @[self.dismissButton,self.hideSessionButton])
-        if(!control.hidden && control.enabled && NSPointInRect(local,control.frame))return control;
-    return [super hitTest:point];
 }
 - (void)dismissNotification:(id)sender { DismissTaskNotification(self.sessionID,self.turnID); }
 - (void)hideSession:(id)sender { PermanentlyHideTaskNotification(self.sessionID); }
@@ -622,17 +635,6 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     if(self.count==1)[self.front openTask:sender];
     else if (!tasksExpanded) ToggleTasks();
 }
-- (NSView *)hitTest:(NSPoint)point {
-    FishTaskRow *front=self.front;
-    if(!self.hidden && !taskAnimationActive && !self.insertionActive && !front.hidden) {
-        NSPoint local=[self convertPoint:point fromView:self.superview];
-        for(NSButton *control in @[front.dismissButton,front.hideSessionButton]) {
-            NSRect frame=[self convertRect:control.bounds fromView:control];
-            if(!control.hidden && control.enabled && NSPointInRect(local,frame))return control;
-        }
-    }
-    return [super hitTest:point];
-}
 - (void)updateTasks:(NSArray<NSDictionary *> *)tasks {
     if(self.insertionActive && ![self.incoming.sessionID isEqualToString:tasks.firstObject[@"session_id"]])[self cancelInsertion];
     if((self.shakeActive || self.pendingShake) && ![self.items.firstObject[@"session_id"] isEqualToString:tasks.firstObject[@"session_id"]])[self cancelShake];
@@ -732,6 +734,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     if(t>=1)[self cancelShake];
     else self.shakeOffset=4*sin(6*M_PI*t)*(1-t);
     self.needsLayout=YES;[self layoutSubtreeIfNeeded];
+    LayoutTaskActions();
 }
 - (void)layout {
     [super layout];
@@ -946,6 +949,33 @@ static NSRect TaskPanelRect(BOOL expanded) {
     CGFloat y = tasksExpandUpward ? NSMaxY(pill) : NSMinY(pill)-height;
     return NSMakeRect(x,y,TaskPanelWidth,height);
 }
+static void LayoutTaskActions(void) {
+    if(!taskActionOverlay || !taskPanel)return;
+    taskActionOverlay.frame=taskPanel.contentView.bounds;
+    BOOL active=wantsVisible && TaskCardsPresent() && !taskAnimationActive && !preparingTaskAnimation && !taskStack.insertionActive;
+    NSArray<FishTaskRow *> *rows=tasksExpanded ? taskRows.allValues : (taskStack.front ? @[taskStack.front] : @[]);
+    NSMutableSet *keep=[NSMutableSet new];
+    NSRect viewport=tasksExpanded ? [taskActionOverlay convertRect:taskScroll.contentView.bounds fromView:taskScroll.contentView] : taskActionOverlay.bounds;
+    if(active)for(FishTaskRow *row in rows) {
+        if(row.hidden || !row.button.enabled || !TaskWithID(row.sessionID))continue;
+        NSRect close=[taskActionOverlay convertRect:NSMakeRect(0,TaskCardHeight-13,20,20) fromView:row];
+        NSRect hide=NSOffsetRect(close,28,0);
+        // Hide the whole group when scrolling carries an action out of view;
+        // never leave a partially cut circular button at a viewport edge.
+        if(!NSContainsRect(viewport,close) || !NSContainsRect(viewport,hide) ||
+           !NSContainsRect(taskActionOverlay.bounds,close) || !NSContainsRect(taskActionOverlay.bounds,hide))continue;
+        NSArray *controls=@[row.dismissButton,row.hideSessionButton];
+        for(NSUInteger i=0;i<controls.count;i++) {
+            NSButton *control=controls[i];
+            if(control.superview!=taskActionOverlay)[taskActionOverlay addSubview:control];
+            control.frame=i==0 ? close : hide;control.hidden=NO;[keep addObject:control];
+        }
+    }
+    for(NSButton *control in [taskActionOverlay.subviews copy])if(![keep containsObject:control]) {
+        control.hidden=YES;[control removeFromSuperview];
+    }
+    taskActionOverlay.hidden=keep.count==0;
+}
 static void LayoutTasks(void) {
     if (!taskPanel || !petWindow || !statusPanel || layingOutTasks || preparingTaskAnimation) return;
     if ((!TaskCardsPresent() && !taskAnimationActive) || !wantsVisible || !petWindow.visible || petWindow.miniaturized) {
@@ -972,6 +1002,7 @@ static void LayoutTasks(void) {
     if (tasksExpanded) taskScroll.frame = taskPanel.contentView.bounds;
     else { taskStack.expandsUpward=tasksExpandUpward; taskStack.frame = taskPanel.contentView.bounds; taskStack.needsLayout=YES; [taskStack layoutSubtreeIfNeeded]; }
     [taskPanel.contentView layoutSubtreeIfNeeded];
+    LayoutTaskActions();
     if(resized)taskPanel.contentView.needsDisplay=YES;
     [CATransaction commit];
     [taskPanel displayIfNeeded];
@@ -990,8 +1021,8 @@ static void UpdateTaskAccessibility(void) {
     if (statusPanel.visible) [children addObjectsFromArray:@[overlay.taskButton,overlay.disclosureButton]];
     if (taskPanel.visible && !taskAnimationActive) {
         [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
-        if(!tasksExpanded)for(NSButton *control in @[taskStack.front.dismissButton,taskStack.front.hideSessionButton])
-            if(!control.hidden)[children addObject:control];
+        if(!taskActionOverlay.hidden)for(NSButton *control in taskActionOverlay.subviews)
+            if(!control.hidden && control.enabled)[children addObject:control];
     }
     petWindow.accessibilityChildren = children;
     BOOL shown=TaskCardsPresent();
@@ -1023,6 +1054,13 @@ static void EnsureTaskPanel(void) {
         taskRows = [NSMutableDictionary new];
         taskStack = [[FishTaskStack alloc] initWithFrame:taskPanel.contentView.bounds];
         [taskPanel.contentView addSubview:taskStack];
+        taskActionOverlay=[[FishTaskActionOverlay alloc] initWithFrame:taskPanel.contentView.bounds];
+        taskActionOverlay.wantsLayer=YES;taskActionOverlay.clipsToBounds=YES;
+        [taskPanel.contentView addSubview:taskActionOverlay];
+        taskScroll.contentView.postsBoundsChangedNotifications=YES;
+        taskActionScrollObserver=[NSNotificationCenter.defaultCenter addObserverForName:NSViewBoundsDidChangeNotification object:taskScroll.contentView queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            LayoutTaskActions();UpdateTaskAccessibility();
+        }];
     }
 }
 static void CancelTaskAnimation(void) {
@@ -1462,9 +1500,11 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         ApplyPetTaskOffset(0);
         if (outsideClickMonitor) [NSEvent removeMonitor:outsideClickMonitor];
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
+        if (taskActionScrollObserver) [NSNotificationCenter.defaultCenter removeObserver:taskActionScrollObserver];
+        taskActionScrollObserver=nil;
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil;taskSnapshot=nil;dismissedTaskTurns=nil;permanentlyHiddenSessions=nil;notificationPreferences=nil; selectedTaskID=nil; stackOrder=nil;stackInsertionPending=nil;tasksExpanded=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil;taskActionOverlay=nil; taskStack=nil; taskData=nil;taskSnapshot=nil;dismissedTaskTurns=nil;permanentlyHiddenSessions=nil;notificationPreferences=nil; selectedTaskID=nil; stackOrder=nil;stackInsertionPending=nil;tasksExpanded=NO;
         taskRowsExpandUpward=YES;
         taskCardsShown=YES; petTaskOffset=0;statusDockOffset=NSZeroPoint;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];

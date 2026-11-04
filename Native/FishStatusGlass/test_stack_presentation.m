@@ -24,6 +24,10 @@ static void CheckPresentation(void) {
             Require(NSContainsRect(label.visibleRect,label.bounds),@"Neither text line is clipped by an intermediate content view");
         }
     }
+    Require(NSEqualRects(taskActionOverlay.frame,taskPanel.contentView.bounds),@"Action overlay follows the presented canvas before display");
+    for(NSButton *button in taskActionOverlay.subviews)if(!button.hidden) {
+        Require(NSContainsRect(taskPanel.contentView.bounds,button.frame) && NSContainsRect(button.visibleRect,button.bounds),@"Both complete round actions survive every presentation boundary");
+    }
 }
 static void SetFrameProbe(id window,SEL command,NSRect frame,BOOL display) {
     BOOL own=window==taskPanel;

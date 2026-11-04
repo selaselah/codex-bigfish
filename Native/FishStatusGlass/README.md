@@ -116,6 +116,14 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 
 两个按钮均优先于整卡点击命中，并在装饰后层和移动临时行上隐藏，保留原画布、Regular材料及半像素修复。`test_task_hide.m`使用新生成的独立偏好域和示例任务验证图标间距／完整范围／命中／无障碍、新轮及锅不能恢复、全隐藏及新聊天、真实NSUserDefaults写入及另一个新进程读取、销毁重建及UUID格式。测试结束只清理自己的唯一测试域，不改真实隐藏名单或实时任务文件。
 
+### 圆按钮外观与中间视图裁剪（229）
+
+227／228把按钮作为`FishTaskRow`的子视图，同时让圆形跨出卡片左上边界。检查按钮在窗口画布内，仍不足以证明卡片及其背后的裁剪层允许完整绘制。229新增测试主动设置卡片`clipsToBounds = YES`和图层`masksToBounds = YES`，旧实现会画出与用户截图类似的平直缺角，并在完整`visibleRect`检查处失败。这是对中间裁剪路径的复现，不声称已经捕获用户故障瞬间的系统合成器状态。
+
+两个按钮改为任务面板内独立的透明交互浮层，与卡片和滚动容器并列。位置由对应卡片转换到浮层坐标，滚动／抖动时同步；移出滚动视口时整组隐藏，避免留下半个按钮。空白区域让鼠标事件穿透，保持整卡点击、拖动、无障碍和两种关闭语义。无须扩大窗口，也不改玻璃材质和入栈画布。销毁时清理浮层及滚动观察器。
+
+外观按用户提供的Mini截图调整为半透明浅灰蓝圆底、无细边框、较粗黑色叉号；20pt直径及右侧隐藏按钮8pt间距保留。`FishTaskActionButton`在自己的完整边界内绘圆和图标，深色外观自动换色。此样式是按截图实现，未直接操控Mini读取其内部实现。`test_task_action_overlay.m`同时检查折叠、展开、单卡的强制祖先裁剪、滚动边缘、空白穿透、抖动跟随及旧行／观察器清理；呈现边界测试也额外检查两个完整圆按钮。
+
 ### 放卡结束时的裁剪修复（223）
 
 用户曾截到卡片上半截和标题沿水平线被裁断。222在临时留白伸缩时调用`setFrame:display:YES`，窗口可能先显示新尺寸，卡片容器仍是旧尺寸；仅在截图前强制布局会漏掉这个交接过程。223改为`display:NO`调整窗口，在禁用隐式图层动画的事务中同步卡片与玻璃子树布局，再调用`displayIfNeeded`。正常结束时直接将已经落下的原生玻璃行保留为顶卡，不删除它再切回旧玻璃行；快速中断时文字宽度随实际行宽重算。Regular材质、半像素内缩、最终堆叠尺寸和状态条锚点保持。
@@ -262,6 +270,9 @@ xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_task_hide.m -o work/glass-check/task-hide-test
 work/glass-check/task-hide-test
 xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_task_action_overlay.m -o work/glass-check/task-action-overlay-test
+work/glass-check/task-action-overlay-test
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_window_level.m -o work/glass-check/window-level-test
 work/glass-check/window-level-test
 python3 Native/FishStatusGlass/build.py
@@ -312,7 +323,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 225 | 人物、状态栏和卡片统一为普通浮动层级，保持应用之上并让出更高层系统面板 |
 | 226 | 放卡只使用最终画布内的留白，取消临时增高40pt再收缩，保留223布局同步及全部Regular／半像素配置 |
 | 227 | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
-| 本文档对应源码（228） | 叉号右侧间隔8pt新增永久隐藏按钮，按session持久保存；新轮、重启及点击锅均不恢复，其他聊天继续显示 |
+| 228 | 叉号右侧间隔8pt新增永久隐藏按钮，按session持久保存；新轮、重启及点击锅均不恢复，其他聊天继续显示 |
+| 本文档对应源码（229） | 按钮使用独立交互浮层，避开卡片裁剪；浅灰蓝圆底、无细边框和较粗叉号，滚动及抖动同步 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 
