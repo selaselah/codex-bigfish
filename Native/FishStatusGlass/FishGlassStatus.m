@@ -26,6 +26,7 @@ static void EndStatusDrag(BOOL moved,NSPoint cursor);
 static void CancelStatusDrag(void);
 static NSScreen *CurrentStatusScreen(void);
 static void DismissTaskNotification(NSString *sessionID, NSString *turnID);
+static void PermanentlyHideTaskNotification(NSString *sessionID);
 static void ApplyVisibleTasks(BOOL refresh);
 
 @interface FishTaskButton : NSButton
@@ -237,6 +238,10 @@ static NSArray<NSDictionary *> *taskData;
 // Full lifecycle snapshot stays intact; only card presentation is filtered.
 static NSArray<NSDictionary *> *taskSnapshot;
 static NSMutableDictionary<NSString *,NSString *> *dismissedTaskTurns;
+static NSMutableSet<NSString *> *permanentlyHiddenSessions;
+static NSUserDefaults *notificationPreferences;
+static NSString *const HiddenSessionDefaultsKey=@"PermanentlyHiddenSessionIDs";
+static NSString *const NotificationPreferencesDomain=@"local.desktop.rebuiltbigfish.tasknotifications";
 static NSString *selectedTaskID;
 static NSArray<NSString *> *stackOrder;
 static NSString *stackInsertionPending;
@@ -348,8 +353,23 @@ static NSDictionary *TaskWithID(NSString *sessionID) {
     for(NSDictionary *task in taskData)if([task[@"session_id"] isEqualToString:sessionID])return task;
     return nil;
 }
+static void LoadHiddenSessions(void) {
+    if(permanentlyHiddenSessions)return;
+    if(!notificationPreferences)notificationPreferences=[[NSUserDefaults alloc] initWithSuiteName:NotificationPreferencesDomain];
+    permanentlyHiddenSessions=[NSMutableSet new];
+    id saved=[notificationPreferences objectForKey:HiddenSessionDefaultsKey];
+    if([saved isKindOfClass:NSArray.class])for(id sid in saved)
+        if([sid isKindOfClass:NSString.class] && [[NSUUID alloc] initWithUUIDString:sid])
+            [permanentlyHiddenSessions addObject:[sid lowercaseString]];
+}
+static BOOL SessionPermanentlyHidden(NSString *sessionID) {
+    LoadHiddenSessions();return sessionID && [permanentlyHiddenSessions containsObject:sessionID.lowercaseString];
+}
 static NSArray<NSDictionary *> *DisplayedTaskItems(void) {
-    return taskData.count ? taskData : @[@{@"session_id":@"",@"title":taskSnapshot.count ? @"本轮通知已关闭" : @"暂无进行中的任务",@"summary":taskSnapshot.count ? @"点击对应电饭锅可重新显示" : @"新的任务开始后会显示在这里"}];
+    if(taskData.count)return taskData;
+    BOOL restorable=NO;for(NSDictionary *task in taskSnapshot)if(!SessionPermanentlyHidden(task[@"session_id"]))restorable=YES;
+    return @[@{@"session_id":@"",@"title":!taskSnapshot.count ? @"暂无进行中的任务" : (restorable ? @"本轮通知已关闭" : @"任务通知已隐藏"),
+        @"summary":restorable ? @"点击对应电饭锅可重新显示" : @"新的聊天开始后会显示在这里"}];
 }
 static NSArray<NSDictionary *> *StackTaskItems(void) {
     NSMutableArray *items=[NSMutableArray new];
@@ -396,6 +416,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 @property(nonatomic, strong) NSTextField *messageLabel;
 @property(nonatomic, strong) NSButton *button;
 @property(nonatomic, strong) NSButton *dismissButton;
+@property(nonatomic, strong) NSButton *hideSessionButton;
 @property(nonatomic, copy) NSString *sessionID;
 @property(nonatomic, copy) NSString *turnID;
 - (void)updateTask:(NSDictionary *)task;
@@ -451,7 +472,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.button.target = self;
     self.button.action = @selector(openTask:);
     [self addSubview:self.button];
-    self.dismissButton=[[FishTaskButton alloc] initWithFrame:NSMakeRect(-2,TaskCardHeight-14,20,20)];
+    self.dismissButton=[[FishTaskButton alloc] initWithFrame:NSMakeRect(-2,TaskCardHeight-13,20,20)];
     self.dismissButton.bordered=NO;
     self.dismissButton.imagePosition=NSImageOnly;
     self.dismissButton.image=[[NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:nil]
@@ -467,15 +488,32 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.dismissButton.accessibilityLabel=@"关闭本轮通知";
     self.dismissButton.toolTip=@"关闭本轮通知，任务继续运行；点击电饭锅可重新显示";
     [self addSubview:self.dismissButton];
+    self.hideSessionButton=[[FishTaskButton alloc] initWithFrame:NSMakeRect(26,TaskCardHeight-13,20,20)];
+    self.hideSessionButton.bordered=NO;
+    self.hideSessionButton.imagePosition=NSImageOnly;
+    self.hideSessionButton.image=[[NSImage imageWithSystemSymbolName:@"eye.slash" accessibilityDescription:nil]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightSemibold]];
+    self.hideSessionButton.contentTintColor=NSColor.labelColor;
+    self.hideSessionButton.wantsLayer=YES;
+    self.hideSessionButton.layer.backgroundColor=[NSColor.controlBackgroundColor colorWithAlphaComponent:.96].CGColor;
+    self.hideSessionButton.layer.cornerRadius=10;
+    self.hideSessionButton.layer.borderWidth=.5;
+    self.hideSessionButton.layer.borderColor=NSColor.separatorColor.CGColor;
+    self.hideSessionButton.target=self;
+    self.hideSessionButton.action=@selector(hideSession:);
+    self.hideSessionButton.accessibilityLabel=@"永久隐藏此聊天的通知";
+    self.hideSessionButton.toolTip=@"永久隐藏此聊天的通知，新轮次和重启后也不再显示；任务继续运行";
+    [self addSubview:self.hideSessionButton];
     return self;
 }
 - (NSView *)hitTest:(NSPoint)point {
     NSPoint local=[self convertPoint:point fromView:self.superview];
-    if(!self.hidden && !self.dismissButton.hidden && self.dismissButton.enabled &&
-       NSPointInRect(local,self.dismissButton.frame))return self.dismissButton;
+    if(!self.hidden)for(NSButton *control in @[self.dismissButton,self.hideSessionButton])
+        if(!control.hidden && control.enabled && NSPointInRect(local,control.frame))return control;
     return [super hitTest:point];
 }
 - (void)dismissNotification:(id)sender { DismissTaskNotification(self.sessionID,self.turnID); }
+- (void)hideSession:(id)sender { PermanentlyHideTaskNotification(self.sessionID); }
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
     self.needsLayout = YES;
@@ -513,6 +551,9 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.dismissButton.enabled=self.button.enabled;
     self.dismissButton.hidden=!self.button.enabled;
     self.dismissButton.accessibilityHelp=[NSString stringWithFormat:@"关闭%@的本轮通知，不停止任务",self.titleLabel.stringValue];
+    self.hideSessionButton.enabled=self.button.enabled;
+    self.hideSessionButton.hidden=!self.button.enabled;
+    self.hideSessionButton.accessibilityHelp=[NSString stringWithFormat:@"永久隐藏%@的通知，不停止任务",self.titleLabel.stringValue];
 }
 - (void)openTask:(id)sender {
     if (![[NSUUID alloc] initWithUUIDString:self.sessionID]) return;
@@ -558,6 +599,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
         row.button.hidden = YES;
         row.titleLabel.hidden=YES;row.messageLabel.hidden=YES;
         row.dismissButton.hidden=YES;
+        row.hideSessionButton.hidden=YES;
         row.accessibilityHidden = YES;
         [self addSubview:row];
         [backs addObject:row];
@@ -582,10 +624,12 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 }
 - (NSView *)hitTest:(NSPoint)point {
     FishTaskRow *front=self.front;
-    if(!self.hidden && !taskAnimationActive && !self.insertionActive && !front.hidden && !front.dismissButton.hidden && front.dismissButton.enabled) {
+    if(!self.hidden && !taskAnimationActive && !self.insertionActive && !front.hidden) {
         NSPoint local=[self convertPoint:point fromView:self.superview];
-        NSRect close=[self convertRect:front.dismissButton.bounds fromView:front.dismissButton];
-        if(NSPointInRect(local,close))return front.dismissButton;
+        for(NSButton *control in @[front.dismissButton,front.hideSessionButton]) {
+            NSRect frame=[self convertRect:control.bounds fromView:control];
+            if(!control.hidden && control.enabled && NSPointInRect(local,frame))return control;
+        }
     }
     return [super hitTest:point];
 }
@@ -600,9 +644,12 @@ static void ApplyPetTaskOffset(CGFloat offset) {
         NSUInteger depth=2-i;
         [self.backs[i] updateTask:depth<tasks.count ? tasks[depth] : @{}];
         self.backs[i].dismissButton.hidden=YES;
+        self.backs[i].hideSessionButton.hidden=YES;
     }
     self.front.dismissButton.hidden=self.insertionActive || !self.front.dismissButton.enabled;
+    self.front.hideSessionButton.hidden=self.insertionActive || !self.front.hideSessionButton.enabled;
     self.incoming.dismissButton.hidden=YES;
+    self.incoming.hideSessionButton.hidden=YES;
     self.button.accessibilityLabel = self.count==1 ? @"在 Codex 中打开任务，共 1 项" : [NSString stringWithFormat:@"展开任务列表，共 %lu 项",(unsigned long)self.count];
     FishTaskRow *top=self.insertionActive ? self.incoming : self.front;
     self.button.accessibilityValue = [NSString stringWithFormat:@"%@，%@",top.titleLabel.stringValue,top.messageLabel.stringValue];
@@ -625,6 +672,7 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     [self.incoming updateTask:tasks.firstObject];
     self.incoming.button.hidden=YES;self.incoming.accessibilityHidden=YES;
     self.incoming.dismissButton.hidden=YES;
+    self.incoming.hideSessionButton.hidden=YES;
     self.insertionActive=YES;self.button.enabled=NO;
     [self addSubview:self.incoming positioned:NSWindowAbove relativeTo:self.front];
     [self updateTasks:tasks];
@@ -942,7 +990,8 @@ static void UpdateTaskAccessibility(void) {
     if (statusPanel.visible) [children addObjectsFromArray:@[overlay.taskButton,overlay.disclosureButton]];
     if (taskPanel.visible && !taskAnimationActive) {
         [children addObject:tasksExpanded ? (id)taskScroll : taskStack.button];
-        if(!tasksExpanded && !taskStack.front.dismissButton.hidden)[children addObject:taskStack.front.dismissButton];
+        if(!tasksExpanded)for(NSButton *control in @[taskStack.front.dismissButton,taskStack.front.hideSessionButton])
+            if(!control.hidden)[children addObject:control];
     }
     petWindow.accessibilityChildren = children;
     BOOL shown=TaskCardsPresent();
@@ -1076,6 +1125,7 @@ static void SetTaskMode(FishTaskMode mode, BOOL animated) {
         entry.row=[[FishTaskRow alloc] initWithFrame:NSMakeRect(0,0,TaskCardWidth,TaskCardHeight)];
         [entry.row updateTask:item]; entry.row.button.hidden=YES; entry.row.accessibilityHidden=YES;
         entry.row.dismissButton.hidden=YES;
+        entry.row.hideSessionButton.hidden=YES;
         NSDictionary *prior=previous[item[@"session_id"] ?: @""];
         entry.fromFrame=prior ? NSOffsetRect([prior[@"frame"] rectValue],oldCanvas.origin.x-canvas.origin.x,oldCanvas.origin.y-canvas.origin.y) : (wasExpanded ? target : folded);
         entry.toFrame=expanded ? target : folded;
@@ -1285,6 +1335,7 @@ static void ApplyVisibleTasks(BOOL refresh) {
     NSMutableArray *tasks=[NSMutableArray new];NSMutableSet *seen=[NSMutableSet new];
     for(NSDictionary *task in taskSnapshot) {
         NSString *sid=task[@"session_id"];
+        if(SessionPermanentlyHidden(sid))continue;
         if([dismissedTaskTurns[sid] isEqualToString:task[@"turn_id"] ?: @""])continue;
         [tasks addObject:task];[seen addObject:sid];
     }
@@ -1309,6 +1360,20 @@ static void DismissTaskNotification(NSString *sessionID,NSString *turnID) {
     ApplyVisibleTasks(NO);
     if(!taskData.count)tasksExpanded=NO;
     UpdateTaskRows();
+}
+static void PermanentlyHideTaskNotification(NSString *sessionID) {
+    if(!TaskWithID(sessionID) || SessionPermanentlyHidden(sessionID))return;
+    NSArray *previous=[permanentlyHiddenSessions.allObjects sortedArrayUsingSelector:@selector(compare:)];
+    [permanentlyHiddenSessions addObject:sessionID.lowercaseString];
+    [notificationPreferences setObject:[permanentlyHiddenSessions.allObjects sortedArrayUsingSelector:@selector(compare:)] forKey:HiddenSessionDefaultsKey];
+    if(![notificationPreferences synchronize]) {
+        [permanentlyHiddenSessions removeObject:sessionID.lowercaseString];
+        [notificationPreferences setObject:previous forKey:HiddenSessionDefaultsKey];
+        NSLog(@"Desktop Fish permanent notification preference could not be saved");return;
+    }
+    CancelTaskAnimation();stackInsertionPending=nil;
+    [dismissedTaskTurns removeObjectForKey:sessionID];
+    ApplyVisibleTasks(NO);if(!taskData.count)tasksExpanded=NO;UpdateTaskRows();
 }
 FISH_EXPORT void FishGlassStatusUpdateTasks(const char *jsonUTF8) {
     if (!jsonUTF8 || strlen(jsonUTF8)>256*1024) return;
@@ -1359,6 +1424,7 @@ FISH_EXPORT void FishGlassStatusShowTask(const char *sessionUTF8) {
     NSString *sessionID=[NSString stringWithUTF8String:sessionUTF8];
     if(!sessionID || ![[NSUUID alloc] initWithUUIDString:sessionID])return;
     OnMain(^{
+        if(SessionPermanentlyHidden(sessionID))return;
         BOOL wasShown=TaskCardsPresent();
         BOOL wasDismissed=dismissedTaskTurns[sessionID]!=nil;
         if(wasDismissed) {
@@ -1398,7 +1464,7 @@ FISH_EXPORT void FishGlassStatusDestroy(void) {
         if (localClickMonitor) [NSEvent removeMonitor:localClickMonitor];
         outsideClickMonitor=nil; localClickMonitor=nil;
         [petWindow removeChildWindow:taskPanel]; [taskPanel orderOut:nil]; [taskPanel close];
-        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil;taskSnapshot=nil;dismissedTaskTurns=nil; selectedTaskID=nil; stackOrder=nil;stackInsertionPending=nil;tasksExpanded=NO;
+        taskPanel=nil; taskScroll=nil; taskDocument=nil; taskListSurface=nil; taskRows=nil; taskStack=nil; taskData=nil;taskSnapshot=nil;dismissedTaskTurns=nil;permanentlyHiddenSessions=nil;notificationPreferences=nil; selectedTaskID=nil; stackOrder=nil;stackInsertionPending=nil;tasksExpanded=NO;
         taskRowsExpandUpward=YES;
         taskCardsShown=YES; petTaskOffset=0;statusDockOffset=NSZeroPoint;
         for (id token in observers) [NSNotificationCenter.defaultCenter removeObserver:token];

@@ -35,6 +35,8 @@ python3 Integrations/codex/install-observer.py
 
 任务快照附带可选`turn_id`，来自现有生命周期记录，用于卡片左上角“关闭本轮通知”。关闭只在桌宠进程内过滤该`session_id`＋`turn_id`的卡片，同轮消息刷新不重弹；新轮次自动恢复，点击对应电饭锅也可手动恢复。原始快照、工作数量和正在运行的Codex任务不受影响。旧监听器没有这个字段时按会话存续及complete→working边界降级；更新监听器后使用精确轮次ID。退出应用后过滤记录清理。
 
+叉号右侧的划线眼睛用于永久隐藏该`session_id`的通知，名单保存在本机偏好域`local.desktop.rebuiltbigfish.tasknotifications`的`PermanentlyHiddenSessionIDs`，不随新轮、重启或任务快照移除而清理；点击锅也不恢复永久隐藏项。只过滤桌宠卡片，不修改监听快照、工作数量或Codex任务运行。
+
 macOS 26 及以上的任务卡片和脚下状态条都使用直接渲染的原生 Regular Liquid Glass，不额外叠加 HUD 模糊底层；旧系统保留原生 vibrancy 兼容回退。具体尺寸、失焦处理、左右像素缺口的修复历史和构建验收见 [原生玻璃配置与修复记录](../../Native/FishStatusGlass/README.md)。
 
 `tasks.py` 是本机存储格式兼容层；SQLite字段和会话日志不是公开稳定API。读取失败时保留任务状态，以“未命名任务”和通用状态降级。首次消息扫描限最近2MiB，超大的消息/输出会跳过；任务尚未写入可读消息时显示通用状态。不会用用户提问或隐藏推理冒充“最新消息”。

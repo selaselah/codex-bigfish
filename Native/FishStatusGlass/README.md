@@ -108,6 +108,14 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 
 圆形按钮使用原有画布留白，不增大卡片或窗口；关闭命中优先于整张卡片的展开／导航点击区域。后方装饰玻璃和动画中移动的临时行不提供关闭操作。按钮保存卡片的轮次ID并在执行时再次核对，防止旧行上排队的点击误关下一轮。`test_task_dismissal.m`覆盖真实生产视图的命中、窗口内完整范围、无障碍入口、同轮抑制／新轮恢复、旧点击保护、展开与单卡收敛、锅恢复、全部关闭占位、旧快照边界和销毁清理；测试仅在隔离进程提供示例任务，不写实时任务文件。
 
+### 永久隐藏聊天通知（228）
+
+叉号右侧新增相同20×20pt圆形的`eye.slash`按钮，两按钮边缘相隔8pt，水平对齐。提示为“永久隐藏此聊天的通知”。它按`session_id`永久过滤该聊天的卡片；同轮刷新、下一轮、会话暂时消失后返回、插件重建或重启应用都不自动恢复，点击对应电饭锅也不恢复。其他聊天继续正常显示，任务运行、工作数量和电饭锅保持原有生命周期响应。
+
+永久记录保存于本机NSUserDefaults域`local.desktop.rebuiltbigfish.tasknotifications`的`PermanentlyHiddenSessionIDs`数组，只存规范化的小写UUID，不存标题或聊天内容。保存同步成功后才移除卡片；记录不随原始任务快照过期清理。227的叉号仍是独立的进程内本轮过滤，不能覆盖永久记录。全部剩余会话都被永久隐藏时，显式打开列表显示“任务通知已隐藏”，不再提示点击锅恢复。
+
+两个按钮均优先于整卡点击命中，并在装饰后层和移动临时行上隐藏，保留原画布、Regular材料及半像素修复。`test_task_hide.m`使用新生成的独立偏好域和示例任务验证图标间距／完整范围／命中／无障碍、新轮及锅不能恢复、全隐藏及新聊天、真实NSUserDefaults写入及另一个新进程读取、销毁重建及UUID格式。测试结束只清理自己的唯一测试域，不改真实隐藏名单或实时任务文件。
+
 ### 放卡结束时的裁剪修复（223）
 
 用户曾截到卡片上半截和标题沿水平线被裁断。222在临时留白伸缩时调用`setFrame:display:YES`，窗口可能先显示新尺寸，卡片容器仍是旧尺寸；仅在截图前强制布局会漏掉这个交接过程。223改为`display:NO`调整窗口，在禁用隐式图层动画的事务中同步卡片与玻璃子树布局，再调用`displayIfNeeded`。正常结束时直接将已经落下的原生玻璃行保留为顶卡，不删除它再切回旧玻璃行；快速中断时文字宽度随实际行宽重算。Regular材质、半像素内缩、最终堆叠尺寸和状态条锚点保持。
@@ -251,6 +259,9 @@ xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_task_dismissal.m -o work/glass-check/task-dismissal-test
 work/glass-check/task-dismissal-test
 xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_task_hide.m -o work/glass-check/task-hide-test
+work/glass-check/task-hide-test
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_window_level.m -o work/glass-check/window-level-test
 work/glass-check/window-level-test
 python3 Native/FishStatusGlass/build.py
@@ -300,7 +311,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 224 | 点击已置顶任务的锅时顶卡轻抖；单任务只显示一张卡片，点击直接进入对应Codex聊天 |
 | 225 | 人物、状态栏和卡片统一为普通浮动层级，保持应用之上并让出更高层系统面板 |
 | 226 | 放卡只使用最终画布内的留白，取消临时增高40pt再收缩，保留223布局同步及全部Regular／半像素配置 |
-| 本文档对应源码（227） | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
+| 227 | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
+| 本文档对应源码（228） | 叉号右侧间隔8pt新增永久隐藏按钮，按session持久保存；新轮、重启及点击锅均不恢复，其他聊天继续显示 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 
