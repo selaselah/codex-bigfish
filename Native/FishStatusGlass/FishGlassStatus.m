@@ -410,18 +410,24 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     applyingPetOffset=NO;
 }
 
-// Circle and glyph are drawn within their own bounds. Keeping the actions in
-// a panel overlay avoids clipping where they overlap the card's top-left edge.
+// Use the system's interactive glass button rather than painting a translucent
+// circle. The panel overlay still avoids the card's top-left ancestor clipping.
 @interface FishTaskActionButton : FishTaskButton
 @end
 @implementation FishTaskActionButton
-- (void)drawRect:(NSRect)dirtyRect {
-    BOOL dark=[[self.effectiveAppearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua,NSAppearanceNameDarkAqua]] isEqualToString:NSAppearanceNameDarkAqua];
-    NSColor *fill=dark ? [NSColor colorWithSRGBRed:.26 green:.28 blue:.31 alpha:.94] : [NSColor colorWithSRGBRed:.86 green:.88 blue:.92 alpha:.88];
-    [fill setFill];[[NSBezierPath bezierPathWithOvalInRect:NSInsetRect(self.bounds,.5,.5)] fill];
-    [super drawRect:dirtyRect];
+- (instancetype)initWithFrame:(NSRect)frame {
+    if (!(self=[super initWithFrame:frame])) return nil;
+    self.title=@"";
+    self.bordered=YES;
+    self.controlSize=NSControlSizeSmall;
+    if (@available(macOS 26.0, *)) {
+        self.bezelStyle=NSBezelStyleGlass;
+        self.borderShape=NSControlBorderShapeCircle;
+    } else {
+        self.bezelStyle=NSBezelStyleCircular;
+    }
+    return self;
 }
-- (void)viewDidChangeEffectiveAppearance { [super viewDidChangeEffectiveAppearance];self.needsDisplay=YES; }
 @end
 
 @interface FishTaskActionOverlay : NSView
@@ -502,7 +508,6 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.button.action = @selector(openTask:);
     [self addSubview:self.button];
     self.dismissButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(0,TaskCardHeight-13,20,20)];
-    self.dismissButton.bordered=NO;
     self.dismissButton.imagePosition=NSImageOnly;
     self.dismissButton.image=[[NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:10 weight:NSFontWeightBold]];
@@ -513,7 +518,6 @@ static void ApplyPetTaskOffset(CGFloat offset) {
     self.dismissButton.accessibilityLabel=@"关闭本轮通知";
     self.dismissButton.toolTip=@"关闭本轮通知，任务继续运行；点击电饭锅可重新显示";
     self.hideSessionButton=[[FishTaskActionButton alloc] initWithFrame:NSMakeRect(28,TaskCardHeight-13,20,20)];
-    self.hideSessionButton.bordered=NO;
     self.hideSessionButton.imagePosition=NSImageOnly;
     self.hideSessionButton.image=[[NSImage imageWithSystemSymbolName:@"eye.slash" accessibilityDescription:nil]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:11 weight:NSFontWeightSemibold]];

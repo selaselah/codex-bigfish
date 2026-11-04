@@ -17,6 +17,12 @@ static void CheckControls(FishTaskRow *row) {
         Require(NSContainsRect(taskPanel.contentView.bounds,frame),@"Complete action remains in the existing window");
         Require(NSContainsRect(button.visibleRect,button.bounds),@"The complete circle survives card-ancestor clipping");
         Require([taskPanel.contentView hitTest:NSMakePoint(NSMidX(frame),NSMidY(frame))]==button,@"Overlay action retains hit priority");
+        Require(button.bordered,@"System bezel renders the button surface, not a painted translucent circle");
+        if (@available(macOS 26.0, *)) {
+            Require(button.bezelStyle==NSBezelStyleGlass && button.borderShape==NSControlBorderShapeCircle,@"Both actions use the native circular Liquid Glass button");
+        } else {
+            Require(button.bezelStyle==NSBezelStyleCircular,@"Older systems use the native circular button fallback");
+        }
     }
     Require(NSMinX(row.hideSessionButton.frame)-NSMaxX(row.dismissButton.frame)==8,@"Separate hide action keeps8pt spacing");
 }
@@ -26,6 +32,14 @@ int main(void) { @autoreleasepool {
     FishGlassStatusUpdate("工作中 · 3 项","working");SetTasks(3,@"圆形按钮保持完整");
     taskStack.front.clipsToBounds=YES;taskStack.front.layer.masksToBounds=YES;
     Capture(@"folded-card-clips");CheckControls(taskStack.front);
+    taskPanel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+    [taskPanel.contentView displayIfNeeded];CheckControls(taskStack.front);Capture(@"folded-dark");
+    taskPanel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];
+    [taskPanel.contentView displayIfNeeded];CheckControls(taskStack.front);Capture(@"folded-light");
+    for(NSButton *button in @[taskStack.front.dismissButton,taskStack.front.hideSessionButton]) [button highlight:YES];
+    Capture(@"folded-pressed");
+    for(NSButton *button in @[taskStack.front.dismissButton,taskStack.front.hideSessionButton]) [button highlight:NO];
+    taskPanel.appearance=nil;
     FishGlassStatusShowTasks();SettleTaskAnimation();
     for(FishTaskRow *row in taskRows.allValues) { row.clipsToBounds=YES;row.layer.masksToBounds=YES;CheckControls(row); }
     Capture(@"expanded-card-clips");
@@ -49,5 +63,5 @@ int main(void) { @autoreleasepool {
     SettleTaskAnimation();SetTasks(2,@"移除旧行时清理浮层");SettleTaskAnimation();
     Require(taskActionOverlay.subviews.count==2,@"Retired rows do not leave stale action controls in the overlay");
     FishGlassStatusDestroy();Require(!taskActionOverlay && !taskActionScrollObserver,@"Destroy releases action overlay and scroll observation");[window orderOut:nil];
-    NSLog(@"PASS: folded/expanded/single actions survive card view/layer clipping; complete20pt circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
+    NSLog(@"PASS: native circular Liquid Glass buttons/light-dark appearance; folded/expanded/single actions survive card view/layer clipping; complete20pt circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
 } }

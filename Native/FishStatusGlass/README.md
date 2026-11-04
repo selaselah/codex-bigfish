@@ -122,7 +122,9 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 
 两个按钮改为任务面板内独立的透明交互浮层，与卡片和滚动容器并列。位置由对应卡片转换到浮层坐标，滚动／抖动时同步；移出滚动视口时整组隐藏，避免留下半个按钮。空白区域让鼠标事件穿透，保持整卡点击、拖动、无障碍和两种关闭语义。无须扩大窗口，也不改玻璃材质和入栈画布。销毁时清理浮层及滚动观察器。
 
-外观按用户提供的Mini截图调整为半透明浅灰蓝圆底、无细边框、较粗黑色叉号；20pt直径及右侧隐藏按钮8pt间距保留。`FishTaskActionButton`在自己的完整边界内绘圆和图标，深色外观自动换色。此样式是按截图实现，未直接操控Mini读取其内部实现。`test_task_action_overlay.m`同时检查折叠、展开、单卡的强制祖先裁剪、滚动边缘、空白穿透、抖动跟随及旧行／观察器清理；呈现边界测试也额外检查两个完整圆按钮。
+229曾按截图手绘半透明浅灰蓝圆底，用户随后指出Mini的小按钮也应是玻璃，故该色块不再作为选用材质。230保留独立浮层和完整命中范围，将`FishTaskActionButton`改为系统`NSButton`的`NSBezelStyleGlass`与`NSControlBorderShapeCircle`，不覆写`drawRect:`，不绘背景色、不加HUD或额外描边。玻璃背景、折射、高光、深浅色适应和按下反馈由AppKit处理；20pt直径、较粗叉号及隐藏按钮8pt间距保持。macOS26以前明确回退为原生`NSBezelStyleCircular`按钮，不能称其为Liquid Glass。没有直接读取Mini的内部实现。
+
+`test_task_action_overlay.m`检查两种操作均使用原生圆形玻璃样式，并覆盖深／浅色外观、折叠／展开／单卡的强制祖先裁剪、滚动边缘、空白穿透、抖动跟随及旧行／观察器清理；呈现边界测试也检查两个完整圆按钮。`cacheDisplayInRect:`静态图不完整反映系统合成器的玻璃背景效果，最终质感须在实际窗口中查看，不能只用类名或该静态图代替视觉验收。
 
 ### 放卡结束时的裁剪修复（223）
 
@@ -324,7 +326,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 226 | 放卡只使用最终画布内的留白，取消临时增高40pt再收缩，保留223布局同步及全部Regular／半像素配置 |
 | 227 | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
 | 228 | 叉号右侧间隔8pt新增永久隐藏按钮，按session持久保存；新轮、重启及点击锅均不恢复，其他聊天继续显示 |
-| 本文档对应源码（229） | 按钮使用独立交互浮层，避开卡片裁剪；浅灰蓝圆底、无细边框和较粗叉号，滚动及抖动同步 |
+| 229 | 按钮使用独立交互浮层，避开卡片裁剪；手绘圆底随后被用户否决，裁剪修复继续保留 |
+| 本文档对应源码（230） | 两个小按钮使用系统圆形玻璃按钮，无手绘底色；保留独立浮层、20pt直径、8pt间距和原操作语义 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 
