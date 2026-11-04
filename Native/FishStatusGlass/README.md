@@ -1,6 +1,6 @@
 # 原生液态玻璃配置与左右像素缺口修复
 
-当前约定更新于 **2026-11-03**：任务卡片与脚下状态条都使用用户选定的 **Regular Liquid Glass**。状态条始终位于宠物下方，任务卡片统一向上展开；拖到屏幕上半部或跨过中线也不换边。多任务支持收缩、折叠、展开三态；单任务只有隐藏／显示一张卡片，点击卡片直接进入对应Codex聊天。同一停靠点的状态条保持固定，宠物只为卡片让位，列表展开时不追加位移。桌宠与附件统一使用普通浮动窗口层级，置于普通应用之上，并让出系统面板。状态条无活动圆点。此前状态条的 Clear＋HUD 配置只保留为历史记录。
+当前约定更新于 **2026-11-04**：任务卡片与脚下状态条都使用用户选定的 **Regular Liquid Glass**。状态条始终位于宠物下方，任务卡片统一向上展开；拖到屏幕上半部或跨过中线也不换边。多任务支持收缩、折叠、展开三态；单任务只有隐藏／显示一张卡片，点击卡片直接进入对应Codex聊天。同一停靠点的状态条保持固定，宠物只为卡片让位，列表展开时不追加位移。桌宠与附件统一使用普通浮动窗口层级，置于普通应用之上，并让出系统面板。状态条无活动圆点。此前状态条的 Clear＋HUD 配置只保留为历史记录。
 
 实现入口：[FishGlassStatus.m](FishGlassStatus.m)，验证入口：[test_task_stack.m](test_task_stack.m)，插件构建：[build.py](build.py)。任务数据和联动协议见 [Codex 接入说明](../../Integrations/codex/README.md)。
 
@@ -99,6 +99,14 @@ macOS 26 及以上直接使用 `NSGlassEffectView`，让系统完成高光、折
 点击锅对应的卡片已经置顶时，顶卡在原画布内轻微左右抖动约280ms，位移不超过4pt并逐渐衰减；后层、状态栏和角色窗口不移动。普通消息更新不触发抖动。快速重复点击会重启反馈，入栈／收回列表过程中点同一个锅则在卡片落稳后反馈；选择其他锅、隐藏或销毁时清理旧反馈。系统开启减少动态效果时不抖动。
 
 只有一个任务时，不再切换到另一种“展开”外观。点击这张卡片直接通过`codex://threads/<session_id>`进入对应聊天；状态栏箭头仍只控制卡片隐藏／显示，锅仍用于显示卡片并反馈。多任务展开后若只剩一项，会收敛为同一张可直达的卡片；新增第二项后恢复正常堆叠与列表展开。`test_stack_actions.m`在独立进程拦截并检查深链，验证两次点击只生成匹配ID的两次打开请求，不会真的打开示例聊天或写入实时任务文件；同时检查真实计时器、连续点击、消息更新、入栈衔接、窗口不位移和生命周期清理。
+
+### 关闭本轮通知（227）
+
+堆叠顶卡和展开列表的每张卡片左上角提供20×20pt圆形`×`按钮，提示为“关闭本轮通知”。关闭只过滤该聊天当前轮次的卡片；任务仍运行，状态条工作数量、电饭锅、完成动作及原始生命周期快照不变。同一轮的消息、等待和完成更新不会重新弹出卡片。`tasks.py`将已有的`turn_id`作为可选字段附加到卡片快照；下一轮ID变化后自动解除过滤。旧快照缺少ID时，仅在该会话消失或观察到complete→working边界时恢复，不以消息内容变化猜测新轮次。
+
+点击对应电饭锅可手动恢复这一轮卡片；关闭后还剩多项就保留堆叠／列表，只剩一项沿用单卡直达，全部关闭则隐藏卡片。此时显式打开列表会显示“本轮通知已关闭／点击对应电饭锅可重新显示”。过滤记录保存在当前应用进程中，销毁插件／退出应用时清理；不写回或删除`codex-tasks.json`、`codex-sessions.json`，也不向Codex发送停止或导航请求。
+
+圆形按钮使用原有画布留白，不增大卡片或窗口；关闭命中优先于整张卡片的展开／导航点击区域。后方装饰玻璃和动画中移动的临时行不提供关闭操作。按钮保存卡片的轮次ID并在执行时再次核对，防止旧行上排队的点击误关下一轮。`test_task_dismissal.m`覆盖真实生产视图的命中、窗口内完整范围、无障碍入口、同轮抑制／新轮恢复、旧点击保护、展开与单卡收敛、锅恢复、全部关闭占位、旧快照边界和销毁清理；测试仅在隔离进程提供示例任务，不写实时任务文件。
 
 ### 放卡结束时的裁剪修复（223）
 
@@ -240,6 +248,9 @@ xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_stack_actions.m -o work/glass-check/stack-actions-test
 work/glass-check/stack-actions-test
 xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
+  Native/FishStatusGlass/test_task_dismissal.m -o work/glass-check/task-dismissal-test
+work/glass-check/task-dismissal-test
+xcrun clang -fobjc-arc -framework Cocoa -framework QuartzCore \
   Native/FishStatusGlass/test_window_level.m -o work/glass-check/window-level-test
 work/glass-check/window-level-test
 python3 Native/FishStatusGlass/build.py
@@ -247,7 +258,7 @@ python3 Native/FishStatusGlass/build.py
 
 原生测试额外覆盖三态固定状态条／共享卡片近端、角色只预留一摞、两次箭头依次折叠及收缩、显式收缩不被消息刷新打断、让位动画反转与销毁还原；同时覆盖动画的中间帧、真实计时器连续更新、屏幕上下区域均向上展开／收起、快速反转、任务快照延后更新、拖动／隐藏／销毁取消及即时切换路径；同时覆盖两类组件的 Regular／无 HUD／默认 opacity、`contentView`、圆角、半像素边缘、文字及点击坐标；同时覆盖 0/1/2/3/6/64 项、无活动圆点／可见卡片计数、右侧按钮命中和状态、文字／箭头拖动时整组窗口位移、轻微抖动与点击区分／松手不误展开、短状态文字完整显示、上下半屏均固定下方状态条的布局、堆叠与首项锚点、跨中线不换边的逻辑滚动位置、按住跨中线及松手后始终保持脚下锚点、屏幕边缘留白与角色位置／尺寸保持、展开／外部点击收起、120 pt 滚动位置保留、无障碍入口、隐藏／显示和销毁清理。
 
-`build.py` 为 arm64 构建插件，最低部署目标为 macOS 12；Liquid Glass 分支要求 macOS 26。脚本按 `FishGlassStatus.m` 与自身内容生成指纹，签名并验证插件。仅编译原生插件不会更新已经运行的应用；还须构建应用并重启对应进程。先将 `UNITY_EDITOR_PATH` 指向本机 Unity 2022.3.22f1 的可执行文件：
+`build.py` 为 arm64 构建插件，最低部署目标为 macOS 12；Liquid Glass 分支要求 macOS 26。脚本按 `FishGlassStatus.m` 与自身内容生成指纹，签名并验证插件。仅编译原生插件不会更新已经运行的应用；还须将插件打包进应用并重启对应进程。完整构建时，先将 `UNITY_EDITOR_PATH` 指向本机 Unity 2022.3.22f1 的可执行文件：
 
 ```sh
 mkdir -p Logs
@@ -259,6 +270,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 ```
 
 必须检查完整 Unity 日志，拒绝 `error CS...`、异常、着色器错误或 executeMethod 抛错；即使退出码为 0、后面又出现成功也不能通过。成功日志还应同时包含 `Build Finished, Result: Success.` 和 `5K application build completed.`。构建后核对应用内插件与选定插件一致，用构建前快照恢复仅由本次构建引入的 ProjectSettings 变化、保留用户已有修改，再启动新进程；不覆盖旧 `Builds/BigFatBlueFish.app`。
+
+只有原生插件变更、C#／场景／Player数据均保持已验证版本时，也可将已签名插件同步到现有`RebuiltBigFish.app/Contents/PlugIns/FishGlassStatus.bundle`，再以原有ad-hoc身份重新签名整个应用并重启。227因原Unity编辑器路径的文件访问阻塞，采用此方式交付；不记作Unity重新编译成功。打包前后逐文件核对：允许插件二进制／指纹／插件签名及应用外层签名变化；外层签名还包含主启动器Mach-O内的签名数据，不只`_CodeSignature/CodeResources`。227实际只有这5项文件改变，其余135项（包括全部Managed程序集、Unity库和Player数据）逐字节保持。必须核对嵌入插件与作者插件一致、指纹对应源码、应用标识保持、深层签名有效及实际新进程功能。C#或Player资源改变时仍使用完整Unity构建。
 
 人工验收需看白底和有颜色／文字的背景，分别检查堆叠、展开、滚动和真实任务更新，并核对聚焦与失焦。第 200 版已核对实际应用的初始失焦状态，不能把一次初始状态截图当作全部焦点切换过程的证明。界面改动若未改变模型、蒙皮、表情或骨骼，无须机械重跑整套模型动作；保留模型、旧应用及运行时文件的 SHA 核对。
 
@@ -286,7 +299,8 @@ codesign --verify --deep --strict Builds/RebuiltBigFish.app
 | 223 | 放卡交接时先同步窗口、卡片和玻璃布局再显示，并保留已落下的新玻璃行，修复新旧画布交错呈现 |
 | 224 | 点击已置顶任务的锅时顶卡轻抖；单任务只显示一张卡片，点击直接进入对应Codex聊天 |
 | 225 | 人物、状态栏和卡片统一为普通浮动层级，保持应用之上并让出更高层系统面板 |
-| 本文档对应源码（226） | 放卡只使用最终画布内的留白，取消临时增高40pt再收缩，保留223布局同步及全部Regular／半像素配置 |
+| 226 | 放卡只使用最终画布内的留白，取消临时增高40pt再收缩，保留223布局同步及全部Regular／半像素配置 |
+| 本文档对应源码（227） | 左上角关闭当前轮次通知；消息刷新不重弹，下一轮或点击对应锅恢复，工作数量和任务运行不受影响 |
 
 本机详细日志和试验保留在 `work/status-glass-155/`、`work/task-glass-edges-198/`、`work/task-mini-style-199/`、`work/task-native-glass-200/`、`work/glass-config-docs-201/`、`work/task-below-status-202/`、`work/status-drag-203/`、`work/adaptive-task-direction-204/`、`work/task-card-motion-205/`、`work/task-three-states-206/`、`work/status-foot-anchor-207/`、`work/task-state-spacing-208/`、`work/status-always-below-209/`；`work/` 不入库，本文及上方固定示例图不依赖这些本机记录即可阅读。
 

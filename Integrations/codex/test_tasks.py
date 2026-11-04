@@ -147,6 +147,18 @@ class TaskTests(unittest.TestCase):
         self.catalog().publish(101)
         self.assertEqual((self.directory/'state.json').read_bytes(),before)
 
+    def test_notification_identity_stays_for_progress_and_changes_next_turn(self):
+        self.start()
+        cat = self.catalog()
+        first = cat.publish(101)[0]
+        self.start('PostToolUse')
+        self.write(response('message', role='assistant', content='New progress'))
+        self.assertEqual(cat.publish(102)[0]['turn_id'], first['turn_id'])
+        self.assertEqual(first['turn_id'], 'turn1')
+        update(dict(hook_event_name='UserPromptSubmit', session_id=SID, turn_id='turn2'),
+               self.directory, now=103)
+        self.assertEqual(cat.publish(104)[0]['turn_id'], 'turn2')
+
     def test_live_observer_publishes_and_cleans_up_on_shutdown(self):
         now=time.time()
         with sqlite3.connect(self.db) as db:db.execute('UPDATE threads SET updated_at=?',(int(now),))

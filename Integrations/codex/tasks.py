@@ -225,7 +225,10 @@ class TaskCatalog:
                 summary = '等你回复'
             elif state['state'] == 'complete':
                 summary = tail.message if tail and tail.message else '本回合结束'
-            tasks.append(dict(session_id=session, title=info.get('title') or '未命名任务',
+            turn = state.get('turn_id')
+            tasks.append(dict(session_id=session,
+                              turn_id=turn[:256] if isinstance(turn, str) else '',
+                              title=info.get('title') or '未命名任务',
                               summary=clean(summary, 120), message=tail.message if tail else '',
                               activity=tail.kind if tail else 'status',
                               updated_at=state.get('updated_at', 0),
