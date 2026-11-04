@@ -25,8 +25,10 @@ static void CheckControls(FishTaskRow *row) {
             Require(!button.bordered && button.transparent && button.imagePosition==NSNoImage,@"The native button cell does not replace the lens or draw a duplicate glyph");
             Require(glass.contentView==action.symbolView && action.symbolView.image==button.image,@"The actual glyph is inside the native glass contentView");
             Require(NSWidth(glass.frame)==NSHeight(glass.frame) && glass.cornerRadius==NSWidth(glass.bounds)/2,@"The glass lens itself is circular");
-            CGFloat edge=.5/MAX(1,button.window.backingScaleFactor);
-            Require(NSEqualRects(glass.frame,NSInsetRect(button.bounds,edge,edge)),@"Circular lens keeps half-pixel margins on all four edges");
+            CGFloat scale=MAX(1,button.window.backingScaleFactor),edge=1/scale;
+            Require(NSEqualRects(glass.frame,NSInsetRect(button.bounds,edge,edge)),@"Tiny circular lens keeps a complete backing-pixel raster gutter on all four edges");
+            Require(NSMinX(glass.frame)*scale==1 && NSMinY(glass.frame)*scale==1 && (NSMaxX(button.bounds)-NSMaxX(glass.frame))*scale==1 && (NSMaxY(button.bounds)-NSMaxY(glass.frame))*scale==1,@"All four small-circle edges have exactly one physical pixel of room");
+            Require(NSEqualSizes(button.bounds.size,NSMakeSize(20,20)),@"Pixel gutter does not shrink the20pt click target");
             Require(NSContainsRect(glass.visibleRect,glass.bounds),@"Complete native glass surface survives ancestor clipping");
         } else {
             Require(button.bordered && button.bezelStyle==NSBezelStyleCircular,@"Older systems use the native circular button fallback");
@@ -72,5 +74,5 @@ int main(void) { @autoreleasepool {
     SettleTaskAnimation();SetTasks(2,@"移除旧行时清理浮层");SettleTaskAnimation();
     Require(taskActionOverlay.subviews.count==2,@"Retired rows do not leave stale action controls in the overlay");
     FishGlassStatusDestroy();Require(!taskActionOverlay && !taskActionScrollObserver,@"Destroy releases action overlay and scroll observation");[window orderOut:nil];
-    NSLog(@"PASS: standalone Regular glass lenses in the real transparent task panel/light-dark appearance; contentView glyphs/circular half-pixel margins; folded/expanded/single actions survive card view/layer clipping; complete20pt circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
+    NSLog(@"PASS: standalone Regular glass lenses in the real transparent task panel/light-dark appearance; contentView glyphs/circular one-backing-pixel gutters/unchanged20pt hit target; folded/expanded/single actions survive card view/layer clipping; complete circles/8pt spacing/hit priority; scrolling clips no partial controls; empty pass-through; shake tracking/retired-row/observer cleanup; no window enlargement");return 0;
 } }

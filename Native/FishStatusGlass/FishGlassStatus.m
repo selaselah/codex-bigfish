@@ -467,7 +467,9 @@ static void ApplyPetTaskOffset(CGFloat offset) {
 - (void)layout {
     [super layout];
     if (@available(macOS 26.0, *)) {
-        CGFloat edge=.5/MAX(1,self.window.backingScaleFactor);
+        // Tiny circular lenses need a full backing-pixel raster gutter. The
+        // half-pixel alignment used by large capsules weakens these side arcs.
+        CGFloat edge=1/MAX(1,self.window.backingScaleFactor);
         self.glass.frame=NSInsetRect(self.bounds,edge,edge);
         ((NSGlassEffectView *)self.glass).cornerRadius=NSWidth(self.glass.bounds)/2;
         self.symbolView.frame=self.glass.bounds;
