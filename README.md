@@ -1,4 +1,6 @@
-# codex-bigfish
+# CoFish
+
+![CoFish：陪你把任务，一锅锅完成](docs/images/cofish-cover.png)
 
 基于 Unity 的 macOS 3D 桌面伴侣，适配大肥鱼角色的二头身比例、圆润手形与程序动作。
 
