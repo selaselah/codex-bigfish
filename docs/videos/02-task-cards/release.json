@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "release": "02-task-cards",
+  "published_version": 211,
+  "status": "user_confirmed_published",
+  "production_date": "2026-10-31",
+  "platform_publication_date": null,
+  "source_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd",
+  "source_note": "Tracked historical commit plus local production scripts",
+  "media": {
+    "local_path": "outputs/BigFish-Task-Demo-211/BigFish-Task-Demo-1080.mp4",
+    "sha256": "936c2cd3f186d47fa93a62440baeaed2634cc4da6e6b1ccceff40746e75a264b",
+    "bytes": 12397994,
+    "width": 1080,
+    "height": 1080,
+    "fps": 30,
+    "frames": 1500,
+    "duration_seconds": 50
+  },
+  "inputs": [
+    {
+      "local_path": "work/demo-native-211/assets/Whale-Icon.png",
+      "role": "transparent whale background tile",
+      "sha256": "f72024525deba25171b1fb31e46aa7d842b4297c9d19e12fbfda113dba699cd3",
+      "in_git": false
+    },
+    {
+      "local_path": "work/demo-native-211/assets/Interaction-Diagram.png",
+      "role": "user supplied exact diagram",
+      "sha256": "2c3b63dfee2ba8c5dc3ff2b6e982c28c9f5a92491a16718029d4c58c5dd2c605",
+      "in_git": false
+    },
+    {
+      "local_path": "work/demo-voice-191/audio/voice-only.wav",
+      "role": "video01 voice track",
+      "sha256": "33c939a8150fb377fa862e4fb84649ab1cf6656b6dcb2bda555a0cf4e8bb39de",
+      "in_git": false
+    },
+    {
+      "local_path": "work/demo-video-190/audio/instrumental.wav",
+      "role": "same original accompaniment",
+      "sha256": "6418880d35adfd4fa329b2cfd2215aca70b2deab39cf60318aac22bf2cc89df1",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt5K/Body.asset",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "cd56235ea3d3aac430102c5ef4cc75a58bd3ee46816db7bdf0010db932949bad",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt5K/Face.asset",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "0ee2ca5e8325df1e89f0b20c11518a55d50713678a550eb49dc744667a92c6d5",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt5K/RearHairCards.asset",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "6d8b590557bdf5a0b49a66744ee201989a48b2d4fa081d454d59f7fa4accddb0",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt5K/HairCardsPaint.png",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "a8a33bf07da7faaac4aa2a758594c4e7c7733b9e549545d625c398aadc2b7963",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt/HairPaint.png",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "b50633444dd95437d71387d08809c36e7ce4369e5d514d699927ad8d3f392d91",
+      "in_git": false
+    }
+  ],
+  "archive_files": [
+    {
+      "path": "scripts/FishTaskDemoVideo.cs",
+      "sha256": "c72489777ab91c805b8162f013148f575af2de68ccca08ed8fa428a1cacd1903",
+      "origin": "Assets/DesktopFish/Editor/FishTaskDemoVideo.cs",
+      "kind": "published_source",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd"
+    },
+    {
+      "path": "scripts/FishTaskDemoVideo.cs.meta",
+      "sha256": "a4864d88cd0623393df64a1a53d5c18873f076eed9132b6b81b39c7363729abb",
+      "origin": "Assets/DesktopFish/Editor/FishTaskDemoVideo.cs.meta",
+      "kind": "published_source",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd"
+    },
+    {
+      "path": "scripts/capture_demo.m",
+      "sha256": "a1b3fd2a36a05611ddb9aca1ff77c3abb9639f82ba85da61fbb5ba32d75b6943",
+      "origin": "Native/FishStatusGlass/capture_demo.m",
+      "kind": "published_source",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd",
+      "stage_to": "work/demo-native-211/capture_demo.m"
+    },
+    {
+      "path": "scripts/compose_demo.py",
+      "sha256": "25b4e14afe58d1d11aaace616606363a7551782f241f253a54dae053a70c2916",
+      "origin": "Native/FishStatusGlass/compose_demo.py",
+      "kind": "published_source",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd",
+      "stage_to": "work/demo-native-211/compose_demo.py"
+    },
+    {
+      "path": "source/Native/FishStatusGlass/FishGlassStatus.m",
+      "sha256": "ecd8c7abf61a76d70e190b60565ecd692276419124b812c8a6903648f9132316",
+      "origin": "Native/FishStatusGlass/FishGlassStatus.m",
+      "kind": "published_source",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd"
+    },
+    {
+      "path": "scripts/inspect_fades.py",
+      "sha256": "c6ccd2602e933d502593bfc407e5ffa8e6802bea088a98480574d12a091c5bb6",
+      "origin": "work/demo-native-211/inspect_fades.py",
+      "kind": "historical_absolute_path_review_script",
+      "stage_to": "work/demo-native-211/inspect_fades.py"
+    },
+    {
+      "path": "historical-notes.md",
+      "sha256": "a3f301fbd60f162cc79f236db48fb9e188f7a34717409911bbcd8b60ec02579b",
+      "origin": "Native/FishStatusGlass/VIDEO_DEMO.md",
+      "kind": "original_production_instructions",
+      "git_commit": "be0bffb47d840ccf5c68bf2b57308c0b3ab49bdd"
+    },
+    {
+      "path": "timeline.json",
+      "sha256": "a1cf6e42190c957f109286425811de23f4f99eecc83353eed4716cc77a795cf7",
+      "origin": "work/demo-native-211/plan.json",
+      "kind": "published_timeline",
+      "stage_to": "work/demo-native-211/plan.json"
+    },
+    {
+      "path": "scripts/Info.plist",
+      "sha256": "9ebee77d1b17ab43e546cc73a6679d475c75c3396da278f2906e6323c3bd76e6",
+      "origin": "work/demo-native-211/TaskMovie.app/Contents/Info.plist",
+      "kind": "capture_host_manifest_template",
+      "stage_to": "work/demo-native-211/TaskMovie.app/Contents/Info.plist"
+    },
+    {
+      "path": "whale-extraction-prompt.txt",
+      "sha256": "868ec56ce2430d8f83455521c479ef52d049b927ec30d4aa63656b3e1798d6a8",
+      "origin": "work/demo-native-211/production-notes.json:imagegen_prompt",
+      "kind": "original_image_generation_prompt"
+    },
+    {
+      "path": "README.md",
+      "sha256": "ed4f2da18e9653392a57067f9670fcfe4e75d9b83e28369231820ef417cd8a3f",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "SCRIPT.md",
+      "sha256": "f72d7926a093498ef68ca65feaef80b731e7adffe77a0f296d96e1169a1a0dae",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "PROMPTS.md",
+      "sha256": "a892e5726a49656df28451e1ede8962ffad2ee58fd29e1d501af63d7fca6ebcc",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "WORKFLOW.md",
+      "sha256": "92dac40a8191738e7344dec9432123d999bdf7bb9db50ed4d6d2e119cfbaab82",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    }
+  ],
+  "limitations": [
+    "Generated model/scene/reference textures and audio/image caches are local inputs, not archived binary outputs",
+    "Archive restore validates source identity, not a claim of bit-identical rerender on a changed system"
+  ],
+  "archival_scope": "Published recording scripts, documented process/prompts, and preserved historical source; generated render inputs remain local"
+}

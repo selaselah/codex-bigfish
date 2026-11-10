@@ -1,0 +1,192 @@
+using System;
+using UnityEngine;
+using UnityEngine.Rendering;
+
+namespace DesktopFish
+{
+    // Runtime-only cartoon completion effect. The station owns all meshes.
+    internal sealed class FishRiceBurst
+    {
+        public const float Duration=3.8f;
+        public const int GrainCount=64;
+        const int Sides=6,SeedVertices=20;
+        const float RiceLift=.051f,ServingX=.008f,ServingZ=.045f;
+        public readonly Transform Root;
+        public readonly float Started;
+        public readonly string NotificationId;
+        public readonly Collider HitArea;
+        public bool Retained => !string.IsNullOrEmpty(NotificationId);
+        public bool Settled { get; private set; }
+        bool transientReleased;
+        readonly Transform shell,lidPivot,puff,mound,bowl,ricePart,particles;
+        readonly Mesh rice,puffMesh,shadow,particleMesh;
+        const int ParticleCount=32;
+        readonly Vector3[] particlePoints=new Vector3[ParticleCount*4];
+        readonly Vector3[] particleVelocity=new Vector3[ParticleCount];
+        readonly Color[] particleColors=new Color[ParticleCount*4];
+        readonly float[] particleSize=new float[ParticleCount];
+        readonly Vector3[] vertices=new Vector3[GrainCount*SeedVertices],normals=new Vector3[GrainCount*SeedVertices];
+        readonly Vector3[] seedPoints=new Vector3[SeedVertices],seedNormals=new Vector3[SeedVertices];
+        readonly Vector3[] lands=new Vector3[GrainCount];
+        readonly Quaternion[] rests=new Quaternion[GrainCount];
+        readonly float[] sizes=new float[GrainCount];
+        readonly Color[] puffColors,shadowColors;
+        readonly float floor;
+
+        static float Hash(int n) { unchecked {uint v=(uint)n;v^=v>>16;v*=0x7feb352d;v^=v>>15;v*=0x846ca68b;v^=v>>16;return(v&0xffffff)/16777215f;} }
+
+        public FishRiceBurst(Transform cooker,Transform model,Transform lid,Material solid,Material vapor,Func<Mesh,Mesh> own,int seed,float time,string notificationId=null)
+        {
+            NotificationId=notificationId;
+            Started=time;Root=new GameObject("Completed rice burst "+seed).transform;
+            Root.SetParent(cooker.parent,false);Root.localPosition=cooker.localPosition;Root.localRotation=cooker.localRotation;Root.localScale=cooker.localScale;
+            Root.gameObject.SetActive(false);
+            floor=(Mathf.Max(FishWorkStation.GeneratorFloorHeight+.004f,cooker.localPosition.y-.02f*cooker.localScale.y)-cooker.localPosition.y)/cooker.localScale.y;
+            shell=model;shell.SetParent(Root,false);shell.localPosition=Vector3.zero;shell.localRotation=Quaternion.identity;
+            var steam=shell.Find("Steam");if(steam)steam.gameObject.SetActive(false);
+            lidPivot=new GameObject("Popping cooker lid").transform;lidPivot.SetParent(Root,false);lidPivot.localPosition=Vector3.up*.09f;
+            lid.SetParent(lidPivot,false);lid.localPosition=Vector3.down*.09f;lid.localRotation=Quaternion.identity;
+
+            seedPoints[0]=Vector3.down*.009f;seedPoints[19]=Vector3.up*.009f;
+            for(int row=0;row<3;row++)for(int j=0;j<Sides;j++) {
+                float a=j*Mathf.PI*2/Sides,r=row==1?.0029f:.0021f;
+                seedPoints[1+row*Sides+j]=new Vector3(Mathf.Cos(a)*r,(row-1)*.0055f,Mathf.Sin(a)*r*.68f);
+            }
+            for(int i=0;i<SeedVertices;i++){var p=seedPoints[i];seedNormals[i]=new Vector3(p.x/(.0029f*.0029f),p.y/(.009f*.009f),p.z/(.0020f*.0020f)).normalized;}
+            var triangles=new int[GrainCount*36*3];var colors=new Color[vertices.Length];int index=0;
+            Action<int,int,int> face=(a,b,c)=>{triangles[index++]=a;triangles[index++]=b;triangles[index++]=c;};
+            for(int grain=0;grain<GrainCount;grain++) {
+                int key=seed*977+grain*31,n=grain*SeedVertices;
+                float a=Hash(key)*Mathf.PI*2,r=Mathf.Sqrt(Hash(key+1))*.040f;
+                lands[grain]=new Vector3(Mathf.Cos(a)*r,RiceLift+.006f+.033f*Mathf.Pow(Mathf.Max(0,1-r*r/(.040f*.040f)),.7f)+Hash(key+5)*.006f,Mathf.Sin(a)*r*.72f);
+                sizes[grain]=.78f+Hash(key+7)*.38f;
+                rests[grain]=Quaternion.Euler(82+Hash(key+11)*16,Hash(key+12)*360,-8+Hash(key+13)*16);
+                Color c=new Color(.985f+Hash(key+14)*.015f,.975f+Hash(key+15)*.025f,.94f+Hash(key+16)*.04f);
+                for(int v=0;v<SeedVertices;v++)colors[n+v]=c;
+                for(int j=0;j<Sides;j++)face(n,n+1+j,n+1+(j+1)%Sides);
+                for(int row=0;row<2;row++)for(int j=0;j<Sides;j++) {
+                    int a0=n+1+row*Sides+j,b0=n+1+row*Sides+(j+1)%Sides;
+                    face(a0,a0+Sides,b0+Sides);face(a0,b0+Sides,b0);
+                }
+                for(int j=0;j<Sides;j++)face(n+19,n+13+(j+1)%Sides,n+13+j);
+            }
+            rice=own(new Mesh{name="Burst rice grains"});rice.MarkDynamic();rice.vertices=vertices;rice.triangles=triangles;rice.colors=colors;
+            ricePart=Part(Root,"Flying rice and settled pile",rice,solid);
+
+            // A filled rice mound prevents the settled grains reading as confetti.
+            const int moundSides=16;var mv=new Vector3[50];var mt=new int[96*3];var mc=new Color[mv.Length];int mi=0;
+            mv[0]=Vector3.up*.033f;mv[49]=Vector3.up*.001f;
+            for(int row=0;row<3;row++)for(int j=0;j<moundSides;j++) {
+                float r=(row+1)/3f,a=j*Mathf.PI*2/moundSides;
+                mv[1+row*moundSides+j]=new Vector3(Mathf.Cos(a)*.049f*r,.003f+.030f*Mathf.Pow(Mathf.Max(0,1-r*r),.7f),Mathf.Sin(a)*.036f*r);
+            }
+            Action<int,int,int> moundFace=(a,b,c)=>{mt[mi++]=a;mt[mi++]=b;mt[mi++]=c;};
+            for(int j=0;j<moundSides;j++)moundFace(0,1+(j+1)%moundSides,1+j);
+            for(int row=0;row<2;row++)for(int j=0;j<moundSides;j++) {
+                int a=1+row*moundSides+j,b=1+row*moundSides+(j+1)%moundSides;
+                moundFace(a,b,b+moundSides);moundFace(a,b+moundSides,a+moundSides);
+            }
+            for(int j=0;j<moundSides;j++)moundFace(49,33+j,33+(j+1)%moundSides);
+            for(int j=0;j<mc.Length;j++)mc[j]=new Color(.94f,.93f,.87f);
+            var moundMesh=own(new Mesh{name="Filled rice mound"});moundMesh.vertices=mv;moundMesh.triangles=mt;moundMesh.colors=mc;moundMesh.RecalculateNormals();moundMesh.RecalculateBounds();
+            mound=Part(Root,"Rice mound",moundMesh,solid);
+
+            // Thick rolled rim, open inner wall and a small porcelain foot.
+            Vector2[] profile={new Vector2(.021f,.001f),new Vector2(.026f,.004f),new Vector2(.026f,.009f),new Vector2(.030f,.012f),new Vector2(.043f,.025f),new Vector2(.055f,.043f),new Vector2(.061f,.057f),new Vector2(.062f,.060f),new Vector2(.060f,.063f),new Vector2(.055f,.061f),new Vector2(.053f,.057f),new Vector2(.046f,.041f),new Vector2(.032f,.022f),new Vector2(.022f,.017f)};
+            const int bowlSides=32;var bv=new Vector3[profile.Length*bowlSides+2];var bc=new Color[bv.Length];var bt=new int[((profile.Length-1)*bowlSides*2+bowlSides*2)*3];int bi=0;
+            Color trim=new Color(.17f,.29f,.40f),porcelain=new Color(.88f,.94f,.98f),inside=new Color(.94f,.97f,1);
+            for(int row=0;row<profile.Length;row++)for(int j=0;j<bowlSides;j++) {
+                float a=j*Mathf.PI*2/bowlSides;int n=row*bowlSides+j;bv[n]=new Vector3(Mathf.Cos(a)*profile[row].x,profile[row].y,Mathf.Sin(a)*profile[row].x);
+                bc[n]=row<3||(row>=6&&row<=9)?trim:row>=10?inside:porcelain;
+            }
+            Action<int,int,int> bowlFace=(a,b,c)=>{bt[bi++]=a;bt[bi++]=b;bt[bi++]=c;};
+            for(int row=0;row<profile.Length-1;row++)for(int j=0;j<bowlSides;j++) {
+                int a=row*bowlSides+j,b=row*bowlSides+(j+1)%bowlSides;bowlFace(a,a+bowlSides,b+bowlSides);bowlFace(a,b+bowlSides,b);
+            }
+            int bottom=bv.Length-2,interior=bv.Length-1;bv[bottom]=Vector3.up*profile[0].y;bc[bottom]=trim;bv[interior]=Vector3.up*profile[profile.Length-1].y;bc[interior]=inside;
+            for(int j=0;j<bowlSides;j++){bowlFace(bottom,j,(j+1)%bowlSides);bowlFace(interior,(profile.Length-1)*bowlSides+(j+1)%bowlSides,(profile.Length-1)*bowlSides+j);}
+            var bowlMesh=own(new Mesh{name="Serving rice bowl"});bowlMesh.vertices=bv;bowlMesh.triangles=bt;bowlMesh.colors=bc;bowlMesh.RecalculateNormals();bowlMesh.RecalculateBounds();
+            bowl=Part(Root,"Rice serving bowl",bowlMesh,solid);bowl.localPosition=new Vector3(ServingX,floor,ServingZ);
+            if(Retained) {
+                var hit=bowl.gameObject.AddComponent<BoxCollider>();hit.center=new Vector3(0,.052f,0);hit.size=new Vector3(.13f,.11f,.13f);HitArea=hit;
+            }
+
+            // Separate outward particles surround the whole, already filled bowl.
+            var particleTriangles=new int[ParticleCount*6];
+            for(int k=0;k<ParticleCount;k++) {
+                int key=seed*1597+k*43;float a=Hash(key)*Mathf.PI*2;
+                particleVelocity[k]=new Vector3(Mathf.Cos(a)*(.025f+Hash(key+1)*.015f),.10f+Hash(key+2)*.20f,Mathf.Sin(a)*(.025f+Hash(key+3)*.020f));
+                particleSize[k]=.003f+Hash(key+4)*.002f;
+                int n=k*4,t=k*6;particleTriangles[t]=n;particleTriangles[t+1]=n+1;particleTriangles[t+2]=n+2;particleTriangles[t+3]=n;particleTriangles[t+4]=n+2;particleTriangles[t+5]=n+3;
+            }
+            particleMesh=own(new Mesh{name="Cooker pop particles"});particleMesh.MarkDynamic();particleMesh.vertices=particlePoints;particleMesh.triangles=particleTriangles;
+            particles=Part(Root,"Cooker pop particles",particleMesh,vapor);
+
+            var pv=new Vector3[6*17];var pt=new int[6*16*3];puffColors=new Color[pv.Length];
+            for(int k=0;k<6;k++) {
+                int n=k*17;float angle=k*Mathf.PI*2/6;Vector3 center=new Vector3(Mathf.Cos(angle)*.022f,.075f+Mathf.Sin(angle)*.018f,.055f);
+                pv[n]=center;
+                for(int j=0;j<16;j++){float a=j*Mathf.PI*2/16;pv[n+1+j]=center+new Vector3(Mathf.Cos(a)*.022f,Mathf.Sin(a)*.020f,0);int t=(k*16+j)*3;pt[t]=n;pt[t+1]=n+1+j;pt[t+2]=n+1+(j+1)%16;}
+            }
+            puffMesh=own(new Mesh{name="Rice completion puff"});puffMesh.vertices=pv;puffMesh.triangles=pt;puffMesh.RecalculateNormals();puff=Part(Root,"Rice poof",puffMesh,vapor);
+            var sv=new Vector3[25];var st=new int[24*3];sv[0]=new Vector3(ServingX,floor+.001f,ServingZ);shadowColors=new Color[sv.Length];
+            for(int j=0;j<24;j++){float a=j*Mathf.PI*2/24;sv[j+1]=sv[0]+new Vector3(Mathf.Cos(a)*.061f,0,Mathf.Sin(a)*.044f);st[j*3]=0;st[j*3+1]=j+1;st[j*3+2]=(j+1)%24+1;}
+            shadow=own(new Mesh{name="Rice pile soft shadow"});shadow.vertices=sv;shadow.triangles=st;shadow.RecalculateNormals();Part(Root,"Rice pile grounding",shadow,vapor);
+            Tick(time);Root.gameObject.SetActive(true);
+        }
+
+        static Transform Part(Transform parent,string name,Mesh mesh,Material material) {
+            var t=new GameObject(name).transform;t.SetParent(parent,false);t.gameObject.AddComponent<MeshFilter>().sharedMesh=mesh;
+            var r=t.gameObject.AddComponent<MeshRenderer>();r.sharedMaterial=material;r.shadowCastingMode=ShadowCastingMode.Off;r.receiveShadows=false;return t;
+        }
+
+        public void Tick(float time)
+        {
+            if(Retained && Settled)return;
+            float age=Mathf.Max(0,time-Started),fade=Retained?1:1-Mathf.SmoothStep(0,1,Mathf.Clamp01((age-3.1f)/.7f));
+            float shrink=Mathf.Max(.08f,fade),hop=Mathf.Clamp01((age-.28f)/.78f),reveal=Mathf.SmoothStep(0,1,Mathf.Clamp01((age-.28f)/.12f));
+            Vector3 servingPosition=Vector3.Lerp(new Vector3(0,.028f,0),new Vector3(ServingX,floor,ServingZ),hop)+Vector3.up*(.21f*4*hop*(1-hop));
+            float landing=Mathf.Clamp01((age-1.06f)/.22f),squash=1-.16f*Mathf.Sin(landing*Mathf.PI);
+            Vector3 servingScale=new Vector3(1/squash,squash,1/squash)*Mathf.Max(.08f,reveal)*shrink;
+            Quaternion servingRotation=Quaternion.Euler(0,0,-12*Mathf.Sin(hop*Mathf.PI)+5*Mathf.Sin(landing*Mathf.PI*2)*(1-landing));
+            bowl.gameObject.SetActive(age>=.28f);bowl.localPosition=servingPosition;bowl.localRotation=servingRotation;bowl.localScale=servingScale;
+            mound.gameObject.SetActive(age>=.28f);mound.localPosition=servingPosition+servingRotation*Vector3.up*(RiceLift*servingScale.y);mound.localRotation=servingRotation;mound.localScale=servingScale;
+            ricePart.gameObject.SetActive(age>=.28f);ricePart.localPosition=servingPosition;ricePart.localRotation=servingRotation;ricePart.localScale=servingScale;
+
+            // The lid launches first. The body is swallowed by the pop cloud while the bowl exits.
+            float pressure=Mathf.Sin(Mathf.Clamp01(age/.18f)*Mathf.PI),vanish=Mathf.SmoothStep(0,1,Mathf.Clamp01((age-.30f)/.32f));
+            shell.gameObject.SetActive(age<.62f);shell.localScale=new Vector3(1+.10f*pressure,1-.08f*pressure,1+.10f*pressure)*Mathf.Max(.04f,1-vanish);
+            float toss=Mathf.Clamp01((age-.14f)/.74f);
+            lidPivot.gameObject.SetActive(age<.88f);lidPivot.localPosition=new Vector3(-.075f*toss,.09f+.24f*4*toss*(1-toss)+.06f*toss,0);
+            lidPivot.localRotation=Quaternion.Euler(0,20*toss,-220*toss);lidPivot.localScale=Vector3.one*Mathf.Max(.08f,1-Mathf.SmoothStep(0,1,Mathf.Clamp01((toss-.65f)/.35f)));
+            for(int grain=0;grain<GrainCount;grain++) {
+                Quaternion rotation=rests[grain];
+                for(int v=0;v<SeedVertices;v++){int n=grain*SeedVertices+v;vertices[n]=lands[grain]+rotation*seedPoints[v]*sizes[grain];normals[n]=rotation*seedNormals[v];}
+            }
+            rice.vertices=vertices;rice.normals=normals;rice.RecalculateBounds();
+
+            float burst=Mathf.Clamp01((age-.18f)/.62f),alpha=Mathf.Sin(burst*Mathf.PI)*.9f;
+            particles.gameObject.SetActive(age>=.18f&&age<.80f);
+            for(int k=0;k<ParticleCount;k++) {
+                Vector3 center=new Vector3(.020f,.10f,.025f)+particleVelocity[k]*burst+Vector3.down*(.11f*burst*burst);
+                float radius=particleSize[k]*(.75f+.7f*burst),angle=k*2.39996f+burst*(k%2==0?5:-5);
+                Vector3 x=new Vector3(Mathf.Cos(angle),Mathf.Sin(angle),0)*radius,y=new Vector3(-Mathf.Sin(angle),Mathf.Cos(angle),0)*radius*(k%3==0?1.8f:.6f);
+                int n=k*4;particlePoints[n]=center-x-y;particlePoints[n+1]=center+x-y;particlePoints[n+2]=center+x+y;particlePoints[n+3]=center-x+y;
+                Color c=k%4==0?new Color(1,.82f,.28f,alpha):new Color(1,.98f,.88f,alpha);
+                for(int v=0;v<4;v++)particleColors[n+v]=c;
+            }
+            particleMesh.vertices=particlePoints;particleMesh.colors=particleColors;particleMesh.RecalculateNormals();particleMesh.RecalculateBounds();
+            float cloud=Mathf.Clamp01((age-.22f)/.55f);puff.gameObject.SetActive(age>=.22f&&age<.77f);puff.localPosition=new Vector3(.020f,0,0);puff.localScale=Vector3.one*(.70f+cloud*.65f);
+            for(int i=0;i<puffColors.Length;i++)puffColors[i]=new Color(1,.98f,.90f,.72f*Mathf.Sin(cloud*Mathf.PI));puffMesh.colors=puffColors;
+            for(int i=0;i<shadowColors.Length;i++)shadowColors[i]=new Color(.64f,.59f,.47f,.18f*reveal*fade*(1-.65f*Mathf.Sin(hop*Mathf.PI)));shadow.colors=shadowColors;
+            Settled=Retained && age>=1.35f;
+        }
+
+        public void ReleaseFinishedEffects(Action<Transform> release)
+        {
+            if(!Settled || transientReleased)return;
+            foreach(var node in new[]{shell,lidPivot,puff,particles})if(node)release(node);
+            transientReleased=true;
+        }
+    }
+}

@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "release": "01-generator",
+  "published_version": 191,
+  "status": "user_confirmed_published",
+  "production_date": "2026-10-29",
+  "platform_publication_date": null,
+  "source_commit": "fc90ab041380ac7fc98045f62521f6cf170a8326",
+  "source_note": "Tracked historical commit plus local production scripts",
+  "media": {
+    "local_path": "outputs/BigFish-Work-Demo-191/BigFish-Demo-1080-YoungVoice.mp4",
+    "sha256": "ec38f3f250d5ea9d87e6c8fee78cb0d4851aaabdf7a50a39671eebbb7a0e68dd",
+    "bytes": 21435653,
+    "width": 1080,
+    "height": 1080,
+    "fps": 30,
+    "frames": 1500,
+    "duration_seconds": 50
+  },
+  "inputs": [
+    {
+      "local_path": "work/demo-voice-191/audio/natural-young.wav",
+      "role": "accepted generated voice PCM",
+      "sha256": "77c6494883419a831e4d2a6e0b81735e186c333a61b628bf95af20f887f63480",
+      "in_git": false
+    },
+    {
+      "local_path": "work/demo-voice-191/audio/natural-young.json",
+      "role": "word boundary timings from the accepted voice",
+      "sha256": "3b3b6ca5194e08a60a121856d5e023b29a32d49050bf48585be7e33540bea405",
+      "in_git": false
+    },
+    {
+      "local_path": "work/demo-video-190/audio/instrumental.wav",
+      "role": "original procedural accompaniment",
+      "sha256": "6418880d35adfd4fa329b2cfd2215aca70b2deab39cf60318aac22bf2cc89df1",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt/Body.asset",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "f6a0fbaa2cb219f092600c76690ab2944c20fa15316549ee3491ca24a48a0554",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt/Face.asset",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "8cdefd5265a0ce3b23829226f3e8256000043daea0faa18d96e99b779cb8b3b2",
+      "in_git": false
+    },
+    {
+      "local_path": "Assets/DesktopFish/Rebuilt/HairPaint.png",
+      "role": "historical local model/scene input; requires matching release, not a current-source substitute",
+      "sha256": "b50633444dd95437d71387d08809c36e7ce4369e5d514d699927ad8d3f392d91",
+      "in_git": false
+    }
+  ],
+  "archive_files": [
+    {
+      "path": "scripts/FishDemoVideo.cs",
+      "sha256": "808d1159dddf4d662e02d576897a194ebb69bdd16c08611b395199e01487cee2",
+      "origin": "Assets/DesktopFish/Editor/FishDemoVideo.cs",
+      "kind": "published_source",
+      "git_commit": "fc90ab041380ac7fc98045f62521f6cf170a8326"
+    },
+    {
+      "path": "scripts/FishDemoVideo.cs.meta",
+      "sha256": "4e2b021e3888e06f84319c8a1de702bfed01cbbfff8348cbc89eaabdcc3f2485",
+      "origin": "Assets/DesktopFish/Editor/FishDemoVideo.cs.meta",
+      "kind": "published_source",
+      "git_commit": "fc90ab041380ac7fc98045f62521f6cf170a8326"
+    },
+    {
+      "path": "scripts/generate_natural_variants.py",
+      "sha256": "0ee91437f0395444f1785d0ce885577f41e41cecd9c154ac171b211691febb30",
+      "origin": "work/demo-voice-191/generate_natural_variants.py",
+      "kind": "published_source",
+      "stage_to": "work/demo-voice-191/generate_natural_variants.py"
+    },
+    {
+      "path": "scripts/mix_voice.py",
+      "sha256": "b0a2e4d29fc39df3567496d8d3557f71651474f62d659a79283ca661538102dc",
+      "origin": "work/demo-voice-191/mix_voice.py",
+      "kind": "published_source",
+      "stage_to": "work/demo-voice-191/mix_voice.py"
+    },
+    {
+      "path": "scripts/compose_original_audio.py",
+      "sha256": "9d92b3bf34eedc3681316139ad3e7f394b7d24e921ec973a8a91453321114153",
+      "origin": "work/demo-video-190/compose_audio.py",
+      "kind": "original_music_and_superseded_voice_source",
+      "stage_to": "work/demo-video-190/compose_audio.py"
+    },
+    {
+      "path": "scripts/generate_instrumental.py",
+      "sha256": "d66d8dc9201fba3a18518d1451352153c9e6fb2e7d308cd552e353aac4de4b17",
+      "origin": "derived from scripts/compose_original_audio.py",
+      "kind": "archival_reproduction_helper",
+      "stage_to": "work/demo-video-190/generate_instrumental.py"
+    },
+    {
+      "path": "timeline.json",
+      "sha256": "e0e1ab35b74602753bc5ac151e9bee8249c0ae994578345f62265b6a7f18dd72",
+      "origin": "published FishDemoVideo.cs timeline",
+      "kind": "transcribed_from_published_source"
+    },
+    {
+      "path": "README.md",
+      "sha256": "bee88114024606e4cc28f256d6375d95cae7a4e75958e55ad2cc547e120a7523",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "SCRIPT.md",
+      "sha256": "8339758e332bbb3e96a5c2bc69f1e32dd7e70f7fa5ac5a82f1762205b6f72b36",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "PROMPTS.md",
+      "sha256": "2619cb6aee50f4a0b6db4e37a1060c90296715177c89b3718fba52e37351e4d5",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    },
+    {
+      "path": "WORKFLOW.md",
+      "sha256": "572ce744f52dd237c0f30e9e2bdfdf5009aef2a0a8c7c9cfcaa0b7b7f531cafc",
+      "origin": "organized from user requests and original release records",
+      "kind": "archival_documentation"
+    }
+  ],
+  "limitations": [
+    "Generated model/scene/reference textures and audio/image caches are local inputs, not archived binary outputs",
+    "Archive restore validates source identity, not a claim of bit-identical rerender on a changed system"
+  ],
+  "archival_scope": "Published recording scripts, documented process/prompts, and preserved historical source; generated render inputs remain local"
+}

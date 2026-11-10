@@ -1,0 +1,4 @@
+# Recorded production environments; not an application runtime dependency.
+numpy==2.0.2
+Pillow==11.3.0
+edge-tts==7.3.1

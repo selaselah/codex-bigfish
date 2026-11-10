@@ -1,0 +1,78 @@
+{
+  "width": 1080,
+  "height": 1080,
+  "fps": 30,
+  "duration": 50,
+  "timeline": [
+    {
+      "start": 0,
+      "end": 3,
+      "jobs": 0,
+      "mode": "hidden",
+      "stage": "idle"
+    },
+    {
+      "start": 3,
+      "end": 11,
+      "jobs": 1,
+      "mode": "hidden",
+      "stage": "one task"
+    },
+    {
+      "start": 11,
+      "end": 19,
+      "jobs": 2,
+      "mode": "hidden",
+      "stage": "two tasks"
+    },
+    {
+      "start": 19,
+      "end": 24,
+      "jobs": 3,
+      "mode": "hidden",
+      "stage": "three tasks"
+    },
+    {
+      "start": 24,
+      "end": 29,
+      "jobs": 3,
+      "mode": "diagram",
+      "stage": "interaction diagram",
+      "caption": "精美的交互设计（胡说）",
+      "fade_in": 0.5,
+      "fade_out": 0.5
+    },
+    {
+      "start": 29,
+      "end": 31,
+      "jobs": 3,
+      "mode": "folded",
+      "stage": "folded cards"
+    },
+    {
+      "start": 31,
+      "end": 34,
+      "jobs": 3,
+      "mode": "expanded",
+      "stage": "expanded cards"
+    },
+    {
+      "start": 34,
+      "end": 37,
+      "jobs": 3,
+      "mode": "hidden",
+      "stage": "hidden cards"
+    },
+    {
+      "start": 37,
+      "end": 50,
+      "jobs": 2,
+      "mode": "hidden",
+      "stage": "complete one task; two remain"
+    }
+  ],
+  "voice_gain_relative191": 0.5,
+  "music_gain_relative191": 1.0,
+  "model_triangles": 4999,
+  "native_glass": "production209 Regular"
+}

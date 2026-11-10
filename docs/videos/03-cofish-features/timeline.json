@@ -1,0 +1,111 @@
+{
+  "width": 1080,
+  "height": 1080,
+  "fps": 30,
+  "duration": 60,
+  "idle_seconds": 3,
+  "source_video": "211",
+  "voice_gain_relative191": 0.5,
+  "music_gain_relative191": 1,
+  "timeline": [
+    {
+      "start": 0,
+      "end": 3,
+      "caption": "CoFish · 全新图标",
+      "feature": "idle + app/menu icons"
+    },
+    {
+      "start": 3,
+      "end": 6,
+      "caption": "一个任务，一口锅"
+    },
+    {
+      "start": 6,
+      "end": 9,
+      "caption": "一起开工"
+    },
+    {
+      "start": 9,
+      "end": 12,
+      "caption": "轻盈发丝，也有惯性"
+    },
+    {
+      "start": 12,
+      "end": 17,
+      "caption": "精美的交互设计（胡说）",
+      "diagram": true,
+      "fade_in": 0.5,
+      "fade_out": 0.5
+    },
+    {
+      "start": 17,
+      "end": 20,
+      "caption": "原生液态玻璃，收放自如"
+    },
+    {
+      "start": 20,
+      "end": 24,
+      "caption": "点哪口锅，就看哪个任务"
+    },
+    {
+      "start": 24,
+      "end": 28,
+      "caption": "悬停操作 · 关闭本轮，不停止任务"
+    },
+    {
+      "start": 28,
+      "end": 31,
+      "caption": "点锅找回卡片"
+    },
+    {
+      "start": 31,
+      "end": 35,
+      "caption": "拖动状态栏，整组跟随"
+    },
+    {
+      "start": 35,
+      "end": 39,
+      "caption": "完成了，米饭和绿卡等你查看"
+    },
+    {
+      "start": 39,
+      "end": 43,
+      "caption": "继续聊天，原卡片变回白色"
+    },
+    {
+      "start": 43,
+      "end": 45.5,
+      "caption": "每个聊天，只保留一张卡片"
+    },
+    {
+      "start": 45.5,
+      "end": 46.5,
+      "caption": "点绿卡已读，其余列表保持展开"
+    },
+    {
+      "start": 46.5,
+      "end": 49,
+      "caption": "菜单栏入口 · 设置与退出"
+    },
+    {
+      "start": 49,
+      "end": 51,
+      "caption": "任务再多，锅碗不缩水"
+    },
+    {
+      "start": 51,
+      "end": 55,
+      "caption": "原尺寸堆叠 · 插线板按需升级"
+    },
+    {
+      "start": 55,
+      "end": 57,
+      "caption": "锅盖一跳，又是一锅完成"
+    },
+    {
+      "start": 57,
+      "end": 60,
+      "caption": "CoFish · 陪你把任务，一锅锅完成"
+    }
+  ]
+}

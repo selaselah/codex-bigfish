@@ -1,0 +1,38 @@
+{
+  "width": 1080,
+  "height": 1080,
+  "fps": 30,
+  "duration": 50,
+  "timeline": [
+    {
+      "start": 0,
+      "end": 7,
+      "jobs": 0,
+      "stage": "idle"
+    },
+    {
+      "start": 7,
+      "end": 17,
+      "jobs": 1,
+      "stage": "one task"
+    },
+    {
+      "start": 17,
+      "end": 27,
+      "jobs": 2,
+      "stage": "two tasks"
+    },
+    {
+      "start": 27,
+      "end": 37,
+      "jobs": 3,
+      "stage": "three tasks"
+    },
+    {
+      "start": 37,
+      "end": 50,
+      "jobs": 2,
+      "stage": "complete one task; two remain"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+Use case: compositing / video-cover adaptation.
+Edit target: the supplied CoFish square video cover. Preserve its approved blue-haired chibi mascot identity, cream hand-crank generator, the same three distinct rice cookers, cables/white power strip, icon artwork, navy typography, pale icy-blue whale background and polished 3D game-render aesthetic.
+
+Create a NEW HORIZONTAL 16:9 cover, 1920x1080 pixels. Recompose naturally for landscape without stretching the character, props or icon.
+CRITICAL PLATFORM CROP REQUIREMENT: the platform also shows a centered 4:3 crop, removing the LEFTMOST12.5% and RIGHTMOST12.5% of this wide image. At1920x1080 that crop is x240..1680, full height. ALL meaningful content must survive this crop. Keep the full mascot including ahoge and hair, generator, all three cookers and relevant cable connections, application icon, every text character and the glass status capsule within x300..1620. The outer left/right strips x0..240 and x1680..1920 must contain ONLY decorative pale whale motifs/soft flowing blue background. Leave comfortable additional margins inside the crop, do not let heads, title, cooker handles or generator sparks touch the crop boundary.
+Layout: confident large CoFish wordmark with its existing app icon centered in the upper area; one Chinese subtitle below it. The large mascot/generator/three-cooker composition sits centered below the title, fills the available safe area, and remains clear at thumbnail size. Keep two hands gripping the crank, the generator to the mascot's right, cookers in the foreground, all original relative shapes/proportions. A single subtle white glass status capsule centered near the bottom. Airy white/pale blue background and soft ground shadow. Outer background should still make the full16:9 composition feel balanced.
+Exact text only:
+"CoFish"
+"陪你把任务，一锅锅完成"
+"工作中 · 3 项"
+Keep these texts exact and legible. No extra words, no ratio labels, no safe-area guides, no crop lines, no borders, no new characters, no redesign of the icon or props. Deliver a finished wide cover, not a comparison sheet.

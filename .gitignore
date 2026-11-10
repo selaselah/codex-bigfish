@@ -9,6 +9,7 @@ MemoryCaptures/
 .idea/
 .DS_Store
 /work/
+/outputs/
 .unity-editor-path
 *.csproj
 *.sln
